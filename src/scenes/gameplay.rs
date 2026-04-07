@@ -14,9 +14,12 @@ use apricot::{
 use hecs::{Entity, World};
 use sdl2::keyboard::Scancode;
 
-use crate::components::{
-    button::{Button, Event, EventQueue},
-    planet::Planet,
+use crate::{
+    components::{
+        button::{Button, Event, EventQueue},
+        planet::Planet,
+    },
+    generation::solar_system_gen,
 };
 
 /// Object file data, used for meshes
@@ -230,53 +233,29 @@ impl Gameplay {
             0.0,
             0.0,
             app.renderer.get_texture_id_from_name("sun").unwrap(),
-            "Sun",
+            String::from("Sun"),
         );
 
-        let mercury_entity = Planet::new(
-            &mut world,
-            &app.renderer,
-            &mut bvh,
-            false,
-            sun_entity,
-            1,
-            0.375,
-            10000.0,
-            1.0,
-            0.0027,
-            app.renderer.get_texture_id_from_name("moon").unwrap(),
-            "Mercury",
-        );
+        let mut bodies = vec![sun_entity];
 
-        let planet_entity = Planet::new(
-            &mut world,
-            &app.renderer,
-            &mut bvh,
-            false,
-            sun_entity,
-            1,
-            1.,
-            20000.0,
-            1.0,
-            0.0027,
-            app.renderer.get_texture_id_from_name("earth").unwrap(),
-            "Earth",
-        );
-
-        let moon_entity = Planet::new(
-            &mut world,
-            &app.renderer,
-            &mut bvh,
-            false,
-            planet_entity,
-            2,
-            0.72,
-            60.0,
-            0.0749,
-            0.0749,
-            app.renderer.get_texture_id_from_name("moon").unwrap(),
-            "Moon",
-        );
+        let planets = solar_system_gen::generate();
+        for planet in planets {
+            let planet_entity = Planet::new(
+                &mut world,
+                &app.renderer,
+                &mut bvh,
+                false,
+                sun_entity,
+                1,
+                planet.mass,
+                planet.orbital_radius * 1000.0,
+                1.0,
+                0.0027,
+                app.renderer.get_texture_id_from_name("moon").unwrap(),
+                format!("{:?} {:?}", planet.category, planet.zone),
+            );
+            bodies.push(planet_entity);
+        }
 
         let event_queue = Arc::new(EventQueue::new());
 
@@ -335,7 +314,7 @@ impl Gameplay {
             theta: 0.0,
             distance: 20.0,
             prev_enter_state: false,
-            bodies: vec![sun_entity, mercury_entity, planet_entity, moon_entity],
+            bodies,
 
             event_queue: event_queue.clone(),
 

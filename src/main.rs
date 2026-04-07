@@ -1,4 +1,5 @@
 mod components;
+mod generation;
 mod scenes;
 
 use std::cell::RefCell;
@@ -10,7 +11,7 @@ fn main() -> Result<(), String> {
     // Start Apricot's game loop
     run(
         nalgebra_glm::I32Vec2::new(800, 600),
-        "Delta Horizon", // singular, horizon
+        "Delta Horizon", // singular, 1 horizon
         apricot::app::AppConfig { mouse_warp: false },
         &|app| RefCell::new(Box::new(Gameplay::new(app))),
     )

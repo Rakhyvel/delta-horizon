@@ -16,7 +16,7 @@ pub struct Planet {
     pub day_time_years: f32,
     pub rotation: f32,
     pub bvh_node_id: BVHNodeId,
-    pub name: &'static str,
+    pub name: String,
 }
 
 impl Planet {
@@ -33,7 +33,7 @@ impl Planet {
         orbital_time_years: f32,
         day_time_years: f32,
         texture_id: TextureId,
-        name: &'static str,
+        name: String,
     ) -> Entity {
         let planet_mesh = if gaseous {
             renderer.get_mesh_id_from_name("uv").unwrap()
