@@ -69,13 +69,13 @@ void main()
 
     vec3 LightColor = vec3(1.0, 1.0, 1.0);
 
-    float shadow_factor = calc_shadow_factor();
+    float shadow_factor = 1.0; // calc_shadow_factor(); // TODO: Fix
 
     vec3 shadow = 0.1 * material_color * vec3(0.1, 0.1, 0.2);
     vec3 light_tinted = material_color;
     
     float levels = 16.0;
-    float diff = cosTheta * 1.0;
+    float diff = cosTheta * shadow_factor;
     diff = floor(diff * levels) / levels;
 
     vec3 color = mix(shadow, light_tinted, diff);
