@@ -10,7 +10,8 @@ fn main() -> Result<(), String> {
     // Start Apricot's game loop
     run(
         nalgebra_glm::I32Vec2::new(800, 600),
-        "Emergent Empire", // singular, empire
+        "Delta Horizon", // singular, horizon
+        apricot::app::AppConfig { mouse_warp: false },
         &|app| RefCell::new(Box::new(Gameplay::new(app))),
     )
 }
