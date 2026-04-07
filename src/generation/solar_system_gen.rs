@@ -12,6 +12,7 @@ pub enum Category {
 }
 
 struct MassCategory {
+    #[allow(unused)]
     category: Category,
     range: (f32, f32),
     weight: f32,
@@ -148,10 +149,6 @@ fn has_planet(planets: &Vec<PlanetSpec>, category: Category, zone: Zone) -> bool
     planets
         .iter()
         .any(|p| p.category == category && p.zone == zone)
-}
-
-fn has_category(planets: &Vec<PlanetSpec>, category: Category) -> bool {
-    planets.iter().any(|p| p.category == category)
 }
 
 fn sample_mass_with_au(rng: &mut impl Rng) -> f32 {

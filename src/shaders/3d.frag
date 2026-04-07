@@ -67,11 +67,7 @@ void main()
     // Direction to the eye, in camera space
     float cosTheta = clamp(dot(n, vec3(l.x, l.y, abs(l.z))), 0, 1);
 
-    vec3 LightColor = vec3(
-      255.0 / 255.0, 
-      100.0 / 255.0, 
-      0.0 / 255.0
-    );
+    vec3 LightColor = vec3(1.0, 1.0, 1.0);
 
     float shadow_factor = calc_shadow_factor();
 
@@ -79,7 +75,7 @@ void main()
     vec3 light_tinted = material_color;
     
     float levels = 16.0;
-    float diff = cosTheta * shadow_factor;
+    float diff = cosTheta * 1.0;
     diff = floor(diff * levels) / levels;
 
     vec3 color = mix(shadow, light_tinted, diff);

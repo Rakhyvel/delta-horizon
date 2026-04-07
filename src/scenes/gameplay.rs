@@ -103,6 +103,7 @@ impl Scene for Gameplay {
 
     /// Render the scene to the screen when time allows
     fn render(&mut self, app: &App) {
+        self.directional_light.light_dir = -self.camera_3d.position().normalize();
         app.renderer.set_camera(self.camera_3d);
         app.renderer.directional_light_system(
             &mut self.directional_light,
