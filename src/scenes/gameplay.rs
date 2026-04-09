@@ -17,7 +17,7 @@ use sdl2::keyboard::Scancode;
 use crate::{
     components::{
         button::{Button, Event, EventQueue},
-        planet::{Category, Planet, Zone},
+        planet::{Category, Planet},
     },
     generation::solar_system_gen,
 };
@@ -230,9 +230,9 @@ impl Gameplay {
                 0.0,
                 0.0,
                 1000000.0,
+                1000000.0,
                 String::from("Sun"),
                 Category::Star,
-                Zone::Hot,
             ),
             &mut world,
             &app.renderer,

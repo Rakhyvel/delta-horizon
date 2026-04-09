@@ -1,6 +1,6 @@
 use rand::{Rng, SeedableRng};
 
-use crate::components::planet::{Category, Planet, Zone};
+use crate::components::planet::{Category, Planet};
 
 struct MassCategory {
     #[allow(unused)]
@@ -55,36 +55,12 @@ pub fn generate() -> Vec<Planet> {
         if !has_habitable(&planets) {
             continue;
         }
-        // Need a hot terrestrial
-        if !(has_planet(&planets, Category::Dwarf, Zone::Hot)
-            || has_planet(&planets, Category::SubEarth, Zone::Hot)
-            || has_planet(&planets, Category::EarthLike, Zone::Hot)
-            || has_planet(&planets, Category::SuperEarth, Zone::Hot))
-        {
+        // Need terrestrial
+        if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 2) {
             continue;
         }
-        // Need an icy terrestrial
-        if !(has_planet(&planets, Category::Dwarf, Zone::Icy)
-            || has_planet(&planets, Category::SubEarth, Zone::Icy)
-            || has_planet(&planets, Category::EarthLike, Zone::Icy)
-            || has_planet(&planets, Category::SuperEarth, Zone::Icy))
-        {
-            continue;
-        }
-        // Need a variety of icy gasses
-        if !(has_planet(&planets, Category::MiniNeptune, Zone::Icy)
-            || has_planet(&planets, Category::GasGiant, Zone::Icy))
-        {
-            continue;
-        }
-        if !(has_planet(&planets, Category::MiniNeptune, Zone::Icy)
-            || has_planet(&planets, Category::SuperGasGiant, Zone::Icy))
-        {
-            continue;
-        }
-        if !(has_planet(&planets, Category::GasGiant, Zone::Icy)
-            || has_planet(&planets, Category::SuperGasGiant, Zone::Icy))
-        {
+        // Need gasses
+        if !has_planet(&planets, &[Category::MiniNeptune, Category::GasGiant], 2) {
             continue;
         }
         // Need at least 7 planets
@@ -105,8 +81,8 @@ fn generate_system(rng: &mut impl Rng) -> Vec<Planet> {
         let body_radius = sample_radius_with_au(rng);
 
         let category = categorize_planet(body_radius);
-        let zone = categorize_zone(orbital_radius);
         let atmos_pressure: f32 = sample_atmos_pressure(rng, body_radius, orbital_radius);
+        let temperature = calculate_temperature(orbital_radius, atmos_pressure);
 
         planets.push(Planet::new(
             1,
@@ -115,9 +91,12 @@ fn generate_system(rng: &mut impl Rng) -> Vec<Planet> {
             orbital_radius, // TODO: Calculate this from orbital radius
             1.0,            // TODO: Generate this, make tidally locked if close
             atmos_pressure,
-            format!("{:?} {:?}\n({} bar)", category, zone, atmos_pressure),
+            temperature,
+            format!(
+                "{:?}\n({} AU)\n({} bar)\n({}K)",
+                category, orbital_radius, atmos_pressure, temperature
+            ),
             category,
-            zone,
         ));
 
         let spacing = compute_spacing(rng, orbital_radius, body_radius);
@@ -128,17 +107,17 @@ fn generate_system(rng: &mut impl Rng) -> Vec<Planet> {
 }
 
 fn has_habitable(planets: &Vec<Planet>) -> bool {
-    planets.iter().any(|p| {
-        p.category == Category::EarthLike
-            && p.zone == Zone::Habitable
-            && (0.5..3.0).contains(&p.atmos_pressure)
-    })
-}
-
-fn has_planet(planets: &Vec<Planet>, category: Category, zone: Zone) -> bool {
     planets
         .iter()
-        .any(|p| p.category == category && p.zone == zone)
+        .any(|p| (0.8..1.5).contains(&p.atmos_pressure) && (270.0..300.0).contains(&p.temperature))
+}
+
+fn has_planet(planets: &Vec<Planet>, categories: &[Category], thresh: usize) -> bool {
+    let count = planets
+        .iter()
+        .filter(|p| categories.contains(&p.category))
+        .count();
+    count >= thresh
 }
 
 fn sample_radius_with_au(rng: &mut impl Rng) -> f32 {
@@ -164,11 +143,16 @@ fn sample_atmos_pressure(rng: &mut impl Rng, body_radius: f32, orbital_radius: f
         orbital_radius if orbital_radius < 0.5 => 0.1, // almost none
         orbital_radius if orbital_radius < 1.5 => 0.5, // some
         orbital_radius if orbital_radius < 3.5 => 1.0, // decent
-        _ => 2.0,                                      // lots of ices
+        _ => 1.0,                                      // lots of ices
     };
     let base_pressure = retention * volatile_factor;
-    let pressure = base_pressure * rng.gen_range(0.5..2.0) * body_radius.powf(2.0);
+    let pressure = base_pressure * rng.gen_range(0.5..1.0) * body_radius.powf(2.0);
     pressure
+}
+
+fn calculate_temperature(orbital_radius: f32, atmos_pressure: f32) -> f32 {
+    let greenhouse = 1.51 / (atmos_pressure + 1.51);
+    278.6 * ((1.0 - 0.3) / (orbital_radius.powf(2.0) * greenhouse)).powf(0.25)
 }
 
 fn compute_spacing(rng: &mut impl Rng, orbital_radius: f32, radius: f32) -> f32 {
@@ -176,14 +160,6 @@ fn compute_spacing(rng: &mut impl Rng, orbital_radius: f32, radius: f32) -> f32 
     let radius_boost = 1.0 + 0.1 * radius.powf(0.25);
 
     orbital_radius * base * radius_boost
-}
-
-fn categorize_zone(orbital_radius: f32) -> Zone {
-    match orbital_radius {
-        (0.0..0.8) => Zone::Hot,
-        (0.8..1.5) => Zone::Habitable,
-        _ => Zone::Icy,
-    }
 }
 
 fn categorize_planet(radius: f32) -> Category {

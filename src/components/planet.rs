@@ -18,9 +18,8 @@ pub struct Planet {
     pub bvh_node_id: Option<BVHNodeId>,
     pub name: String,
     pub category: Category,
-    pub zone: Zone,
     pub atmos_pressure: f32,
-    // surface temp: there's a formula based on AU and atmosphere
+    pub temperature: f32,
     // felsicness: bigger = more likely felsic
     // magnetic field: bigger + spinning faster = more magnetic field
 }
@@ -37,13 +36,6 @@ pub enum Category {
     Star,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Zone {
-    Hot,
-    Habitable,
-    Icy,
-}
-
 impl Planet {
     pub fn new(
         tier: u32,
@@ -52,9 +44,9 @@ impl Planet {
         orbital_time_years: f32,
         day_time_years: f32,
         atmos_pressure: f32,
+        temperature: f32,
         name: String,
         category: Category,
-        zone: Zone,
     ) -> Self {
         Planet {
             parent_planet_id: Entity::DANGLING,
@@ -67,8 +59,8 @@ impl Planet {
             rotation: 0.0,
             bvh_node_id: None,
             category,
-            zone,
             atmos_pressure,
+            temperature,
         }
     }
 
