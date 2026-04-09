@@ -208,9 +208,17 @@ impl Gameplay {
         app.renderer
             .add_texture_from_png("res/sun.png", Some("sun"));
         app.renderer
+            .add_texture_from_png("res/venus.png", Some("venus"));
+        app.renderer
             .add_texture_from_png("res/earth.png", Some("earth"));
         app.renderer
             .add_texture_from_png("res/moon.png", Some("moon"));
+        app.renderer
+            .add_texture_from_png("res/jupiter.png", Some("jupiter"));
+        app.renderer
+            .add_texture_from_png("res/europa.png", Some("europa"));
+        app.renderer
+            .add_texture_from_png("res/uranus.png", Some("uranus"));
         app.renderer
             .add_texture_from_png("res/next-turn.png", Some("next-turn"));
         app.renderer
@@ -237,17 +245,14 @@ impl Gameplay {
             &mut world,
             &app.renderer,
             &mut bvh,
-            app.renderer.get_texture_id_from_name("sun").unwrap(),
         );
 
         let mut bodies = vec![sun_entity];
 
         let planets = solar_system_gen::generate();
         for mut planet in planets {
-            let texture_id = app.renderer.get_texture_id_from_name("sun").unwrap();
             planet.parent_planet_id = sun_entity;
-            let planet_entity =
-                Planet::add_as_entity(planet, &mut world, &app.renderer, &mut bvh, texture_id);
+            let planet_entity = Planet::add_as_entity(planet, &mut world, &app.renderer, &mut bvh);
             bodies.push(planet_entity);
         }
 

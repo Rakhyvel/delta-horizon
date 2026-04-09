@@ -69,7 +69,6 @@ impl Planet {
         world: &mut World,
         renderer: &RenderContext,
         bvh: &mut BVH<Entity>,
-        texture_id: TextureId,
     ) -> Entity {
         let planet_mesh = if self.gaseous() {
             renderer.get_mesh_id_from_name("uv").unwrap()
@@ -79,6 +78,8 @@ impl Planet {
 
         let position = nalgebra_glm::vec3(0., 0., 0.);
         let scale_vec = nalgebra_glm::vec3(self.body_radius, self.body_radius, self.body_radius);
+
+        let texture_id = self.get_texture_id(renderer);
 
         let planet_entity = world.spawn((ModelComponent::new(
             planet_mesh,
@@ -116,12 +117,34 @@ impl Planet {
     }
 
     fn gaseous(&self) -> bool {
-        match self.category {
-            Category::GasGiant
-            | Category::MiniNeptune
-            | Category::SuperGasGiant
-            | Category::Star => true,
-            _ => false,
+        self.atmos_pressure > 1.58
+    }
+
+    pub fn habitable(&self) -> bool {
+        (0.8..1.5).contains(&self.atmos_pressure) && (270.0..300.0).contains(&self.temperature)
+    }
+
+    fn get_texture_id(&self, renderer: &RenderContext) -> TextureId {
+        if self.category == Category::Star {
+            return renderer.get_texture_id_from_name("sun").unwrap();
+        }
+
+        if self.gaseous() {
+            if self.body_radius < 1.5 {
+                renderer.get_texture_id_from_name("venus").unwrap()
+            } else if self.temperature > 120.0 {
+                renderer.get_texture_id_from_name("jupiter").unwrap()
+            } else {
+                renderer.get_texture_id_from_name("uranus").unwrap()
+            }
+        } else {
+            if self.habitable() {
+                renderer.get_texture_id_from_name("earth").unwrap()
+            } else if self.temperature < 200.0 {
+                renderer.get_texture_id_from_name("europa").unwrap()
+            } else {
+                renderer.get_texture_id_from_name("moon").unwrap()
+            }
         }
     }
 }

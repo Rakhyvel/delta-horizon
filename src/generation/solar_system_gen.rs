@@ -27,22 +27,22 @@ const MASS_CATEGORIES: &[MassCategory] = &[
     },
     MassCategory {
         category: Category::SuperEarth,
-        range: (1.5, 10.0),
+        range: (1.5, 2.5),
         weight: 7.0,
     },
     MassCategory {
         category: Category::MiniNeptune,
-        range: (10.0, 30.0),
+        range: (2.5, 4.0),
         weight: 9.0,
     },
     MassCategory {
         category: Category::GasGiant,
-        range: (30.0, 300.0),
+        range: (4.0, 15.0),
         weight: 9.0,
     },
     MassCategory {
         category: Category::SuperGasGiant,
-        range: (300.0, 1000.0),
+        range: (15.0, 20.0),
         weight: 7.0,
     },
 ];
@@ -93,8 +93,8 @@ fn generate_system(rng: &mut impl Rng) -> Vec<Planet> {
             atmos_pressure,
             temperature,
             format!(
-                "{:?}\n({} AU)\n({} bar)\n({}K)",
-                category, orbital_radius, atmos_pressure, temperature
+                "{:?}\n({:.3} R🜨)\n({:.3} AU)\n({:.3} bar)\n({:.3}K)",
+                category, body_radius, orbital_radius, atmos_pressure, temperature
             ),
             category,
         ));
@@ -109,7 +109,7 @@ fn generate_system(rng: &mut impl Rng) -> Vec<Planet> {
 fn has_habitable(planets: &Vec<Planet>) -> bool {
     planets
         .iter()
-        .any(|p| (0.8..1.5).contains(&p.atmos_pressure) && (270.0..300.0).contains(&p.temperature))
+        .any(|p| p.habitable() && p.category == Category::EarthLike)
 }
 
 fn has_planet(planets: &Vec<Planet>, categories: &[Category], thresh: usize) -> bool {
@@ -138,15 +138,25 @@ fn sample_radius_with_au(rng: &mut impl Rng) -> f32 {
 }
 
 fn sample_atmos_pressure(rng: &mut impl Rng, body_radius: f32, orbital_radius: f32) -> f32 {
-    let retention = 1.0 + orbital_radius.powf(0.25);
-    let volatile_factor = match orbital_radius {
-        orbital_radius if orbital_radius < 0.5 => 0.1, // almost none
-        orbital_radius if orbital_radius < 1.5 => 0.5, // some
-        orbital_radius if orbital_radius < 3.5 => 1.0, // decent
-        _ => 1.0,                                      // lots of ices
+    let base_pressure = if body_radius > 1.0 {
+        1.0 // normal base pressure for large planets
+    } else {
+        // small planets lose atmosphere
+        let retention = 1.0 + orbital_radius.powf(0.25);
+        let volatile_factor = match orbital_radius {
+            orbital_radius if orbital_radius < 0.5 => 0.1, // almost none
+            orbital_radius if orbital_radius < 1.5 => 0.5, // some
+            orbital_radius if orbital_radius < 3.5 => 1.0, // decent
+            _ => 1.5,                                      // lots of ices
+        };
+        retention * volatile_factor
     };
-    let base_pressure = retention * volatile_factor;
-    let pressure = base_pressure * rng.gen_range(0.5..1.0) * body_radius.powf(2.0);
+    let body_modifier = if body_radius > 1.0 {
+        body_radius // normal chance for large
+    } else {
+        body_radius.powf(40.0) // make it less likely that small planets have atmospheres
+    };
+    let pressure = base_pressure * rng.gen_range(0.5..1.0) * body_modifier;
     pressure
 }
 
@@ -165,11 +175,12 @@ fn compute_spacing(rng: &mut impl Rng, orbital_radius: f32, radius: f32) -> f32 
 fn categorize_planet(radius: f32) -> Category {
     match radius {
         (0.0..0.1) => Category::Dwarf,
-        (0.1..0.5) => Category::SubEarth,
+        (0.1..0.8) => Category::SubEarth,
         (0.8..1.5) => Category::EarthLike,
-        (2.0..10.0) => Category::SuperEarth,
-        (10.0..30.0) => Category::MiniNeptune,
-        (30.0..300.0) => Category::GasGiant,
-        _ => Category::SuperGasGiant,
+        (1.5..2.5) => Category::SuperEarth,
+        (2.5..4.0) => Category::MiniNeptune,
+        (4.0..15.0) => Category::GasGiant,
+        (15.0..20.0) => Category::SuperGasGiant,
+        _ => Category::Star,
     }
 }
