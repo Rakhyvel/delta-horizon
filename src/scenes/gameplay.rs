@@ -17,7 +17,7 @@ use sdl2::keyboard::Scancode;
 use crate::{
     components::{
         button::{Button, Event, EventQueue},
-        planet::Planet,
+        planet::{Category, Planet, Zone},
     },
     generation::solar_system_gen,
 };
@@ -222,39 +222,31 @@ impl Gameplay {
 
         let mut bvh = BVH::<Entity>::new();
 
-        let sun_entity = Planet::new(
+        let sun_entity = Planet::add_as_entity(
+            Planet::new(
+                0,
+                110.0,
+                0.0,
+                0.0,
+                0.0,
+                String::from("Sun"),
+                Category::Star,
+                Zone::Hot,
+            ),
             &mut world,
             &app.renderer,
             &mut bvh,
-            true,
-            Entity::DANGLING,
-            0,
-            110.0,
-            0.0,
-            0.0,
-            0.0,
             app.renderer.get_texture_id_from_name("sun").unwrap(),
-            String::from("Sun"),
         );
 
         let mut bodies = vec![sun_entity];
 
         let planets = solar_system_gen::generate();
-        for planet in planets {
-            let planet_entity = Planet::new(
-                &mut world,
-                &app.renderer,
-                &mut bvh,
-                false,
-                sun_entity,
-                1,
-                planet.mass,
-                planet.orbital_radius * 1000.0,
-                1.0,
-                0.0027,
-                app.renderer.get_texture_id_from_name("moon").unwrap(),
-                format!("{:?} {:?}", planet.category, planet.zone),
-            );
+        for mut planet in planets {
+            let texture_id = app.renderer.get_texture_id_from_name("sun").unwrap();
+            planet.parent_planet_id = sun_entity;
+            let planet_entity =
+                Planet::add_as_entity(planet, &mut world, &app.renderer, &mut bvh, texture_id);
             bodies.push(planet_entity);
         }
 
@@ -312,7 +304,7 @@ impl Gameplay {
             transition: 1.0,
             selected_body_radius: 0.0,
             phi: 2.5,
-            theta: 0.0,
+            theta: -PI / 4.0,
             distance: 20.0,
             prev_enter_state: false,
             bodies,
@@ -335,6 +327,7 @@ impl Gameplay {
             if self.selection >= self.bodies.len() {
                 self.selection = 0;
             }
+            self.theta = -PI / 4.0;
         }
         self.prev_enter_state = curr_enter_state;
 
@@ -389,7 +382,7 @@ impl Gameplay {
                 let vel = new_pos - model.get_position();
                 model.set_position(new_pos);
                 self.bvh.move_obj(
-                    planet.bvh_node_id,
+                    planet.bvh_node_id.unwrap(),
                     &app.renderer.get_model_aabb(&model),
                     &vel,
                 );

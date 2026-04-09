@@ -15,34 +15,72 @@ pub struct Planet {
     pub orbital_time_years: f32,
     pub day_time_years: f32,
     pub rotation: f32,
-    pub bvh_node_id: BVHNodeId,
+    pub bvh_node_id: Option<BVHNodeId>,
     pub name: String,
+    pub category: Category,
+    pub zone: Zone,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Category {
+    Dwarf,
+    SubEarth,
+    EarthLike,
+    SuperEarth,
+    MiniNeptune,
+    GasGiant,
+    SuperGasGiant,
+    Star,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Zone {
+    Hot,
+    Habitable,
+    Icy,
 }
 
 impl Planet {
     pub fn new(
-        world: &mut World,
-        renderer: &RenderContext,
-        bvh: &mut BVH<Entity>,
-
-        gaseous: bool,
-        parent_planet_id: Entity,
         tier: u32,
         body_radius: f32,
         orbital_radius: f32,
         orbital_time_years: f32,
         day_time_years: f32,
-        texture_id: TextureId,
         name: String,
+        category: Category,
+        zone: Zone,
+    ) -> Self {
+        Planet {
+            parent_planet_id: Entity::DANGLING,
+            tier,
+            body_radius,
+            orbital_radius,
+            orbital_time_years,
+            day_time_years,
+            name,
+            rotation: 0.0,
+            bvh_node_id: None,
+            category,
+            zone,
+        }
+    }
+
+    pub fn add_as_entity(
+        mut self,
+        world: &mut World,
+        renderer: &RenderContext,
+        bvh: &mut BVH<Entity>,
+        texture_id: TextureId,
     ) -> Entity {
-        let planet_mesh = if gaseous {
+        let planet_mesh = if self.gaseous() {
             renderer.get_mesh_id_from_name("uv").unwrap()
         } else {
             renderer.get_mesh_id_from_name("ico").unwrap()
         };
 
         let position = nalgebra_glm::vec3(0., 0., 0.);
-        let scale_vec = nalgebra_glm::vec3(body_radius, body_radius, body_radius);
+        let scale_vec = nalgebra_glm::vec3(self.body_radius, self.body_radius, self.body_radius);
 
         let planet_entity = world.spawn((ModelComponent::new(
             planet_mesh,
@@ -51,11 +89,15 @@ impl Planet {
             scale_vec,
         ),));
 
-        if orbital_radius > 1.0 {
+        if self.orbital_radius > 1.0 {
             world
                 .insert(
                     planet_entity,
-                    (LinePathComponent::from_orbit(orbital_radius, 0.0, 1024),),
+                    (LinePathComponent::from_orbit(
+                        self.orbital_radius,
+                        0.0,
+                        1024,
+                    ),),
                 )
                 .unwrap()
         }
@@ -68,23 +110,20 @@ impl Planet {
                 .translate(position),
         );
 
-        world
-            .insert(
-                planet_entity,
-                (Planet {
-                    parent_planet_id,
-                    tier,
-                    body_radius,
-                    orbital_radius,
-                    orbital_time_years,
-                    day_time_years,
-                    rotation: 0.0,
-                    bvh_node_id,
-                    name,
-                },),
-            )
-            .unwrap();
+        self.bvh_node_id = Some(bvh_node_id);
+
+        world.insert(planet_entity, (self,)).unwrap();
 
         planet_entity
+    }
+
+    fn gaseous(&self) -> bool {
+        match self.category {
+            Category::GasGiant
+            | Category::MiniNeptune
+            | Category::SuperGasGiant
+            | Category::Star => true,
+            _ => false,
+        }
     }
 }
