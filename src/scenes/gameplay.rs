@@ -229,6 +229,7 @@ impl Gameplay {
                 0.0,
                 0.0,
                 0.0,
+                1000000.0,
                 String::from("Sun"),
                 Category::Star,
                 Zone::Hot,

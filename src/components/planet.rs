@@ -19,6 +19,10 @@ pub struct Planet {
     pub name: String,
     pub category: Category,
     pub zone: Zone,
+    pub atmos_pressure: f32,
+    // surface temp: there's a formula based on AU and atmosphere
+    // felsicness: bigger = more likely felsic
+    // magnetic field: bigger + spinning faster = more magnetic field
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -47,6 +51,7 @@ impl Planet {
         orbital_radius: f32,
         orbital_time_years: f32,
         day_time_years: f32,
+        atmos_pressure: f32,
         name: String,
         category: Category,
         zone: Zone,
@@ -63,6 +68,7 @@ impl Planet {
             bvh_node_id: None,
             category,
             zone,
+            atmos_pressure,
         }
     }
 
