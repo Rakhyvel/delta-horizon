@@ -73,7 +73,7 @@ void main()
 
     vec3 shadow = 0.1 * material_color * vec3(0.1, 0.1, 0.1);
 
-    vec3 color = mix(shadow, material_color, cosTheta);
+    vec3 color = mix(shadow, material_color, cosTheta + 0.1);
 
     Color = vec4(color, texture_alpha);
 }

@@ -12,12 +12,12 @@ struct MassCategory {
 const MASS_CATEGORIES: &[MassCategory] = &[
     MassCategory {
         category: Category::Dwarf,
-        range: (0.01, 0.1),
+        range: (0.1, 0.3),
         weight: 11.0,
     },
     MassCategory {
         category: Category::SubEarth,
-        range: (0.1, 0.8),
+        range: (0.3, 0.8),
         weight: 9.0,
     },
     MassCategory {
@@ -79,22 +79,36 @@ fn generate_system(rng: &mut impl Rng) -> Vec<Planet> {
     let mut orbital_radius = rng.gen_range(0.2..0.6); // in AU
     while orbital_radius < 35.0 {
         let body_radius = sample_radius_with_au(rng);
-
+        let core_mass_fraction = sample_core_mass_fraction(rng, body_radius, orbital_radius);
+        let density = estimate_density(core_mass_fraction, body_radius);
+        let rotation_period_hours = sample_rotation_period_hours(rng, body_radius);
         let category = categorize_planet(body_radius);
-        let atmos_pressure: f32 = sample_atmos_pressure(rng, body_radius, orbital_radius);
+        let magnetic_field: bool =
+            has_magnetic_field(body_radius, core_mass_fraction, rotation_period_hours);
+        let atmos_pressure: f32 =
+            sample_atmos_pressure(rng, magnetic_field, body_radius, orbital_radius);
         let temperature = calculate_temperature(orbital_radius, atmos_pressure);
 
         planets.push(Planet::new(
             1,
             body_radius,
             orbital_radius * 2000.0,
-            orbital_radius, // TODO: Calculate this from orbital radius
-            1.0,            // TODO: Generate this, make tidally locked if close
+            orbital_radius,        // TODO: Calculate this from orbital radius
+            rotation_period_hours, // TODO: Make tidally locked if close
+            core_mass_fraction,
             atmos_pressure,
             temperature,
             format!(
-                "{:?}\n({:.3} R🜨)\n({:.3} AU)\n({:.3} bar)\n({:.3}K)",
-                category, body_radius, orbital_radius, atmos_pressure, temperature
+                "{:?}\n({:.3} R🜨)\n({:.3} AU)\n({:.3} CMF)\n({:.3} g/cm^3)\n(Day: {:.3} hr)\n(Magnetic field? {})\n({:.3} bar)\n({:.3}K)",
+                category,
+                body_radius,
+                orbital_radius,
+                core_mass_fraction,
+                density,
+                rotation_period_hours,
+                magnetic_field,
+                atmos_pressure,
+                temperature
             ),
             category,
         ));
@@ -120,6 +134,56 @@ fn has_planet(planets: &Vec<Planet>, categories: &[Category], thresh: usize) -> 
     count >= thresh
 }
 
+fn sample_rotation_period_hours(rng: &mut impl Rng, body_radius: f32) -> f32 {
+    fn lerp(a: f32, b: f32, t: f32) -> f32 {
+        a + (b - a) * t
+    }
+
+    // Make is to bigger bodies have a faster rotation
+    let r = body_radius.clamp(0.1, 15.0);
+    let max_hours = lerp(200.0, 15.0, ((r - 1.0) / 14.0).clamp(0.0, 1.0));
+
+    let min = 5.0_f32.ln();
+    let max = max_hours.ln();
+
+    rng.gen_range(min..max).exp()
+}
+
+fn sample_core_mass_fraction(rng: &mut impl Rng, body_radius: f32, orbital_radius: f32) -> f32 {
+    if body_radius > 2.5 {
+        return 0.0;
+    }
+
+    let base = body_radius * 0.830169 * (0.361935f32).powf(orbital_radius);
+    let variation = rng.gen_range(-0.05..0.05);
+    (base + variation).clamp(0.05, 0.7)
+}
+
+fn estimate_density(core_mass_fraction: f32, body_radius: f32) -> f32 {
+    // base material densities (g/cm^3)
+    let iron = 12.0;
+    let rock = 3.5;
+
+    // mix core + mantle
+    let base_density = core_mass_fraction * iron + (1.0 - core_mass_fraction) * rock;
+
+    let compression = if body_radius < 1.0 {
+        1.0
+    } else {
+        1.0 / body_radius // gas giants get puffy as their radius increases
+    };
+
+    return base_density * compression;
+}
+
+fn has_magnetic_field(
+    body_radius: f32,
+    core_mass_fraction: f32,
+    rotation_period_hours: f32,
+) -> bool {
+    body_radius > 2.5 || (core_mass_fraction > 0.2 && rotation_period_hours < 100.0)
+}
+
 fn sample_radius_with_au(rng: &mut impl Rng) -> f32 {
     // Compute cumulative weights
     let total_weight: f32 = MASS_CATEGORIES.iter().map(|c| c.weight).sum();
@@ -137,26 +201,39 @@ fn sample_radius_with_au(rng: &mut impl Rng) -> f32 {
     radius
 }
 
-fn sample_atmos_pressure(rng: &mut impl Rng, body_radius: f32, orbital_radius: f32) -> f32 {
-    let base_pressure = if body_radius > 1.0 {
-        1.0 // normal base pressure for large planets
-    } else {
-        // small planets lose atmosphere
-        let retention = 1.0 + orbital_radius.powf(0.25);
-        let volatile_factor = match orbital_radius {
-            orbital_radius if orbital_radius < 0.5 => 0.1, // almost none
-            orbital_radius if orbital_radius < 1.5 => 0.5, // some
-            orbital_radius if orbital_radius < 3.5 => 1.0, // decent
-            _ => 1.5,                                      // lots of ices
-        };
-        retention * volatile_factor
+fn sample_atmos_pressure(
+    rng: &mut impl Rng,
+    magnetic_field: bool,
+    body_radius: f32,
+    orbital_radius: f32,
+) -> f32 {
+    // volatiles available
+    let volatile_factor = match orbital_radius {
+        r if r < 0.5 => 0.1, // almost none
+        r if r < 1.5 => 0.5, // some
+        r if r < 3.5 => 1.0, // decent
+        _ => 1.5,            // lots of ices
     };
-    let body_modifier = if body_radius > 1.0 {
-        body_radius // normal chance for large
+
+    // gravity retention
+    let gravity_factor = if body_radius > 1.0 {
+        body_radius.powf(1.5) // stronger scaling for big planets
     } else {
-        body_radius.powf(40.0) // make it less likely that small planets have atmospheres
+        body_radius.powf(4.0) // small planets struggle
     };
-    let pressure = base_pressure * rng.gen_range(0.5..1.0) * body_modifier;
+
+    // magnetic field prevents photoionization
+    let magnetic_factor = if magnetic_field { 1.5 } else { 0.5 };
+
+    // distance helps slightly (inverse square law for photoionization)
+    let distance_factor = 1.0 + orbital_radius.powf(0.25);
+
+    let pressure = volatile_factor
+        * gravity_factor
+        * magnetic_factor
+        * distance_factor
+        * rng.gen_range(0.5..1.0);
+
     pressure
 }
 

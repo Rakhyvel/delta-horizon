@@ -13,13 +13,14 @@ pub struct Planet {
     pub body_radius: f32,
     pub orbital_radius: f32,
     pub orbital_time_years: f32,
-    pub day_time_years: f32,
+    pub rotation_period_hours: f32,
     pub rotation: f32,
     pub bvh_node_id: Option<BVHNodeId>,
     pub name: String,
     pub category: Category,
     pub atmos_pressure: f32,
     pub temperature: f32,
+    pub core_mass_fraction: f32,
     // felsicness: bigger = more likely felsic
     // magnetic field: bigger + spinning faster = more magnetic field
 }
@@ -42,7 +43,8 @@ impl Planet {
         body_radius: f32,
         orbital_radius: f32,
         orbital_time_years: f32,
-        day_time_years: f32,
+        rotation_period_hours: f32,
+        core_mass_fraction: f32,
         atmos_pressure: f32,
         temperature: f32,
         name: String,
@@ -54,13 +56,14 @@ impl Planet {
             body_radius,
             orbital_radius,
             orbital_time_years,
-            day_time_years,
+            rotation_period_hours,
             name,
             rotation: 0.0,
             bvh_node_id: None,
             category,
             atmos_pressure,
             temperature,
+            core_mass_fraction,
         }
     }
 
@@ -130,7 +133,7 @@ impl Planet {
         }
 
         if self.gaseous() {
-            if self.body_radius < 1.5 {
+            if self.body_radius < 2.5 {
                 renderer.get_texture_id_from_name("venus").unwrap()
             } else if self.temperature > 120.0 {
                 renderer.get_texture_id_from_name("jupiter").unwrap()

@@ -237,6 +237,7 @@ impl Gameplay {
                 0.0,
                 0.0,
                 0.0,
+                1.0,
                 1000000.0,
                 1000000.0,
                 String::from("Sun"),
@@ -396,9 +397,9 @@ impl Gameplay {
                 model.set_position(nalgebra_glm::vec3(0.0, 0.0, 0.0));
             }
 
-            if planet.day_time_years != 0.0 {
+            if planet.rotation_period_hours != 0.0 {
                 planet.rotation = 2.0 * PI * (t + T_SEED)
-                    / (REAL_SECS_PER_GAME_YEAR * planet.day_time_years)
+                    / (0.00001) // TODO: Fix
                     + 3.14;
             }
 
