@@ -6,7 +6,7 @@ const DENSITY_IRON_G_CM3: f64 = 12.0;
 const DENSITY_ROCK_G_CM3: f64 = 3.5;
 
 const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
-const EARTH_RADII_PER_AU: f64 = 23455.0;
+pub const EARTH_RADII_PER_AU: f64 = 23455.0;
 
 pub struct BodySystem {
     pub(crate) planet: Planet,

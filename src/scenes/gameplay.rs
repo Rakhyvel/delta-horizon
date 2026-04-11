@@ -13,7 +13,7 @@ use apricot::{
     shadow_map::DirectionalLightSource,
 };
 use hecs::{Entity, World};
-use nalgebra_glm::{DVec3, Vec3};
+use nalgebra_glm::{vec3, DVec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
@@ -21,7 +21,7 @@ use crate::{
         button::{Button, Event, EventQueue},
         planet::{Category, Planet},
     },
-    generation::solar_system_gen,
+    generation::solar_system_gen::{self, EARTH_RADII_PER_AU},
 };
 
 /// Object file data, used for meshes
@@ -45,9 +45,9 @@ pub struct Gameplay {
     /// The radius of the currently selected planetary body, for limiting zoom
     selected_body_radius: f64,
     /// The position of the selected planetary body, used for swoosh animation
-    selected_pos: nalgebra_glm::DVec3,
+    selected_pos: DVec3,
     /// The prev selected position, used for swoosh animation
-    prev_selected_pos: nalgebra_glm::DVec3,
+    prev_selected_pos: DVec3,
     /// Animation key frame counter
     transition: f64,
 
@@ -258,13 +258,13 @@ impl Gameplay {
         let planets = solar_system_gen::generate();
         for mut system in planets {
             system.planet.parent_planet_id = sun_entity;
-            system.planet.orbital_radius *= 20000.0;
+            system.planet.orbital_radius *= EARTH_RADII_PER_AU;
             let planet_entity =
                 Planet::add_as_entity(system.planet, &mut world, &app.renderer, &mut bvh);
             bodies.push(planet_entity);
             for mut moon in system.moons {
                 moon.parent_planet_id = planet_entity;
-                moon.orbital_radius *= 20000.0;
+                moon.orbital_radius *= EARTH_RADII_PER_AU;
                 moon.tier = 2;
                 let moon_entity = Planet::add_as_entity(moon, &mut world, &app.renderer, &mut bvh);
                 bodies.push(moon_entity);
@@ -291,11 +291,11 @@ impl Gameplay {
         Self {
             world,
             camera_3d: high_precision::Camera {
-                world_pos: nalgebra_glm::vec3(1.0, 1.0, 1.0),
+                world_pos: vec3(1.0, 1.0, 1.0),
                 inner: Camera::new(
-                    nalgebra_glm::vec3(1.0, 0.0, 1.0),
-                    nalgebra_glm::vec3(0.0, 0.0, 0.0),
-                    nalgebra_glm::vec3(0.0, 0.0, 1.0),
+                    vec3(1.0, 0.0, 1.0),
+                    vec3(0.0, 0.0, 0.0),
+                    vec3(0.0, 0.0, 1.0),
                     ProjectionKind::Perspective {
                         fov: 0.65,
                         far: 10000000.0,
@@ -305,9 +305,9 @@ impl Gameplay {
             bvh,
             directional_light: DirectionalLightSource::new(
                 Camera::new(
-                    nalgebra_glm::vec3(0.0, 0.0, 0.0),
-                    nalgebra_glm::vec3(0.0, 10.0, 0.0),
-                    nalgebra_glm::vec3(0.0, 0.0, 1.0),
+                    vec3(0.0, 0.0, 0.0),
+                    vec3(0.0, 10.0, 0.0),
+                    vec3(0.0, 0.0, 1.0),
                     ProjectionKind::Orthographic {
                         // These do not matter for now, they're reset later
                         left: 0.0,
@@ -318,13 +318,13 @@ impl Gameplay {
                         far: 0.0,
                     },
                 ),
-                nalgebra_glm::vec3(-1.0, 0.0, 0.0),
+                vec3(-1.0, 0.0, 0.0),
                 1024,
             ),
 
             selection: 2,
-            selected_pos: nalgebra_glm::vec3(0.0, 0.0, 0.0),
-            prev_selected_pos: nalgebra_glm::vec3(0.0, 0.0, 0.0),
+            selected_pos: vec3(0.0, 0.0, 0.0),
+            prev_selected_pos: vec3(0.0, 0.0, 0.0),
             transition: 1.0,
             selected_body_radius: 0.0,
             phi: 2.5,
@@ -392,7 +392,7 @@ impl Gameplay {
 
             if planet.tier != 0 {
                 let parent_pos = parent_pos_map.get(&planet.parent_planet_id).unwrap();
-                let new_pos = nalgebra_glm::vec3(
+                let new_pos = vec3(
                     (2.0 * PI * (t + T_SEED)
                         / (REAL_SECS_PER_GAME_YEAR * planet.orbital_time_years))
                         .cos()
@@ -414,7 +414,7 @@ impl Gameplay {
                     &nalgebra_glm::convert(vel),
                 );
             } else {
-                model.set_position(nalgebra_glm::vec3(0.0, 0.0, 0.0));
+                model.set_position(vec3(0.0, 0.0, 0.0));
             }
 
             if planet.rotation_period_hours != 0.0 {
@@ -425,7 +425,6 @@ impl Gameplay {
 
             if entity == self.bodies[self.selection] {
                 self.selected_pos = world_pos.pos;
-                println!("{:?}", self.selected_pos);
                 self.selected_body_radius = planet.body_radius;
             }
         }

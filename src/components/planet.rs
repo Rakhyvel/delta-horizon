@@ -7,7 +7,7 @@ use apricot::{
     render_core::{LinePathComponent, ModelComponent, RenderContext, TextureId},
 };
 use hecs::{Entity, World};
-use nalgebra_glm::DVec3;
+use nalgebra_glm::{vec3, DVec3};
 
 pub struct Planet {
     pub parent_planet_id: Entity,
@@ -25,7 +25,6 @@ pub struct Planet {
     pub core_mass_fraction: f64,
     pub magnetic_field: bool,
     pub density: f64,
-    // felsicness: bigger = more likely felsic
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -86,9 +85,8 @@ impl Planet {
             renderer.get_mesh_id_from_name("ico").unwrap()
         };
 
-        let position: DVec3 = nalgebra_glm::vec3(0., 0., 0.);
-        let scale_vec: DVec3 =
-            nalgebra_glm::vec3(self.body_radius, self.body_radius, self.body_radius);
+        let position: DVec3 = vec3(0., 0., 0.);
+        let scale_vec: DVec3 = vec3(self.body_radius, self.body_radius, self.body_radius);
 
         let texture_id = self.get_texture_id(renderer);
 
