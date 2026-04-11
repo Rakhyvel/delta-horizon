@@ -3,26 +3,29 @@
 
 use apricot::{
     bvh::{BVHNodeId, BVH},
+    high_precision::WorldPosition,
     render_core::{LinePathComponent, ModelComponent, RenderContext, TextureId},
 };
 use hecs::{Entity, World};
+use nalgebra_glm::DVec3;
 
 pub struct Planet {
     pub parent_planet_id: Entity,
     pub tier: u32,
-    pub body_radius: f32,
-    pub orbital_radius: f32,
-    pub orbital_time_years: f32,
-    pub rotation_period_hours: f32,
-    pub rotation: f32,
+    pub body_radius: f64,
+    pub orbital_radius: f64,
+    pub orbital_time_years: f64,
+    pub rotation_period_hours: f64,
+    pub rotation: f64,
     pub bvh_node_id: Option<BVHNodeId>,
     pub name: String,
     pub category: Category,
-    pub atmos_pressure: f32,
-    pub temperature: f32,
-    pub core_mass_fraction: f32,
+    pub atmos_pressure: f64,
+    pub temperature: f64,
+    pub core_mass_fraction: f64,
+    pub magnetic_field: bool,
+    pub density: f64,
     // felsicness: bigger = more likely felsic
-    // magnetic field: bigger + spinning faster = more magnetic field
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -40,13 +43,15 @@ pub enum Category {
 impl Planet {
     pub fn new(
         tier: u32,
-        body_radius: f32,
-        orbital_radius: f32,
-        orbital_time_years: f32,
-        rotation_period_hours: f32,
-        core_mass_fraction: f32,
-        atmos_pressure: f32,
-        temperature: f32,
+        body_radius: f64,
+        orbital_radius: f64,
+        orbital_time_years: f64,
+        rotation_period_hours: f64,
+        core_mass_fraction: f64,
+        magnetic_field: bool,
+        density: f64,
+        atmos_pressure: f64,
+        temperature: f64,
         name: String,
         category: Category,
     ) -> Self {
@@ -64,6 +69,8 @@ impl Planet {
             atmos_pressure,
             temperature,
             core_mass_fraction,
+            magnetic_field,
+            density,
         }
     }
 
@@ -79,24 +86,28 @@ impl Planet {
             renderer.get_mesh_id_from_name("ico").unwrap()
         };
 
-        let position = nalgebra_glm::vec3(0., 0., 0.);
-        let scale_vec = nalgebra_glm::vec3(self.body_radius, self.body_radius, self.body_radius);
+        let position: DVec3 = nalgebra_glm::vec3(0., 0., 0.);
+        let scale_vec: DVec3 =
+            nalgebra_glm::vec3(self.body_radius, self.body_radius, self.body_radius);
 
         let texture_id = self.get_texture_id(renderer);
 
-        let planet_entity = world.spawn((ModelComponent::new(
-            planet_mesh,
-            texture_id,
-            position,
-            scale_vec,
-        ),));
+        let planet_entity = world.spawn((
+            WorldPosition { pos: position },
+            ModelComponent::new(
+                planet_mesh,
+                texture_id,
+                nalgebra_glm::convert(position),
+                nalgebra_glm::convert(scale_vec),
+            ),
+        ));
 
         if self.orbital_radius > 1.0 {
             world
                 .insert(
                     planet_entity,
                     (LinePathComponent::from_orbit(
-                        self.orbital_radius,
+                        self.orbital_radius as f32,
                         0.0,
                         1024,
                     ),),
@@ -108,8 +119,8 @@ impl Planet {
             planet_entity,
             renderer
                 .get_mesh_aabb(planet_mesh)
-                .scale(scale_vec)
-                .translate(position),
+                .scale(nalgebra_glm::convert(scale_vec))
+                .translate(nalgebra_glm::convert(position)),
         );
 
         self.bvh_node_id = Some(bvh_node_id);
@@ -121,6 +132,11 @@ impl Planet {
 
     fn gaseous(&self) -> bool {
         self.atmos_pressure > 1.58
+    }
+
+    pub fn mass(&self) -> f64 {
+        let earth_density = 5.51;
+        (self.density / earth_density) * self.body_radius.powi(3)
     }
 
     pub fn habitable(&self) -> bool {

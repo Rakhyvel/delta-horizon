@@ -1,17 +1,19 @@
 //! This module is responsible for defining the gameplay scene.
 
-use std::{collections::HashMap, f32::consts::PI, sync::Arc};
+use std::{collections::HashMap, f64::consts::PI, sync::Arc};
 
 use apricot::{
     app::{App, Scene},
     bvh::BVH,
     camera::{Camera, ProjectionKind},
+    high_precision::{self, WorldPosition},
     opengl::create_program,
     rectangle::Rectangle,
     render_core::{LinePathComponent, ModelComponent},
     shadow_map::DirectionalLightSource,
 };
 use hecs::{Entity, World};
+use nalgebra_glm::{DVec3, Vec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
@@ -32,7 +34,7 @@ pub struct Gameplay {
     /// The world where all the entities live
     world: World,
     /// The camera used for rendering 3d models
-    camera_3d: Camera,
+    camera_3d: high_precision::Camera,
     /// The sun's light source
     directional_light: DirectionalLightSource,
     /// A bounding-volume hierarchy, a container that stores models and allows for efficient lookup for fast rendering
@@ -41,20 +43,20 @@ pub struct Gameplay {
     /// Which planetary body is currently selected
     selection: usize,
     /// The radius of the currently selected planetary body, for limiting zoom
-    selected_body_radius: f32,
+    selected_body_radius: f64,
     /// The position of the selected planetary body, used for swoosh animation
-    selected_pos: nalgebra_glm::Vec3,
+    selected_pos: nalgebra_glm::DVec3,
     /// The prev selected position, used for swoosh animation
-    prev_selected_pos: nalgebra_glm::Vec3,
+    prev_selected_pos: nalgebra_glm::DVec3,
     /// Animation key frame counter
-    transition: f32,
+    transition: f64,
 
     /// Up-down view angle
-    phi: f32,
+    phi: f64,
     /// Side-side view angle
-    theta: f32,
+    theta: f64,
     /// How far the camera swivels around the currently selected body
-    distance: f32,
+    distance: f64,
 
     /// Used for enter key latch
     prev_enter_state: bool,
@@ -65,7 +67,7 @@ pub struct Gameplay {
     event_queue: Arc<EventQueue>,
 
     turn: usize,
-    turn_transition_time: f32,
+    turn_transition_time: f64,
 }
 
 impl Scene for Gameplay {
@@ -82,9 +84,9 @@ impl Scene for Gameplay {
                 // Handle all the buttons
                 Event::ButtonClicked(id) => match id {
                     "next-turn" => {
-                        if (app.seconds - self.turn_transition_time) >= 1.0 {
+                        if (app.seconds as f64 - self.turn_transition_time) >= 1.0 {
                             self.turn += 1;
-                            self.turn_transition_time = app.seconds;
+                            self.turn_transition_time = app.seconds as f64;
                             println!("doing the next turn!")
                         }
                     }
@@ -103,8 +105,8 @@ impl Scene for Gameplay {
 
     /// Render the scene to the screen when time allows
     fn render(&mut self, app: &App) {
-        self.directional_light.light_dir = -self.camera_3d.position().normalize();
-        app.renderer.set_camera(self.camera_3d);
+        self.directional_light.light_dir = -self.camera_3d.inner.position().normalize();
+        app.renderer.set_camera(self.camera_3d.inner);
         app.renderer.directional_light_system(
             &mut self.directional_light,
             &mut self.world,
@@ -114,6 +116,7 @@ impl Scene for Gameplay {
             &mut self.world,
             &self.directional_light,
             &self.bvh,
+            Some(&self.camera_3d),
             false,
         );
 
@@ -238,6 +241,8 @@ impl Gameplay {
                 0.0,
                 0.0,
                 1.0,
+                true,
+                1.0,
                 1000000.0,
                 1000000.0,
                 String::from("Sun"),
@@ -251,10 +256,19 @@ impl Gameplay {
         let mut bodies = vec![sun_entity];
 
         let planets = solar_system_gen::generate();
-        for mut planet in planets {
-            planet.parent_planet_id = sun_entity;
-            let planet_entity = Planet::add_as_entity(planet, &mut world, &app.renderer, &mut bvh);
+        for mut system in planets {
+            system.planet.parent_planet_id = sun_entity;
+            system.planet.orbital_radius *= 20000.0;
+            let planet_entity =
+                Planet::add_as_entity(system.planet, &mut world, &app.renderer, &mut bvh);
             bodies.push(planet_entity);
+            for mut moon in system.moons {
+                moon.parent_planet_id = planet_entity;
+                moon.orbital_radius *= 20000.0;
+                moon.tier = 2;
+                let moon_entity = Planet::add_as_entity(moon, &mut world, &app.renderer, &mut bvh);
+                bodies.push(moon_entity);
+            }
         }
 
         let event_queue = Arc::new(EventQueue::new());
@@ -276,15 +290,18 @@ impl Gameplay {
 
         Self {
             world,
-            camera_3d: Camera::new(
-                nalgebra_glm::vec3(1.0, 0.0, 1.0),
-                nalgebra_glm::vec3(0.0, 0.0, 0.0),
-                nalgebra_glm::vec3(0.0, 0.0, 1.0),
-                ProjectionKind::Perspective {
-                    fov: 0.65,
-                    far: 10000000.0,
-                },
-            ),
+            camera_3d: high_precision::Camera {
+                world_pos: nalgebra_glm::vec3(1.0, 1.0, 1.0),
+                inner: Camera::new(
+                    nalgebra_glm::vec3(1.0, 0.0, 1.0),
+                    nalgebra_glm::vec3(0.0, 0.0, 0.0),
+                    nalgebra_glm::vec3(0.0, 0.0, 1.0),
+                    ProjectionKind::Perspective {
+                        fov: 0.65,
+                        far: 10000000.0,
+                    },
+                ),
+            },
             bvh,
             directional_light: DirectionalLightSource::new(
                 Camera::new(
@@ -330,7 +347,7 @@ impl Gameplay {
             self.selection += 1;
             self.selected_body_radius = 100.0;
             self.prev_selected_pos = self.selected_pos;
-            self.transition = app.seconds;
+            self.transition = app.seconds as f64;
             if self.selection >= self.bodies.len() {
                 self.selection = 0;
             }
@@ -341,13 +358,13 @@ impl Gameplay {
         let control_speed = 0.005;
         let zoom_control_speed = 0.15 * (self.distance - self.selected_body_radius);
         if app.mouse_left_down {
-            self.phi -= control_speed * (app.mouse_vel.x as f32);
-            self.theta = (self.theta - control_speed * (app.mouse_vel.y as f32))
+            self.phi -= control_speed * (app.mouse_vel.x as f64);
+            self.theta = (self.theta - control_speed * (app.mouse_vel.y as f64))
                 .max(control_speed - PI / 2.0)
                 .min(PI / 2.0 - control_speed);
         }
 
-        self.distance = (self.distance - zoom_control_speed * (app.mouse_wheel as f32))
+        self.distance = (self.distance - zoom_control_speed * (app.mouse_wheel as f64))
             .max(self.selected_body_radius * 2.0)
             .min(self.selected_body_radius * 40000.0 + 234.0);
     }
@@ -355,21 +372,23 @@ impl Gameplay {
     /// Updates planets based on their on-rails orbits around their parent bodies
     fn planet_system(&mut self, app: &App, tier: u32) {
         let mut parent_pos_map = HashMap::new();
-        for (entity, (model, _planet)) in self.world.query::<(&ModelComponent, &Planet)>().iter() {
-            parent_pos_map.insert(entity, model.get_position());
+        for (entity, (world_pos, _planet)) in self.world.query::<(&WorldPosition, &Planet)>().iter()
+        {
+            parent_pos_map.insert(entity, world_pos.pos);
         }
 
-        for (entity, (model, planet)) in
-            self.world.query_mut::<(&mut ModelComponent, &mut Planet)>()
+        for (entity, (world_pos, model, planet)) in
+            self.world
+                .query_mut::<(&mut WorldPosition, &mut ModelComponent, &mut Planet)>()
         {
             if planet.tier != tier {
                 continue;
             }
 
-            const REAL_SECS_PER_GAME_YEAR: f32 = 60.0; // How many turns it takes for earth to go around the sun once
-            const T_SEED: f32 = 98400.0; // An offset from t, so that the planets are not all in a line.
-            let t = self.turn as f32
-                + cubic_ease_out((app.seconds - self.turn_transition_time).min(1.0));
+            const REAL_SECS_PER_GAME_YEAR: f64 = 60.0; // How many turns it takes for earth to go around the sun once
+            const T_SEED: f64 = 98400.0; // An offset from t, so that the planets are not all in a line.
+            let t = self.turn as f64
+                + cubic_ease_out((app.seconds as f64 - self.turn_transition_time).min(1.0));
 
             if planet.tier != 0 {
                 let parent_pos = parent_pos_map.get(&planet.parent_planet_id).unwrap();
@@ -386,12 +405,13 @@ impl Gameplay {
                         + parent_pos.y,
                     0.0,
                 );
-                let vel = new_pos - model.get_position();
-                model.set_position(new_pos);
+                let vel = new_pos - world_pos.pos;
+                world_pos.pos = new_pos;
+                model.set_position(nalgebra_glm::convert(new_pos - self.camera_3d.world_pos));
                 self.bvh.move_obj(
                     planet.bvh_node_id.unwrap(),
                     &app.renderer.get_model_aabb(&model),
-                    &vel,
+                    &nalgebra_glm::convert(vel),
                 );
             } else {
                 model.set_position(nalgebra_glm::vec3(0.0, 0.0, 0.0));
@@ -404,7 +424,8 @@ impl Gameplay {
             }
 
             if entity == self.bodies[self.selection] {
-                self.selected_pos = model.get_position();
+                self.selected_pos = world_pos.pos;
+                println!("{:?}", self.selected_pos);
                 self.selected_body_radius = planet.body_radius;
             }
         }
@@ -431,19 +452,18 @@ impl Gameplay {
     /// Updates the camera position and lookat based on mouse panning and body selection
     fn camera_update(&mut self, app: &App) {
         let rot_matrix = nalgebra_glm::rotate_y(
-            &nalgebra_glm::rotate_z(&nalgebra_glm::one(), self.phi),
-            self.theta,
+            &nalgebra_glm::rotate_z(&nalgebra_glm::one(), self.phi as f64),
+            self.theta as f64,
         );
-        let transition = cubic_ease_out((app.seconds - self.transition).min(1.0));
+        let transition = cubic_ease_out((app.seconds as f64 - self.transition).min(1.0));
         let offset = (1.0 - transition) * self.prev_selected_pos + transition * self.selected_pos;
-        self.camera_3d.set_position(
-            (rot_matrix * nalgebra_glm::vec4(self.distance, 0., 0., 0.)).xyz() + offset,
-        );
-        self.camera_3d.set_lookat(self.selected_pos);
+        self.camera_3d.world_pos =
+            (rot_matrix * nalgebra_glm::vec4(self.distance, 0., 0., 0.)).xyz() + offset;
+        self.camera_3d.sync(self.selected_pos);
     }
 }
 
 /// Cubic easing out function - for animation
-fn cubic_ease_out(t: f32) -> f32 {
+fn cubic_ease_out(t: f64) -> f64 {
     1.0 - (1.0 - t).powf(3.0)
 }

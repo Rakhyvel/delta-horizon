@@ -2,14 +2,25 @@ use rand::{Rng, SeedableRng};
 
 use crate::components::planet::{Category, Planet};
 
+const DENSITY_IRON_G_CM3: f64 = 12.0;
+const DENSITY_ROCK_G_CM3: f64 = 3.5;
+
+const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
+const EARTH_RADII_PER_AU: f64 = 23455.0;
+
+pub struct BodySystem {
+    pub(crate) planet: Planet,
+    pub(crate) moons: Vec<Planet>,
+}
+
 struct MassCategory {
     #[allow(unused)]
     category: Category,
-    range: (f32, f32),
-    weight: f32,
+    range: (f64, f64),
+    weight: f64,
 }
 
-const MASS_CATEGORIES: &[MassCategory] = &[
+const PLANET_MASS_CATEGORIES: &[MassCategory] = &[
     MassCategory {
         category: Category::Dwarf,
         range: (0.1, 0.3),
@@ -47,12 +58,34 @@ const MASS_CATEGORIES: &[MassCategory] = &[
     },
 ];
 
-pub fn generate() -> Vec<Planet> {
+const MOON_MASS_CATEGORIES: &[MassCategory] = &[
+    MassCategory {
+        category: Category::Dwarf,
+        range: (0.1, 0.3),
+        weight: 11.0,
+    },
+    MassCategory {
+        category: Category::SubEarth,
+        range: (0.3, 0.8),
+        weight: 2.0,
+    },
+    MassCategory {
+        category: Category::EarthLike,
+        range: (0.8, 1.5),
+        weight: 1.0,
+    },
+];
+
+pub fn generate() -> Vec<BodySystem> {
     let mut rng = rand::rngs::StdRng::from_entropy();
     let planets = loop {
         let planets = generate_system(&mut rng);
         // Need an earth starting point
         if !has_habitable(&planets) {
+            continue;
+        }
+        // All moons should be small
+        if !all_moons_small(&planets) {
             continue;
         }
         // Need terrestrial
@@ -73,29 +106,68 @@ pub fn generate() -> Vec<Planet> {
     planets
 }
 
-fn generate_system(rng: &mut impl Rng) -> Vec<Planet> {
-    let mut planets: Vec<Planet> = vec![];
+fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
+    let mut planets: Vec<BodySystem> = vec![];
 
     let mut orbital_radius = rng.gen_range(0.2..0.6); // in AU
     while orbital_radius < 35.0 {
-        let body_radius = sample_radius_with_au(rng);
-        let core_mass_fraction = sample_core_mass_fraction(rng, body_radius, orbital_radius);
-        let density = estimate_density(core_mass_fraction, body_radius);
-        let rotation_period_hours = sample_rotation_period_hours(rng, body_radius);
-        let category = categorize_planet(body_radius);
-        let magnetic_field: bool =
-            has_magnetic_field(body_radius, core_mass_fraction, rotation_period_hours);
-        let atmos_pressure: f32 =
-            sample_atmos_pressure(rng, magnetic_field, body_radius, orbital_radius);
-        let temperature = calculate_temperature(orbital_radius, atmos_pressure);
+        let planet = generate_planet(rng, orbital_radius, orbital_radius, PLANET_MASS_CATEGORIES);
 
-        planets.push(Planet::new(
+        let spacing = compute_spacing(rng, orbital_radius, planet.body_radius);
+        orbital_radius += spacing;
+
+        let roche_limit = 2.44
+            * (planet.body_radius / EARTH_RADII_PER_AU)
+            * (planet.density / DENSITY_ROCK_G_CM3).powf(1.0 / 3.0);
+        let hill_sphere = planet.orbital_radius
+            * (planet.mass() / (3.0 * EARTH_MASSES_PER_SUN_MASS)).powf(1.0 / 3.0);
+
+        let mut moons = vec![];
+        let max = max_moons(planet.body_radius);
+        let mut moon_orbital_radius = 1.5 * roche_limit;
+        while moon_orbital_radius < 0.5 * hill_sphere && moons.len() < max {
+            let moon = generate_planet(
+                rng,
+                orbital_radius,
+                moon_orbital_radius,
+                MOON_MASS_CATEGORIES,
+            );
+            moons.push(moon);
+            moon_orbital_radius *= rng.gen_range(1.5..5.0);
+        }
+
+        planets.push(BodySystem { planet, moons });
+    }
+
+    planets
+}
+
+fn generate_planet(
+    rng: &mut impl Rng,
+    dist_from_sun: f64,
+    orbital_radius: f64,
+    category_dist: &[MassCategory],
+) -> Planet {
+    let body_radius = sample_radius_with_au(rng, category_dist);
+    let core_mass_fraction = sample_core_mass_fraction(rng, body_radius, dist_from_sun);
+    let density = estimate_density(core_mass_fraction, body_radius);
+    let rotation_period_hours = sample_rotation_period_hours(rng, body_radius);
+    let category = categorize_planet(body_radius);
+    let magnetic_field: bool =
+        has_magnetic_field(body_radius, core_mass_fraction, rotation_period_hours);
+    let atmos_pressure: f64 =
+        sample_atmos_pressure(rng, magnetic_field, body_radius, dist_from_sun);
+    let temperature = calculate_temperature(dist_from_sun, atmos_pressure);
+
+    return Planet::new(
             1,
             body_radius,
-            orbital_radius * 2000.0,
+            orbital_radius,
             orbital_radius,        // TODO: Calculate this from orbital radius
             rotation_period_hours, // TODO: Make tidally locked if close
             core_mass_fraction,
+            magnetic_field,
+            density,
             atmos_pressure,
             temperature,
             format!(
@@ -111,31 +183,46 @@ fn generate_system(rng: &mut impl Rng) -> Vec<Planet> {
                 temperature
             ),
             category,
-        ));
-
-        let spacing = compute_spacing(rng, orbital_radius, body_radius);
-        orbital_radius += spacing;
-    }
-
-    planets
+        );
 }
 
-fn has_habitable(planets: &Vec<Planet>) -> bool {
-    planets
-        .iter()
-        .any(|p| p.habitable() && p.category == Category::EarthLike)
+fn max_moons(body_radius: f64) -> usize {
+    (-4.0 * 0.7f64.powf(body_radius) + 4.0) as usize
 }
 
-fn has_planet(planets: &Vec<Planet>, categories: &[Category], thresh: usize) -> bool {
+fn has_habitable(planets: &Vec<BodySystem>) -> bool {
+    planets.iter().any(|p| {
+        p.planet.habitable() && p.planet.category == Category::EarthLike && p.moons.len() >= 1
+    })
+}
+
+fn has_planet(planets: &Vec<BodySystem>, categories: &[Category], thresh: usize) -> bool {
     let count = planets
         .iter()
-        .filter(|p| categories.contains(&p.category))
+        .filter(|p| categories.contains(&p.planet.category))
         .count();
     count >= thresh
 }
 
-fn sample_rotation_period_hours(rng: &mut impl Rng, body_radius: f32) -> f32 {
-    fn lerp(a: f32, b: f32, t: f32) -> f32 {
+fn all_moons_small(planets: &Vec<BodySystem>) -> bool {
+    for system in planets {
+        let planet_mass = system.planet.mass();
+        let planet_radius = system.planet.body_radius;
+        for moon in &system.moons {
+            let moon_mass = moon.mass();
+            let moon_orbit_radius = moon.orbital_radius;
+            if (moon_mass / planet_mass)
+                > ((planet_radius / EARTH_RADII_PER_AU) / moon_orbit_radius)
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn sample_rotation_period_hours(rng: &mut impl Rng, body_radius: f64) -> f64 {
+    fn lerp(a: f64, b: f64, t: f64) -> f64 {
         a + (b - a) * t
     }
 
@@ -143,29 +230,26 @@ fn sample_rotation_period_hours(rng: &mut impl Rng, body_radius: f32) -> f32 {
     let r = body_radius.clamp(0.1, 15.0);
     let max_hours = lerp(200.0, 15.0, ((r - 1.0) / 14.0).clamp(0.0, 1.0));
 
-    let min = 5.0_f32.ln();
+    let min = 5.0_f64.ln();
     let max = max_hours.ln();
 
     rng.gen_range(min..max).exp()
 }
 
-fn sample_core_mass_fraction(rng: &mut impl Rng, body_radius: f32, orbital_radius: f32) -> f32 {
+fn sample_core_mass_fraction(rng: &mut impl Rng, body_radius: f64, orbital_radius: f64) -> f64 {
     if body_radius > 2.5 {
         return 0.0;
     }
 
-    let base = body_radius * 0.830169 * (0.361935f32).powf(orbital_radius);
+    let base = body_radius * 0.830169 * (0.361935f64).powf(orbital_radius);
     let variation = rng.gen_range(-0.05..0.05);
     (base + variation).clamp(0.05, 0.7)
 }
 
-fn estimate_density(core_mass_fraction: f32, body_radius: f32) -> f32 {
-    // base material densities (g/cm^3)
-    let iron = 12.0;
-    let rock = 3.5;
-
+fn estimate_density(core_mass_fraction: f64, body_radius: f64) -> f64 {
     // mix core + mantle
-    let base_density = core_mass_fraction * iron + (1.0 - core_mass_fraction) * rock;
+    let base_density =
+        core_mass_fraction * DENSITY_IRON_G_CM3 + (1.0 - core_mass_fraction) * DENSITY_ROCK_G_CM3;
 
     let compression = if body_radius < 1.0 {
         1.0
@@ -177,20 +261,20 @@ fn estimate_density(core_mass_fraction: f32, body_radius: f32) -> f32 {
 }
 
 fn has_magnetic_field(
-    body_radius: f32,
-    core_mass_fraction: f32,
-    rotation_period_hours: f32,
+    body_radius: f64,
+    core_mass_fraction: f64,
+    rotation_period_hours: f64,
 ) -> bool {
     body_radius > 2.5 || (core_mass_fraction > 0.2 && rotation_period_hours < 100.0)
 }
 
-fn sample_radius_with_au(rng: &mut impl Rng) -> f32 {
+fn sample_radius_with_au(rng: &mut impl Rng, category_dist: &[MassCategory]) -> f64 {
     // Compute cumulative weights
-    let total_weight: f32 = MASS_CATEGORIES.iter().map(|c| c.weight).sum();
+    let total_weight: f64 = category_dist.iter().map(|c| c.weight).sum();
     let mut roll = rng.gen_range(0.0..total_weight);
 
     let mut radius = 0.0;
-    for cat in MASS_CATEGORIES {
+    for cat in category_dist {
         if roll <= cat.weight {
             radius = rng.gen_range(cat.range.0..cat.range.1);
             break;
@@ -204,9 +288,9 @@ fn sample_radius_with_au(rng: &mut impl Rng) -> f32 {
 fn sample_atmos_pressure(
     rng: &mut impl Rng,
     magnetic_field: bool,
-    body_radius: f32,
-    orbital_radius: f32,
-) -> f32 {
+    body_radius: f64,
+    orbital_radius: f64,
+) -> f64 {
     // volatiles available
     let volatile_factor = match orbital_radius {
         r if r < 0.5 => 0.1, // almost none
@@ -237,19 +321,19 @@ fn sample_atmos_pressure(
     pressure
 }
 
-fn calculate_temperature(orbital_radius: f32, atmos_pressure: f32) -> f32 {
+fn calculate_temperature(orbital_radius: f64, atmos_pressure: f64) -> f64 {
     let greenhouse = 1.51 / (atmos_pressure + 1.51);
     278.6 * ((1.0 - 0.3) / (orbital_radius.powf(2.0) * greenhouse)).powf(0.25)
 }
 
-fn compute_spacing(rng: &mut impl Rng, orbital_radius: f32, radius: f32) -> f32 {
+fn compute_spacing(rng: &mut impl Rng, orbital_radius: f64, radius: f64) -> f64 {
     let base = rng.gen_range(1.1..1.4);
     let radius_boost = 1.0 + 0.1 * radius.powf(0.25);
 
     orbital_radius * base * radius_boost
 }
 
-fn categorize_planet(radius: f32) -> Category {
+fn categorize_planet(radius: f64) -> Category {
     match radius {
         (0.0..0.1) => Category::Dwarf,
         (0.1..0.8) => Category::SubEarth,
