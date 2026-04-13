@@ -18,10 +18,10 @@ use sdl2::keyboard::Scancode;
 
 use crate::{
     components::{
-        body::{Body, Category, Parent},
+        body::{spawn_body, Body, Category, Orbit, Parent, SceneObject},
         button::{Button, Event, EventQueue},
     },
-    generation::solar_system_gen::{self, EARTH_RADII_PER_AU},
+    generation::solar_system_gen::{self},
 };
 
 /// Object file data, used for meshes
@@ -96,10 +96,9 @@ impl Scene for Gameplay {
         }
 
         self.control(app);
-        self.planet_system(app, 0);
-        self.planet_system(app, 1);
-        self.planet_system(app, 2);
         self.orbit_system(app);
+        self.select_system();
+        self.line_path_system(app);
         self.camera_update(app);
     }
 
@@ -122,10 +121,10 @@ impl Scene for Gameplay {
 
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         app.renderer.set_font(font);
-        for (entity, planet) in self.world.query::<&Body>().iter() {
+        for (entity, scene_obj) in self.world.query::<&SceneObject>().iter() {
             if entity == self.bodies[self.selection] {
                 app.renderer
-                    .draw_text(nalgebra_glm::vec2(10.0, 10.0), &planet.name);
+                    .draw_text(nalgebra_glm::vec2(10.0, 10.0), &scene_obj.name);
             }
         }
 
@@ -234,21 +233,31 @@ impl Gameplay {
 
         let mut bvh = BVH::<Entity>::new();
 
-        let sun_entity = Body::add_as_entity(
-            Body::new(
-                0,
-                110.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-                true,
-                1.0,
-                1000000.0,
-                1000000.0,
-                String::from("Sun"),
-                Category::Star,
-            ),
+        let sun_entity = spawn_body(
+            Body {
+                category: Category::Star,
+                body_radius: 110.0,
+                rotation_period_hours: 0.0,
+                rotation: 0.0,
+                atmos_pressure: 1000000.0,
+                temperature: 5778.0,
+                core_mass_fraction: 0.0,
+                magnetic_field: true,
+                density: 1.0,
+            },
+            Orbit {
+                semi_major_axis: 0.0,
+                eccentricity: 0.0,
+                inclination: 0.0,
+                longitude_of_ascending_node: 0.0,
+                argument_of_periapsis: 0.0,
+                mean_anomaly_at_epoch: 0.0,
+            },
+            SceneObject {
+                bvh_node_id: None,
+                name: String::from("Sun"),
+            },
+            None,
             &mut world,
             &app.renderer,
             &mut bvh,
@@ -257,17 +266,34 @@ impl Gameplay {
         let mut bodies = vec![sun_entity];
 
         let planets = solar_system_gen::generate();
-        for mut system in planets {
-            system.planet.parent_body_id = sun_entity;
-            system.planet.orbital_radius *= EARTH_RADII_PER_AU;
-            let planet_entity =
-                Body::add_as_entity(system.planet, &mut world, &app.renderer, &mut bvh);
+        for system in planets {
+            let planet_entity = spawn_body(
+                system.planet.0,
+                system.planet.1,
+                SceneObject {
+                    bvh_node_id: None,
+                    name: String::from("planet name"),
+                },
+                Some(Parent { id: sun_entity }),
+                &mut world,
+                &app.renderer,
+                &mut bvh,
+            );
             bodies.push(planet_entity);
-            for mut moon in system.moons {
-                moon.parent_body_id = planet_entity;
-                moon.orbital_radius *= EARTH_RADII_PER_AU;
-                moon.tier = 2;
-                let moon_entity = Body::add_as_entity(moon, &mut world, &app.renderer, &mut bvh);
+
+            for moon in system.moons {
+                let moon_entity = spawn_body(
+                    moon.0,
+                    moon.1,
+                    SceneObject {
+                        bvh_node_id: None,
+                        name: String::from("moon name"),
+                    },
+                    Some(Parent { id: planet_entity }),
+                    &mut world,
+                    &app.renderer,
+                    &mut bvh,
+                );
                 bodies.push(moon_entity);
             }
         }
@@ -369,58 +395,43 @@ impl Gameplay {
     }
 
     /// Updates planets based on their on-rails orbits around their parent bodies
-    fn planet_system(&mut self, app: &App, tier: u32) {
-        let mut parent_pos_map = HashMap::new();
-        for (entity, (world_pos, _planet)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
-            parent_pos_map.insert(entity, world_pos.pos);
+    fn orbit_system(&mut self, app: &App) {
+        // Build parent -> children map
+        let mut children: HashMap<Entity, Vec<Entity>> = HashMap::new();
+
+        for (entity, (parent, _model)) in self.world.query::<(&Parent, &ModelComponent)>().iter() {
+            children.entry(parent.id).or_default().push(entity);
         }
 
-        for (entity, (world_pos, model, planet)) in
-            self.world
-                .query_mut::<(&mut WorldPosition, &mut ModelComponent, &mut Body)>()
+        // Collect all entities with WorldPosition
+        let mut has_parent = HashMap::new();
+        for (entity, parent) in self.world.query::<&Parent>().iter() {
+            has_parent.insert(entity, parent.id);
+        }
+
+        // Find roots (entities without parent)
+        let mut roots = Vec::new();
+        for (entity, _) in self.world.query::<&WorldPosition>().iter() {
+            if !has_parent.contains_key(&entity) {
+                roots.push(entity);
+            }
+        }
+
+        let t = 3600.0
+            * (self.turn as f64
+                + cubic_ease_in_out((app.seconds as f64 - self.turn_transition_time).min(1.0)));
+
+        // Kick off from roots
+        for root in roots {
+            let root_pos = vec3(0.0, 0.0, 0.0);
+            self.propagate(&children, root, root_pos, t, app);
+        }
+    }
+
+    fn select_system(&mut self) {
+        for (entity, (world_pos, planet)) in
+            self.world.query_mut::<(&mut WorldPosition, &mut Body)>()
         {
-            if planet.tier != tier {
-                continue;
-            }
-
-            const REAL_SECS_PER_GAME_YEAR: f64 = 60.0; // How many turns it takes for earth to go around the sun once
-            const T_SEED: f64 = 98400.0; // An offset from t, so that the planets are not all in a line.
-            let t = self.turn as f64
-                + cubic_ease_in_out((app.seconds as f64 - self.turn_transition_time).min(1.0));
-
-            if planet.tier != 0 {
-                let parent_pos = parent_pos_map.get(&planet.parent_body_id).unwrap();
-                let new_pos = vec3(
-                    (2.0 * PI * (t + T_SEED)
-                        / (REAL_SECS_PER_GAME_YEAR * planet.orbital_time_years))
-                        .cos()
-                        * planet.orbital_radius
-                        + parent_pos.x,
-                    (2.0 * PI * (t + T_SEED)
-                        / (REAL_SECS_PER_GAME_YEAR * planet.orbital_time_years))
-                        .sin()
-                        * planet.orbital_radius
-                        + parent_pos.y,
-                    0.0,
-                );
-                let vel = new_pos - world_pos.pos;
-                world_pos.pos = new_pos;
-                model.set_position(nalgebra_glm::convert(new_pos - self.camera_3d.world_pos));
-                self.bvh.move_obj(
-                    planet.bvh_node_id.unwrap(),
-                    &app.renderer.get_model_aabb(model),
-                    &nalgebra_glm::convert(vel),
-                );
-            } else {
-                model.set_position(vec3(0.0, 0.0, 0.0));
-            }
-
-            if planet.rotation_period_hours != 0.0 {
-                planet.rotation = 2.0 * PI * (t + T_SEED)
-                    / (0.00001) // TODO: Fix
-                    + PI;
-            }
-
             if entity == self.bodies[self.selection] {
                 self.selected_pos = world_pos.pos;
                 self.selected_body_radius = planet.body_radius;
@@ -428,22 +439,74 @@ impl Gameplay {
         }
     }
 
-    fn orbit_system(&mut self, _app: &App) {
-        let mut parent_pos_map = HashMap::new();
-        for (entity, (world_pos, _planet)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
-            parent_pos_map.insert(entity, world_pos.pos);
+    fn propagate(
+        &mut self,
+        children: &HashMap<Entity, Vec<Entity>>,
+        entity: Entity,
+        parent_pos: DVec3,
+        t: f64,
+        app: &App,
+    ) {
+        // Borrow components
+        let mut world_pos = self.world.get::<&mut WorldPosition>(entity).unwrap();
+        let mut model = self.world.get::<&mut ModelComponent>(entity).unwrap();
+        let scene_obj = self.world.get::<&SceneObject>(entity).unwrap();
+
+        // Compute local offset if Orbit exists
+        let local_offset = if let Ok(orbit) = self.world.get::<&Orbit>(entity) {
+            let period = 2.0 * PI * (orbit.semi_major_axis.powf(3.0) / 1.0).sqrt();
+            let theta = 2.0 * PI * (t + orbit.mean_anomaly_at_epoch) / (period + 0.00001);
+            vec3(
+                theta.cos() * orbit.semi_major_axis,
+                theta.sin() * orbit.semi_major_axis,
+                0.0,
+            )
+        } else {
+            vec3(0.0, 0.0, 0.0)
+        };
+
+        let new_world = parent_pos + local_offset;
+        let vel = new_world - world_pos.pos;
+        world_pos.pos = new_world;
+        model.set_position(nalgebra_glm::convert(new_world - self.camera_3d.world_pos));
+        self.bvh.move_obj(
+            scene_obj.bvh_node_id.unwrap(),
+            &app.renderer.get_model_aabb(&model),
+            &nalgebra_glm::convert(vel),
+        );
+
+        drop(world_pos); // release borrow before recusion
+        drop(model); // release borrow before recusion
+        drop(scene_obj); // release borrow before recusion
+
+        // Recurse into children
+        if let Some(kids) = children.get(&entity) {
+            for &child in kids {
+                self.propagate(children, child, new_world, t, app);
+            }
+        }
+    }
+
+    fn line_path_system(&mut self, _app: &App) {
+        // Extract out the world positions
+        let mut pos_map = HashMap::new();
+        for (entity, world_pos) in self.world.query::<&WorldPosition>().iter() {
+            pos_map.insert(entity, world_pos.pos);
         }
 
+        // Set the origins of the line paths wrt the parent world positions
         for (entity, (line, world_pos, parent)) in
             self.world
                 .query_mut::<(&mut LinePathComponent, &mut WorldPosition, &Parent)>()
         {
-            let parent_pos = parent_pos_map.get(&parent.parent_body_id).unwrap();
+            let parent_pos = pos_map.get(&parent.id).unwrap();
+
             line.color.w = if entity == self.bodies[self.selection] {
                 0.8
             } else {
                 0.2
             };
+
             world_pos.pos = *parent_pos;
         }
     }

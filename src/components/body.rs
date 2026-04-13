@@ -8,17 +8,25 @@ use apricot::{
 use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
-pub struct Body {
-    pub parent_body_id: Entity,
-    pub tier: u32,
-    pub body_radius: f64,
-    pub orbital_radius: f64,
-    pub orbital_time_years: f64,
-    pub rotation_period_hours: f64,
-    pub rotation: f64,
+pub struct SceneObject {
     pub bvh_node_id: Option<BVHNodeId>,
     pub name: String,
+}
+
+pub struct Orbit {
+    pub semi_major_axis: f64,
+    pub eccentricity: f64,
+    pub inclination: f64,
+    pub longitude_of_ascending_node: f64,
+    pub argument_of_periapsis: f64,
+    pub mean_anomaly_at_epoch: f64,
+}
+
+pub struct Body {
     pub category: Category,
+    pub body_radius: f64, // TODO: Store in km
+    pub rotation_period_hours: f64,
+    pub rotation: f64,
     pub atmos_pressure: f64,
     pub temperature: f64,
     pub core_mass_fraction: f64,
@@ -27,8 +35,9 @@ pub struct Body {
 }
 
 /// Component relating an entity to a parent body
+#[derive(Clone, Copy)]
 pub struct Parent {
-    pub parent_body_id: Entity,
+    pub id: Entity,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -43,98 +52,64 @@ pub enum Category {
     Star,
 }
 
-impl Body {
-    pub fn new(
-        tier: u32,
-        body_radius: f64,
-        orbital_radius: f64,
-        orbital_time_years: f64,
-        rotation_period_hours: f64,
-        core_mass_fraction: f64,
-        magnetic_field: bool,
-        density: f64,
-        atmos_pressure: f64,
-        temperature: f64,
-        name: String,
-        category: Category,
-    ) -> Self {
-        Body {
-            parent_body_id: Entity::DANGLING,
-            tier,
-            body_radius,
-            orbital_radius,
-            orbital_time_years,
-            rotation_period_hours,
-            name,
-            rotation: 0.0,
-            bvh_node_id: None,
-            category,
-            atmos_pressure,
-            temperature,
-            core_mass_fraction,
-            magnetic_field,
-            density,
-        }
-    }
+pub fn spawn_body(
+    body: Body,
+    orbit: Orbit,
+    mut scene_obj: SceneObject,
+    parent: Option<Parent>,
+    world: &mut World,
+    renderer: &RenderContext,
+    bvh: &mut BVH<Entity>,
+) -> Entity {
+    let body_mesh = if body.gaseous() {
+        renderer.get_mesh_id_from_name("uv").unwrap()
+    } else {
+        renderer.get_mesh_id_from_name("ico").unwrap()
+    };
 
-    pub fn add_as_entity(
-        mut self,
-        world: &mut World,
-        renderer: &RenderContext,
-        bvh: &mut BVH<Entity>,
-    ) -> Entity {
-        let body_mesh = if self.gaseous() {
-            renderer.get_mesh_id_from_name("uv").unwrap()
-        } else {
-            renderer.get_mesh_id_from_name("ico").unwrap()
-        };
+    let position: DVec3 = vec3(0., 0., 0.);
+    let scale_vec: DVec3 = vec3(body.body_radius, body.body_radius, body.body_radius);
 
-        let position: DVec3 = vec3(0., 0., 0.);
-        let scale_vec: DVec3 = vec3(self.body_radius, self.body_radius, self.body_radius);
+    let texture_id = body.get_texture_id(renderer);
 
-        let texture_id = self.get_texture_id(renderer);
+    let body_entity = world.spawn((
+        WorldPosition { pos: position },
+        ModelComponent::new(
+            body_mesh,
+            texture_id,
+            nalgebra_glm::convert(position),
+            nalgebra_glm::convert(scale_vec),
+        ),
+    ));
 
-        let body_entity = world.spawn((
-            WorldPosition { pos: position },
-            ModelComponent::new(
-                body_mesh,
-                texture_id,
-                nalgebra_glm::convert(position),
-                nalgebra_glm::convert(scale_vec),
-            ),
+    if let Some(parent) = parent {
+        let parent_world_pos = world.get::<&WorldPosition>(parent.id).unwrap().pos;
+        let _line_path_entity = world.spawn((
+            WorldPosition {
+                pos: parent_world_pos,
+            },
+            parent,
+            LinePathComponent::from_orbit(orbit.semi_major_axis as f32, 0.0, 2048),
         ));
-
-        if self.parent_body_id != Entity::DANGLING {
-            let parent_world_pos = world
-                .get::<&WorldPosition>(self.parent_body_id)
-                .unwrap()
-                .pos;
-            let _line_path_entity = world.spawn((
-                WorldPosition {
-                    pos: parent_world_pos,
-                },
-                Parent {
-                    parent_body_id: self.parent_body_id,
-                },
-                LinePathComponent::from_orbit(self.orbital_radius as f32, 0.0, 2048),
-            ));
-        }
-
-        let bvh_node_id = bvh.insert(
-            body_entity,
-            renderer
-                .get_mesh_aabb(body_mesh)
-                .scale(nalgebra_glm::convert(scale_vec))
-                .translate(nalgebra_glm::convert(position)),
-        );
-
-        self.bvh_node_id = Some(bvh_node_id);
-
-        world.insert(body_entity, (self,)).unwrap();
-
-        body_entity
+        world.insert(body_entity, (parent,)).unwrap();
     }
 
+    let bvh_node_id = bvh.insert(
+        body_entity,
+        renderer
+            .get_mesh_aabb(body_mesh)
+            .scale(nalgebra_glm::convert(scale_vec))
+            .translate(nalgebra_glm::convert(position)),
+    );
+
+    scene_obj.bvh_node_id = Some(bvh_node_id);
+
+    world.insert(body_entity, (scene_obj, orbit, body)).unwrap();
+
+    body_entity
+}
+
+impl Body {
     pub fn gaseous(&self) -> bool {
         self.atmos_pressure > 1.58
     }

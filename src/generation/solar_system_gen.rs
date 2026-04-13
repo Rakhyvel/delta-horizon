@@ -1,6 +1,6 @@
 use rand::{Rng, SeedableRng};
 
-use crate::components::body::{Body, Category};
+use crate::components::body::{Body, Category, Orbit};
 
 const DENSITY_IRON_G_CM3: f64 = 12.0;
 const DENSITY_ROCK_G_CM3: f64 = 3.5;
@@ -9,8 +9,8 @@ const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
 pub const EARTH_RADII_PER_AU: f64 = 23455.0;
 
 pub struct BodySystem {
-    pub(crate) planet: Body,
-    pub(crate) moons: Vec<Body>,
+    pub(crate) planet: (Body, Orbit),
+    pub(crate) moons: Vec<(Body, Orbit)>,
 }
 
 struct MassCategory {
@@ -132,7 +132,15 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
 
     let mut orbital_radius = rng.gen_range(0.2..0.6); // in AU
     while orbital_radius < 35.0 {
-        let planet = generate_planet(rng, orbital_radius, orbital_radius, PLANET_MASS_CATEGORIES);
+        let orbit = Orbit {
+            semi_major_axis: orbital_radius * EARTH_RADII_PER_AU,
+            eccentricity: 0.0,
+            inclination: 0.0,
+            longitude_of_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_at_epoch: 0.0,
+        };
+        let planet = generate_planet(rng, orbital_radius, PLANET_MASS_CATEGORIES);
 
         let spacing = compute_spacing(rng, orbital_radius, planet.body_radius);
         orbital_radius += spacing;
@@ -140,35 +148,36 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
         let roche_limit = 2.44
             * (planet.body_radius / EARTH_RADII_PER_AU)
             * (planet.density / DENSITY_ROCK_G_CM3).powf(1.0 / 3.0);
-        let hill_sphere = planet.orbital_radius
+        let hill_sphere = orbit.semi_major_axis
             * (planet.mass() / (3.0 * EARTH_MASSES_PER_SUN_MASS)).powf(1.0 / 3.0);
 
         let mut moons = vec![];
         let max = max_moons(planet.body_radius);
         let mut moon_orbital_radius = 1.5 * roche_limit;
         while moon_orbital_radius < 0.5 * hill_sphere && moons.len() < max {
-            let moon = generate_planet(
-                rng,
-                orbital_radius,
-                moon_orbital_radius,
-                MOON_MASS_CATEGORIES,
-            );
-            moons.push(moon);
+            let moon_orbit = Orbit {
+                semi_major_axis: moon_orbital_radius * EARTH_RADII_PER_AU,
+                eccentricity: 0.0,
+                inclination: 0.0,
+                longitude_of_ascending_node: 0.0,
+                argument_of_periapsis: 0.0,
+                mean_anomaly_at_epoch: 0.0,
+            };
+            let moon = generate_planet(rng, orbital_radius, MOON_MASS_CATEGORIES);
+            moons.push((moon, moon_orbit));
             moon_orbital_radius *= rng.gen_range(1.5..5.0);
         }
 
-        planets.push(BodySystem { planet, moons });
+        planets.push(BodySystem {
+            planet: (planet, orbit),
+            moons,
+        });
     }
 
     planets
 }
 
-fn generate_planet(
-    rng: &mut impl Rng,
-    dist_from_sun: f64,
-    orbital_radius: f64,
-    category_dist: &[MassCategory],
-) -> Body {
+fn generate_planet(rng: &mut impl Rng, dist_from_sun: f64, category_dist: &[MassCategory]) -> Body {
     let body_radius = sample_radius_with_au(rng, category_dist);
     let core_mass_fraction = sample_core_mass_fraction(rng, body_radius, dist_from_sun);
     let density = estimate_density(core_mass_fraction, body_radius);
@@ -180,31 +189,17 @@ fn generate_planet(
         sample_atmos_pressure(rng, magnetic_field, body_radius, dist_from_sun);
     let temperature = calculate_temperature(dist_from_sun, atmos_pressure);
 
-    Body::new(
-            1,
-            body_radius,
-            orbital_radius,
-            orbital_radius,        // TODO: Calculate this from orbital radius
-            rotation_period_hours, // TODO: Make tidally locked if close
-            core_mass_fraction,
-            magnetic_field,
-            density,
-            atmos_pressure,
-            temperature,
-            format!(
-                "{:?}\n({:.3} R🜨)\n({:.3} AU)\n({:.3} CMF)\n({:.3} g/cm^3)\n(Day: {:.3} hr)\n(Magnetic field? {})\n({:.3} bar)\n({:.3}K)",
-                category,
-                body_radius,
-                orbital_radius,
-                core_mass_fraction,
-                density,
-                rotation_period_hours,
-                magnetic_field,
-                atmos_pressure,
-                temperature
-            ),
-            category,
-        )
+    Body {
+        category,
+        body_radius,
+        rotation_period_hours,
+        rotation: 0.0,
+        temperature,
+        atmos_pressure,
+        core_mass_fraction,
+        magnetic_field,
+        density,
+    }
 }
 
 fn max_moons(body_radius: f64) -> usize {
@@ -213,23 +208,23 @@ fn max_moons(body_radius: f64) -> usize {
 
 fn has_habitable(planets: &[BodySystem]) -> bool {
     planets.iter().any(|p| {
-        p.planet.habitable() && p.planet.category == Category::EarthLike && !p.moons.is_empty()
+        p.planet.0.habitable() && p.planet.0.category == Category::EarthLike && !p.moons.is_empty()
     })
 }
 
 fn has_planet(planets: &[BodySystem], categories: &[Category], thresh: usize) -> bool {
     let count = planets
         .iter()
-        .filter(|p| categories.contains(&p.planet.category))
+        .filter(|p| categories.contains(&p.planet.0.category))
         .count();
     count >= thresh
 }
 
 fn all_moons_small(planets: &Vec<BodySystem>) -> bool {
     for system in planets {
-        let planet_mass = system.planet.mass();
+        let planet_mass = system.planet.0.mass();
         for moon in &system.moons {
-            let moon_mass = moon.mass();
+            let moon_mass = moon.0.mass();
             if moon_mass / planet_mass > 0.012 {
                 return false;
             }
@@ -241,7 +236,7 @@ fn all_moons_small(planets: &Vec<BodySystem>) -> bool {
 fn no_stripped(planets: &[BodySystem]) -> bool {
     planets
         .iter()
-        .all(|p| !p.planet.is_giant() || p.planet.gaseous())
+        .all(|p| !p.planet.0.is_giant() || p.planet.0.gaseous())
 }
 
 fn sample_rotation_period_hours(rng: &mut impl Rng, body_radius: f64) -> f64 {
