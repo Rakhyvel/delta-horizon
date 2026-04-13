@@ -24,17 +24,17 @@ const PLANET_MASS_CATEGORIES: &[MassCategory] = &[
     MassCategory {
         category: Category::Dwarf,
         range: (0.1, 0.3),
-        weight: 11.0,
+        weight: 3.0,
     },
     MassCategory {
         category: Category::SubEarth,
         range: (0.3, 0.8),
-        weight: 9.0,
+        weight: 3.0,
     },
     MassCategory {
         category: Category::EarthLike,
         range: (0.8, 1.5),
-        weight: 7.0,
+        weight: 8.0,
     },
     MassCategory {
         category: Category::SuperEarth,
@@ -44,7 +44,7 @@ const PLANET_MASS_CATEGORIES: &[MassCategory] = &[
     MassCategory {
         category: Category::MiniNeptune,
         range: (2.5, 4.0),
-        weight: 9.0,
+        weight: 10.0,
     },
     MassCategory {
         category: Category::GasGiant,
@@ -54,7 +54,7 @@ const PLANET_MASS_CATEGORIES: &[MassCategory] = &[
     MassCategory {
         category: Category::SuperGasGiant,
         range: (15.0, 20.0),
-        weight: 7.0,
+        weight: 3.0,
     },
 ];
 
@@ -78,30 +78,51 @@ const MOON_MASS_CATEGORIES: &[MassCategory] = &[
 
 pub fn generate() -> Vec<BodySystem> {
     let mut rng = rand::rngs::StdRng::from_entropy();
+    let (
+        mut attempts,
+        mut no_habitable,
+        mut large_moons,
+        mut no_terrestrial,
+        mut no_gas,
+        mut stripped,
+        mut too_few,
+    ) = (0, 0, 0, 0, 0, 0, 0);
+
     let planets = loop {
+        attempts += 1;
         let planets = generate_system(&mut rng);
-        // Need an earth starting point
+
         if !has_habitable(&planets) {
+            no_habitable += 1;
             continue;
         }
-        // All moons should be small
         if !all_moons_small(&planets) {
+            large_moons += 1;
             continue;
         }
-        // Need terrestrial
-        if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 2) {
+        if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 1) {
+            no_terrestrial += 1;
             continue;
         }
-        // Need gasses
-        if !has_planet(&planets, &[Category::MiniNeptune, Category::GasGiant], 2) {
+        if !has_planet(&planets, &[Category::MiniNeptune, Category::GasGiant], 3) {
+            no_gas += 1;
             continue;
         }
-        // Need at least 7 planets
+        if !no_stripped(&planets) {
+            stripped += 1;
+            continue;
+        }
         if planets.len() < 7 {
+            too_few += 1;
             continue;
         }
         break planets;
     };
+
+    println!(
+        "Generation took {} attempts: no_habitable={} large_moons={} no_terrestrial={} no_gas={} stripped={} too_few={}",
+        attempts, no_habitable, large_moons, no_terrestrial, no_gas, stripped, too_few
+    );
 
     planets
 }
@@ -159,7 +180,7 @@ fn generate_planet(
         sample_atmos_pressure(rng, magnetic_field, body_radius, dist_from_sun);
     let temperature = calculate_temperature(dist_from_sun, atmos_pressure);
 
-    return Planet::new(
+    Planet::new(
             1,
             body_radius,
             orbital_radius,
@@ -183,20 +204,20 @@ fn generate_planet(
                 temperature
             ),
             category,
-        );
+        )
 }
 
 fn max_moons(body_radius: f64) -> usize {
     (-4.0 * 0.7f64.powf(body_radius) + 4.0) as usize
 }
 
-fn has_habitable(planets: &Vec<BodySystem>) -> bool {
+fn has_habitable(planets: &[BodySystem]) -> bool {
     planets.iter().any(|p| {
-        p.planet.habitable() && p.planet.category == Category::EarthLike && p.moons.len() >= 1
+        p.planet.habitable() && p.planet.category == Category::EarthLike && !p.moons.is_empty()
     })
 }
 
-fn has_planet(planets: &Vec<BodySystem>, categories: &[Category], thresh: usize) -> bool {
+fn has_planet(planets: &[BodySystem], categories: &[Category], thresh: usize) -> bool {
     let count = planets
         .iter()
         .filter(|p| categories.contains(&p.planet.category))
@@ -207,18 +228,20 @@ fn has_planet(planets: &Vec<BodySystem>, categories: &[Category], thresh: usize)
 fn all_moons_small(planets: &Vec<BodySystem>) -> bool {
     for system in planets {
         let planet_mass = system.planet.mass();
-        let planet_radius = system.planet.body_radius;
         for moon in &system.moons {
             let moon_mass = moon.mass();
-            let moon_orbit_radius = moon.orbital_radius;
-            if (moon_mass / planet_mass)
-                > ((planet_radius / EARTH_RADII_PER_AU) / moon_orbit_radius)
-            {
+            if moon_mass / planet_mass > 0.012 {
                 return false;
             }
         }
     }
     true
+}
+
+fn no_stripped(planets: &[BodySystem]) -> bool {
+    planets
+        .iter()
+        .all(|p| !p.planet.is_giant() || p.planet.gaseous())
 }
 
 fn sample_rotation_period_hours(rng: &mut impl Rng, body_radius: f64) -> f64 {
@@ -257,7 +280,7 @@ fn estimate_density(core_mass_fraction: f64, body_radius: f64) -> f64 {
         1.0 / body_radius // gas giants get puffy as their radius increases
     };
 
-    return base_density * compression;
+    base_density * compression
 }
 
 fn has_magnetic_field(
@@ -301,7 +324,7 @@ fn sample_atmos_pressure(
 
     // gravity retention
     let gravity_factor = if body_radius > 1.0 {
-        body_radius.powf(1.5) // stronger scaling for big planets
+        1.0 // stronger scaling for big planets
     } else {
         body_radius.powf(4.0) // small planets struggle
     };
@@ -312,18 +335,12 @@ fn sample_atmos_pressure(
     // distance helps slightly (inverse square law for photoionization)
     let distance_factor = 1.0 + orbital_radius.powf(0.25);
 
-    let pressure = volatile_factor
-        * gravity_factor
-        * magnetic_factor
-        * distance_factor
-        * rng.gen_range(0.5..1.0);
-
-    pressure
+    volatile_factor * gravity_factor * magnetic_factor * distance_factor * rng.gen_range(0.5..1.0)
 }
 
 fn calculate_temperature(orbital_radius: f64, atmos_pressure: f64) -> f64 {
-    let greenhouse = 1.51 / (atmos_pressure + 1.51);
-    278.6 * ((1.0 - 0.3) / (orbital_radius.powf(2.0) * greenhouse)).powf(0.25)
+    let inv_greenhouse = 1.51 / (atmos_pressure + 1.51);
+    278.6 * ((1.0 - 0.3) / (orbital_radius.powf(2.0) * inv_greenhouse)).powf(0.25)
 }
 
 fn compute_spacing(rng: &mut impl Rng, orbital_radius: f64, radius: f64) -> f64 {

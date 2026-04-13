@@ -19,7 +19,7 @@ use sdl2::keyboard::Scancode;
 use crate::{
     components::{
         button::{Button, Event, EventQueue},
-        planet::{Category, Planet},
+        planet::{Category, Parent, Planet},
     },
     generation::solar_system_gen::{self, EARTH_RADII_PER_AU},
 };
@@ -141,7 +141,8 @@ impl Scene for Gameplay {
             format!("turn: {}", self.turn).to_string().as_str(),
         );
 
-        app.renderer.render_3d_line_paths(&self.world);
+        app.renderer
+            .render_3d_line_paths(&self.world, Some(&self.camera_3d));
     }
 }
 
@@ -336,7 +337,7 @@ impl Gameplay {
             event_queue: event_queue.clone(),
 
             turn: 0,
-            turn_transition_time: 1.0,
+            turn_transition_time: 0.01,
         }
     }
 
@@ -345,13 +346,11 @@ impl Gameplay {
         let curr_enter_state = app.keys[Scancode::Return as usize];
         if curr_enter_state && !self.prev_enter_state {
             self.selection += 1;
-            self.selected_body_radius = 100.0;
             self.prev_selected_pos = self.selected_pos;
             self.transition = app.seconds as f64;
             if self.selection >= self.bodies.len() {
                 self.selection = 0;
             }
-            self.theta = -PI / 4.0;
         }
         self.prev_enter_state = curr_enter_state;
 
@@ -365,7 +364,7 @@ impl Gameplay {
         }
 
         self.distance = (self.distance - zoom_control_speed * (app.mouse_wheel as f64))
-            .max(self.selected_body_radius * 2.0)
+            .max(self.selected_body_radius * 4.0)
             .min(self.selected_body_radius * 40000.0 + 234.0);
     }
 
@@ -388,7 +387,7 @@ impl Gameplay {
             const REAL_SECS_PER_GAME_YEAR: f64 = 60.0; // How many turns it takes for earth to go around the sun once
             const T_SEED: f64 = 98400.0; // An offset from t, so that the planets are not all in a line.
             let t = self.turn as f64
-                + cubic_ease_out((app.seconds as f64 - self.turn_transition_time).min(1.0));
+                + cubic_ease_in_out((app.seconds as f64 - self.turn_transition_time).min(1.0));
 
             if planet.tier != 0 {
                 let parent_pos = parent_pos_map.get(&planet.parent_planet_id).unwrap();
@@ -410,7 +409,7 @@ impl Gameplay {
                 model.set_position(nalgebra_glm::convert(new_pos - self.camera_3d.world_pos));
                 self.bvh.move_obj(
                     planet.bvh_node_id.unwrap(),
-                    &app.renderer.get_model_aabb(&model),
+                    &app.renderer.get_model_aabb(model),
                     &nalgebra_glm::convert(vel),
                 );
             } else {
@@ -420,7 +419,7 @@ impl Gameplay {
             if planet.rotation_period_hours != 0.0 {
                 planet.rotation = 2.0 * PI * (t + T_SEED)
                     / (0.00001) // TODO: Fix
-                    + 3.14;
+                    + PI;
             }
 
             if entity == self.bodies[self.selection] {
@@ -432,37 +431,44 @@ impl Gameplay {
 
     fn orbit_system(&mut self, _app: &App) {
         let mut parent_pos_map = HashMap::new();
-        for (entity, (model, _planet)) in self.world.query::<(&ModelComponent, &Planet)>().iter() {
-            parent_pos_map.insert(entity, model.get_position());
+        for (entity, (world_pos, _planet)) in self.world.query::<(&WorldPosition, &Planet)>().iter()
+        {
+            parent_pos_map.insert(entity, world_pos.pos);
         }
 
-        for (entity, (planet, orbit)) in self.world.query_mut::<(&Planet, &mut LinePathComponent)>()
+        for (entity, (line, world_pos, parent)) in
+            self.world
+                .query_mut::<(&mut LinePathComponent, &mut WorldPosition, &Parent)>()
         {
-            let parent_pos = parent_pos_map.get(&planet.parent_planet_id).unwrap();
-            orbit.color.w = if entity == self.bodies[self.selection] {
+            let parent_pos = parent_pos_map.get(&parent.parent_planet_id).unwrap();
+            line.color.w = if entity == self.bodies[self.selection] {
                 0.8
             } else {
                 0.2
             };
-            orbit.position = *parent_pos;
+            world_pos.pos = *parent_pos;
         }
     }
 
     /// Updates the camera position and lookat based on mouse panning and body selection
     fn camera_update(&mut self, app: &App) {
         let rot_matrix = nalgebra_glm::rotate_y(
-            &nalgebra_glm::rotate_z(&nalgebra_glm::one(), self.phi as f64),
-            self.theta as f64,
+            &nalgebra_glm::rotate_z(&nalgebra_glm::one(), self.phi),
+            self.theta,
         );
-        let transition = cubic_ease_out((app.seconds as f64 - self.transition).min(1.0));
+        let transition = cubic_ease_in_out((app.seconds as f64 - self.transition).min(1.0));
         let offset = (1.0 - transition) * self.prev_selected_pos + transition * self.selected_pos;
         self.camera_3d.world_pos =
             (rot_matrix * nalgebra_glm::vec4(self.distance, 0., 0., 0.)).xyz() + offset;
-        self.camera_3d.sync(self.selected_pos);
+        self.camera_3d.sync(offset);
     }
 }
 
 /// Cubic easing out function - for animation
-fn cubic_ease_out(t: f64) -> f64 {
-    1.0 - (1.0 - t).powf(3.0)
+fn cubic_ease_in_out(t: f64) -> f64 {
+    if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        1.0 - (-2.0 * t + 2.0).powf(3.0) / 2.0
+    }
 }

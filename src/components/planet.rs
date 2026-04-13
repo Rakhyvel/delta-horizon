@@ -27,6 +27,11 @@ pub struct Planet {
     pub density: f64,
 }
 
+/// Component relating an entity to a parent planet
+pub struct Parent {
+    pub parent_planet_id: Entity,
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Category {
     Dwarf,
@@ -100,17 +105,20 @@ impl Planet {
             ),
         ));
 
-        if self.orbital_radius > 1.0 {
-            world
-                .insert(
-                    planet_entity,
-                    (LinePathComponent::from_orbit(
-                        self.orbital_radius as f32,
-                        0.0,
-                        1024,
-                    ),),
-                )
+        if self.parent_planet_id != Entity::DANGLING {
+            let parent_world_pos = world
+                .get::<&WorldPosition>(self.parent_planet_id)
                 .unwrap()
+                .pos;
+            let _line_path_entity = world.spawn((
+                WorldPosition {
+                    pos: parent_world_pos,
+                },
+                Parent {
+                    parent_planet_id: self.parent_planet_id,
+                },
+                LinePathComponent::from_orbit(self.orbital_radius as f32, 0.0, 2048),
+            ));
         }
 
         let bvh_node_id = bvh.insert(
@@ -128,7 +136,7 @@ impl Planet {
         planet_entity
     }
 
-    fn gaseous(&self) -> bool {
+    pub fn gaseous(&self) -> bool {
         self.atmos_pressure > 1.58
     }
 
@@ -141,13 +149,17 @@ impl Planet {
         (0.8..1.5).contains(&self.atmos_pressure) && (270.0..300.0).contains(&self.temperature)
     }
 
+    pub fn is_giant(&self) -> bool {
+        self.body_radius > 2.5
+    }
+
     fn get_texture_id(&self, renderer: &RenderContext) -> TextureId {
         if self.category == Category::Star {
             return renderer.get_texture_id_from_name("sun").unwrap();
         }
 
         if self.gaseous() {
-            if self.body_radius < 2.5 {
+            if !self.is_giant() {
                 renderer.get_texture_id_from_name("venus").unwrap()
             } else if self.temperature > 120.0 {
                 renderer.get_texture_id_from_name("jupiter").unwrap()
