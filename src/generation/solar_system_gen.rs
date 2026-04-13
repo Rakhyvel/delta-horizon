@@ -1,6 +1,6 @@
 use rand::{Rng, SeedableRng};
 
-use crate::components::planet::{Category, Planet};
+use crate::components::body::{Body, Category};
 
 const DENSITY_IRON_G_CM3: f64 = 12.0;
 const DENSITY_ROCK_G_CM3: f64 = 3.5;
@@ -9,8 +9,8 @@ const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
 pub const EARTH_RADII_PER_AU: f64 = 23455.0;
 
 pub struct BodySystem {
-    pub(crate) planet: Planet,
-    pub(crate) moons: Vec<Planet>,
+    pub(crate) planet: Body,
+    pub(crate) moons: Vec<Body>,
 }
 
 struct MassCategory {
@@ -168,7 +168,7 @@ fn generate_planet(
     dist_from_sun: f64,
     orbital_radius: f64,
     category_dist: &[MassCategory],
-) -> Planet {
+) -> Body {
     let body_radius = sample_radius_with_au(rng, category_dist);
     let core_mass_fraction = sample_core_mass_fraction(rng, body_radius, dist_from_sun);
     let density = estimate_density(core_mass_fraction, body_radius);
@@ -180,7 +180,7 @@ fn generate_planet(
         sample_atmos_pressure(rng, magnetic_field, body_radius, dist_from_sun);
     let temperature = calculate_temperature(dist_from_sun, atmos_pressure);
 
-    Planet::new(
+    Body::new(
             1,
             body_radius,
             orbital_radius,

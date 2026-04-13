@@ -1,5 +1,4 @@
-//! This module is responsible for defining the planet component
-//! TODO: Should probably rename to `body.rs`, since this can represent moons and suns
+//! This module is responsible for defining the body component
 
 use apricot::{
     bvh::{BVHNodeId, BVH},
@@ -9,8 +8,8 @@ use apricot::{
 use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
-pub struct Planet {
-    pub parent_planet_id: Entity,
+pub struct Body {
+    pub parent_body_id: Entity,
     pub tier: u32,
     pub body_radius: f64,
     pub orbital_radius: f64,
@@ -27,9 +26,9 @@ pub struct Planet {
     pub density: f64,
 }
 
-/// Component relating an entity to a parent planet
+/// Component relating an entity to a parent body
 pub struct Parent {
-    pub parent_planet_id: Entity,
+    pub parent_body_id: Entity,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -44,7 +43,7 @@ pub enum Category {
     Star,
 }
 
-impl Planet {
+impl Body {
     pub fn new(
         tier: u32,
         body_radius: f64,
@@ -59,8 +58,8 @@ impl Planet {
         name: String,
         category: Category,
     ) -> Self {
-        Planet {
-            parent_planet_id: Entity::DANGLING,
+        Body {
+            parent_body_id: Entity::DANGLING,
             tier,
             body_radius,
             orbital_radius,
@@ -84,7 +83,7 @@ impl Planet {
         renderer: &RenderContext,
         bvh: &mut BVH<Entity>,
     ) -> Entity {
-        let planet_mesh = if self.gaseous() {
+        let body_mesh = if self.gaseous() {
             renderer.get_mesh_id_from_name("uv").unwrap()
         } else {
             renderer.get_mesh_id_from_name("ico").unwrap()
@@ -95,19 +94,19 @@ impl Planet {
 
         let texture_id = self.get_texture_id(renderer);
 
-        let planet_entity = world.spawn((
+        let body_entity = world.spawn((
             WorldPosition { pos: position },
             ModelComponent::new(
-                planet_mesh,
+                body_mesh,
                 texture_id,
                 nalgebra_glm::convert(position),
                 nalgebra_glm::convert(scale_vec),
             ),
         ));
 
-        if self.parent_planet_id != Entity::DANGLING {
+        if self.parent_body_id != Entity::DANGLING {
             let parent_world_pos = world
-                .get::<&WorldPosition>(self.parent_planet_id)
+                .get::<&WorldPosition>(self.parent_body_id)
                 .unwrap()
                 .pos;
             let _line_path_entity = world.spawn((
@@ -115,25 +114,25 @@ impl Planet {
                     pos: parent_world_pos,
                 },
                 Parent {
-                    parent_planet_id: self.parent_planet_id,
+                    parent_body_id: self.parent_body_id,
                 },
                 LinePathComponent::from_orbit(self.orbital_radius as f32, 0.0, 2048),
             ));
         }
 
         let bvh_node_id = bvh.insert(
-            planet_entity,
+            body_entity,
             renderer
-                .get_mesh_aabb(planet_mesh)
+                .get_mesh_aabb(body_mesh)
                 .scale(nalgebra_glm::convert(scale_vec))
                 .translate(nalgebra_glm::convert(position)),
         );
 
         self.bvh_node_id = Some(bvh_node_id);
 
-        world.insert(planet_entity, (self,)).unwrap();
+        world.insert(body_entity, (self,)).unwrap();
 
-        planet_entity
+        body_entity
     }
 
     pub fn gaseous(&self) -> bool {

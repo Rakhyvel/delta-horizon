@@ -18,8 +18,8 @@ use sdl2::keyboard::Scancode;
 
 use crate::{
     components::{
+        body::{Body, Category, Parent},
         button::{Button, Event, EventQueue},
-        planet::{Category, Parent, Planet},
     },
     generation::solar_system_gen::{self, EARTH_RADII_PER_AU},
 };
@@ -122,7 +122,7 @@ impl Scene for Gameplay {
 
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         app.renderer.set_font(font);
-        for (entity, planet) in self.world.query::<&Planet>().iter() {
+        for (entity, planet) in self.world.query::<&Body>().iter() {
             if entity == self.bodies[self.selection] {
                 app.renderer
                     .draw_text(nalgebra_glm::vec2(10.0, 10.0), &planet.name);
@@ -234,8 +234,8 @@ impl Gameplay {
 
         let mut bvh = BVH::<Entity>::new();
 
-        let sun_entity = Planet::add_as_entity(
-            Planet::new(
+        let sun_entity = Body::add_as_entity(
+            Body::new(
                 0,
                 110.0,
                 0.0,
@@ -258,16 +258,16 @@ impl Gameplay {
 
         let planets = solar_system_gen::generate();
         for mut system in planets {
-            system.planet.parent_planet_id = sun_entity;
+            system.planet.parent_body_id = sun_entity;
             system.planet.orbital_radius *= EARTH_RADII_PER_AU;
             let planet_entity =
-                Planet::add_as_entity(system.planet, &mut world, &app.renderer, &mut bvh);
+                Body::add_as_entity(system.planet, &mut world, &app.renderer, &mut bvh);
             bodies.push(planet_entity);
             for mut moon in system.moons {
-                moon.parent_planet_id = planet_entity;
+                moon.parent_body_id = planet_entity;
                 moon.orbital_radius *= EARTH_RADII_PER_AU;
                 moon.tier = 2;
-                let moon_entity = Planet::add_as_entity(moon, &mut world, &app.renderer, &mut bvh);
+                let moon_entity = Body::add_as_entity(moon, &mut world, &app.renderer, &mut bvh);
                 bodies.push(moon_entity);
             }
         }
@@ -371,14 +371,13 @@ impl Gameplay {
     /// Updates planets based on their on-rails orbits around their parent bodies
     fn planet_system(&mut self, app: &App, tier: u32) {
         let mut parent_pos_map = HashMap::new();
-        for (entity, (world_pos, _planet)) in self.world.query::<(&WorldPosition, &Planet)>().iter()
-        {
+        for (entity, (world_pos, _planet)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
             parent_pos_map.insert(entity, world_pos.pos);
         }
 
         for (entity, (world_pos, model, planet)) in
             self.world
-                .query_mut::<(&mut WorldPosition, &mut ModelComponent, &mut Planet)>()
+                .query_mut::<(&mut WorldPosition, &mut ModelComponent, &mut Body)>()
         {
             if planet.tier != tier {
                 continue;
@@ -390,7 +389,7 @@ impl Gameplay {
                 + cubic_ease_in_out((app.seconds as f64 - self.turn_transition_time).min(1.0));
 
             if planet.tier != 0 {
-                let parent_pos = parent_pos_map.get(&planet.parent_planet_id).unwrap();
+                let parent_pos = parent_pos_map.get(&planet.parent_body_id).unwrap();
                 let new_pos = vec3(
                     (2.0 * PI * (t + T_SEED)
                         / (REAL_SECS_PER_GAME_YEAR * planet.orbital_time_years))
@@ -431,8 +430,7 @@ impl Gameplay {
 
     fn orbit_system(&mut self, _app: &App) {
         let mut parent_pos_map = HashMap::new();
-        for (entity, (world_pos, _planet)) in self.world.query::<(&WorldPosition, &Planet)>().iter()
-        {
+        for (entity, (world_pos, _planet)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
             parent_pos_map.insert(entity, world_pos.pos);
         }
 
@@ -440,7 +438,7 @@ impl Gameplay {
             self.world
                 .query_mut::<(&mut LinePathComponent, &mut WorldPosition, &Parent)>()
         {
-            let parent_pos = parent_pos_map.get(&parent.parent_planet_id).unwrap();
+            let parent_pos = parent_pos_map.get(&parent.parent_body_id).unwrap();
             line.color.w = if entity == self.bodies[self.selection] {
                 0.8
             } else {
