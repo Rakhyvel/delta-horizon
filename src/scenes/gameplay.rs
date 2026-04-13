@@ -252,6 +252,7 @@ impl Gameplay {
                 longitude_of_ascending_node: 0.0,
                 argument_of_periapsis: 0.0,
                 mean_anomaly_at_epoch: 0.0,
+                period: 0.0,
             },
             SceneObject {
                 bvh_node_id: None,
@@ -363,7 +364,7 @@ impl Gameplay {
             event_queue: event_queue.clone(),
 
             turn: 0,
-            turn_transition_time: 0.01,
+            turn_transition_time: 0.001,
         }
     }
 
@@ -391,7 +392,7 @@ impl Gameplay {
 
         self.distance = (self.distance - zoom_control_speed * (app.mouse_wheel as f64))
             .max(self.selected_body_radius * 4.0)
-            .min(self.selected_body_radius * 40000.0 + 234.0);
+            .min(self.selected_body_radius * 4000000.0 + 234.0);
     }
 
     /// Updates planets based on their on-rails orbits around their parent bodies
@@ -417,9 +418,12 @@ impl Gameplay {
             }
         }
 
-        let t = 3600.0
+        const TURN_TIME: f64 = 10.0;
+        let t = 1.0 / 12.0
             * (self.turn as f64
-                + cubic_ease_in_out((app.seconds as f64 - self.turn_transition_time).min(1.0)));
+                + cubic_ease_in_out(
+                    ((app.seconds as f64 - self.turn_transition_time) / TURN_TIME).min(1.0),
+                ));
 
         // Kick off from roots
         for root in roots {
@@ -454,8 +458,7 @@ impl Gameplay {
 
         // Compute local offset if Orbit exists
         let local_offset = if let Ok(orbit) = self.world.get::<&Orbit>(entity) {
-            let period = 2.0 * PI * (orbit.semi_major_axis.powf(3.0) / 1.0).sqrt();
-            let theta = 2.0 * PI * (t + orbit.mean_anomaly_at_epoch) / (period + 0.00001);
+            let theta = 2.0 * PI * (t + orbit.mean_anomaly_at_epoch) / (orbit.period + 0.0001);
             vec3(
                 theta.cos() * orbit.semi_major_axis,
                 theta.sin() * orbit.semi_major_axis,

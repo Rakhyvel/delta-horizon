@@ -14,12 +14,13 @@ pub struct SceneObject {
 }
 
 pub struct Orbit {
-    pub semi_major_axis: f64,
+    pub semi_major_axis: f64, // In earth radii
     pub eccentricity: f64,
     pub inclination: f64,
     pub longitude_of_ascending_node: f64,
     pub argument_of_periapsis: f64,
     pub mean_anomaly_at_epoch: f64,
+    pub period: f64,
 }
 
 pub struct Body {
@@ -116,7 +117,7 @@ impl Body {
 
     pub fn mass(&self) -> f64 {
         let earth_density = 5.51;
-        (self.density / earth_density) * self.body_radius.powi(3)
+        (self.density / earth_density) * self.body_radius.powi(3) / earth_density
     }
 
     pub fn habitable(&self) -> bool {

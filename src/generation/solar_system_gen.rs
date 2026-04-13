@@ -1,3 +1,5 @@
+use std::f64::consts::PI;
+
 use rand::{Rng, SeedableRng};
 
 use crate::components::body::{Body, Category, Orbit};
@@ -6,7 +8,10 @@ const DENSITY_IRON_G_CM3: f64 = 12.0;
 const DENSITY_ROCK_G_CM3: f64 = 3.5;
 
 const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
+const KG_PER_EARTH_MASSES: f64 = 6.0e24;
 pub const EARTH_RADII_PER_AU: f64 = 23455.0;
+const SECONDS_PER_YEAR: f64 = 3.156e7;
+const G: f64 = 4.0 * PI * PI;
 
 pub struct BodySystem {
     pub(crate) planet: (Body, Orbit),
@@ -78,92 +83,75 @@ const MOON_MASS_CATEGORIES: &[MassCategory] = &[
 
 pub fn generate() -> Vec<BodySystem> {
     let mut rng = rand::rngs::StdRng::from_entropy();
-    let (
-        mut attempts,
-        mut no_habitable,
-        mut large_moons,
-        mut no_terrestrial,
-        mut no_gas,
-        mut stripped,
-        mut too_few,
-    ) = (0, 0, 0, 0, 0, 0, 0);
 
-    let planets = loop {
-        attempts += 1;
+    loop {
         let planets = generate_system(&mut rng);
 
         if !has_habitable(&planets) {
-            no_habitable += 1;
             continue;
         }
         if !all_moons_small(&planets) {
-            large_moons += 1;
             continue;
         }
         if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 1) {
-            no_terrestrial += 1;
             continue;
         }
         if !has_planet(&planets, &[Category::MiniNeptune, Category::GasGiant], 3) {
-            no_gas += 1;
             continue;
         }
         if !no_stripped(&planets) {
-            stripped += 1;
             continue;
         }
         if planets.len() < 7 {
-            too_few += 1;
             continue;
         }
         break planets;
-    };
-
-    println!(
-        "Generation took {} attempts: no_habitable={} large_moons={} no_terrestrial={} no_gas={} stripped={} too_few={}",
-        attempts, no_habitable, large_moons, no_terrestrial, no_gas, stripped, too_few
-    );
-
-    planets
+    }
 }
 
 fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
     let mut planets: Vec<BodySystem> = vec![];
 
-    let mut orbital_radius = rng.gen_range(0.2..0.6); // in AU
-    while orbital_radius < 35.0 {
+    let mut orbital_radius_au = rng.gen_range(0.2..0.6); // in AU
+    while orbital_radius_au < 35.0 {
+        let orbital_radius_earth_radii = orbital_radius_au * EARTH_RADII_PER_AU;
+        let planet = generate_planet(rng, orbital_radius_au, PLANET_MASS_CATEGORIES);
+        let mu = G * (EARTH_MASSES_PER_SUN_MASS + planet.mass()) / EARTH_MASSES_PER_SUN_MASS;
+        let period = 2.0 * PI * (orbital_radius_au.powf(3.0) / mu).sqrt();
         let orbit = Orbit {
-            semi_major_axis: orbital_radius * EARTH_RADII_PER_AU,
+            semi_major_axis: orbital_radius_earth_radii,
             eccentricity: 0.0,
             inclination: 0.0,
             longitude_of_ascending_node: 0.0,
             argument_of_periapsis: 0.0,
             mean_anomaly_at_epoch: 0.0,
+            period,
         };
-        let planet = generate_planet(rng, orbital_radius, PLANET_MASS_CATEGORIES);
 
-        let spacing = compute_spacing(rng, orbital_radius, planet.body_radius);
-        orbital_radius += spacing;
+        let spacing = compute_spacing(rng, orbital_radius_au, planet.body_radius);
+        orbital_radius_au += spacing;
 
-        let roche_limit = 2.44
-            * (planet.body_radius / EARTH_RADII_PER_AU)
-            * (planet.density / DENSITY_ROCK_G_CM3).powf(1.0 / 3.0);
+        let roche_limit = 2.44 * planet.body_radius * (planet.density).powf(1.0 / 3.0);
         let hill_sphere = orbit.semi_major_axis
             * (planet.mass() / (3.0 * EARTH_MASSES_PER_SUN_MASS)).powf(1.0 / 3.0);
 
         let mut moons = vec![];
         let max = max_moons(planet.body_radius);
-        let mut moon_orbital_radius = 1.5 * roche_limit;
+        let mut moon_orbital_radius = rng.gen_range(2.5..20.0) * roche_limit;
         while moon_orbital_radius < 0.5 * hill_sphere && moons.len() < max {
+            let moon_orbital_radius_au = moon_orbital_radius / EARTH_RADII_PER_AU;
+            let moon = generate_planet(rng, orbital_radius_au, MOON_MASS_CATEGORIES);
+            let moon_mu = G * (moon.mass() + planet.mass()) / EARTH_MASSES_PER_SUN_MASS;
+            let moon_period = 2.0 * PI * (moon_orbital_radius_au.powf(3.0) / moon_mu).sqrt();
             let moon_orbit = Orbit {
-                semi_major_axis: moon_orbital_radius * EARTH_RADII_PER_AU,
+                semi_major_axis: moon_orbital_radius,
                 eccentricity: 0.0,
                 inclination: 0.0,
                 longitude_of_ascending_node: 0.0,
                 argument_of_periapsis: 0.0,
                 mean_anomaly_at_epoch: 0.0,
+                period: moon_period,
             };
-            let moon = generate_planet(rng, orbital_radius, MOON_MASS_CATEGORIES);
             moons.push((moon, moon_orbit));
             moon_orbital_radius *= rng.gen_range(1.5..5.0);
         }
@@ -254,12 +242,12 @@ fn sample_rotation_period_hours(rng: &mut impl Rng, body_radius: f64) -> f64 {
     rng.gen_range(min..max).exp()
 }
 
-fn sample_core_mass_fraction(rng: &mut impl Rng, body_radius: f64, orbital_radius: f64) -> f64 {
+fn sample_core_mass_fraction(rng: &mut impl Rng, body_radius: f64, orbital_radius_au: f64) -> f64 {
     if body_radius > 2.5 {
         return 0.0;
     }
 
-    let base = body_radius * 0.830169 * (0.361935f64).powf(orbital_radius);
+    let base = body_radius * 0.830169 * (0.361935f64).powf(orbital_radius_au);
     let variation = rng.gen_range(-0.05..0.05);
     (base + variation).clamp(0.05, 0.7)
 }
@@ -307,10 +295,10 @@ fn sample_atmos_pressure(
     rng: &mut impl Rng,
     magnetic_field: bool,
     body_radius: f64,
-    orbital_radius: f64,
+    orbital_radius_au: f64,
 ) -> f64 {
     // volatiles available
-    let volatile_factor = match orbital_radius {
+    let volatile_factor = match orbital_radius_au {
         r if r < 0.5 => 0.1, // almost none
         r if r < 1.5 => 0.5, // some
         r if r < 3.5 => 1.0, // decent
@@ -328,21 +316,21 @@ fn sample_atmos_pressure(
     let magnetic_factor = if magnetic_field { 1.5 } else { 0.5 };
 
     // distance helps slightly (inverse square law for photoionization)
-    let distance_factor = 1.0 + orbital_radius.powf(0.25);
+    let distance_factor = 1.0 + orbital_radius_au.powf(0.25);
 
     volatile_factor * gravity_factor * magnetic_factor * distance_factor * rng.gen_range(0.5..1.0)
 }
 
-fn calculate_temperature(orbital_radius: f64, atmos_pressure: f64) -> f64 {
+fn calculate_temperature(orbital_radius_au: f64, atmos_pressure: f64) -> f64 {
     let inv_greenhouse = 1.51 / (atmos_pressure + 1.51);
-    278.6 * ((1.0 - 0.3) / (orbital_radius.powf(2.0) * inv_greenhouse)).powf(0.25)
+    278.6 * ((1.0 - 0.3) / (orbital_radius_au.powf(2.0) * inv_greenhouse)).powf(0.25)
 }
 
-fn compute_spacing(rng: &mut impl Rng, orbital_radius: f64, radius: f64) -> f64 {
+fn compute_spacing(rng: &mut impl Rng, orbital_radius_au: f64, radius: f64) -> f64 {
     let base = rng.gen_range(1.1..1.4);
     let radius_boost = 1.0 + 0.1 * radius.powf(0.25);
 
-    orbital_radius * base * radius_boost
+    orbital_radius_au * base * radius_boost
 }
 
 fn categorize_planet(radius: f64) -> Category {
