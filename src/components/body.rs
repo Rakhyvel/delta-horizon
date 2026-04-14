@@ -20,19 +20,19 @@ pub struct Orbit {
     pub longitude_of_ascending_node: f64,
     pub argument_of_periapsis: f64,
     pub mean_anomaly_at_epoch: f64,
-    pub period: f64,
+    pub period: f64, // In years
 }
 
 pub struct Body {
     pub category: Category,
-    pub body_radius: f64, // TODO: Store in km
+    pub body_radius: f64, // In earth radii
     pub rotation_period_hours: f64,
     pub rotation: f64,
-    pub atmos_pressure: f64,
-    pub temperature: f64,
+    pub atmos_pressure: f64, // In bar
+    pub temperature: f64,    // In K
     pub core_mass_fraction: f64,
     pub magnetic_field: bool,
-    pub density: f64,
+    pub density: f64, // In g/cm^3
 }
 
 /// Component relating an entity to a parent body

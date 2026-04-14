@@ -8,9 +8,7 @@ const DENSITY_IRON_G_CM3: f64 = 12.0;
 const DENSITY_ROCK_G_CM3: f64 = 3.5;
 
 const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
-const KG_PER_EARTH_MASSES: f64 = 6.0e24;
 pub const EARTH_RADII_PER_AU: f64 = 23455.0;
-const SECONDS_PER_YEAR: f64 = 3.156e7;
 const G: f64 = 4.0 * PI * PI;
 
 pub struct BodySystem {

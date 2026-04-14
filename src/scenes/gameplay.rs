@@ -20,6 +20,7 @@ use crate::{
     components::{
         body::{spawn_body, Body, Category, Orbit, Parent, SceneObject},
         button::{Button, Event, EventQueue},
+        craft::{spawn_craft, spawn_landed_craft, Craft, Landed},
     },
     generation::solar_system_gen::{self},
 };
@@ -28,6 +29,7 @@ use crate::{
 pub const QUAD_XY_DATA: &[u8] = include_bytes!("../../res/quad-xy.obj");
 pub const ICO_DATA: &[u8] = include_bytes!("../../res/ico-sphere.obj");
 pub const UV_DATA: &[u8] = include_bytes!("../../res/uv-sphere.obj");
+pub const CONE_DATA: &[u8] = include_bytes!("../../res/cone.obj");
 
 /// Struct that contains info about the game state
 pub struct Gameplay {
@@ -97,6 +99,7 @@ impl Scene for Gameplay {
 
         self.control(app);
         self.orbit_system(app);
+        self.landed_system(app);
         self.select_system();
         self.line_path_system(app);
         self.camera_update(app);
@@ -206,6 +209,7 @@ impl Gameplay {
             .add_mesh_from_obj(QUAD_XY_DATA, Some("quad-xy"));
         app.renderer.add_mesh_from_obj(UV_DATA, Some("uv"));
         app.renderer.add_mesh_from_obj(ICO_DATA, Some("ico"));
+        app.renderer.add_mesh_from_obj(CONE_DATA, Some("cone"));
 
         // Setup the texture manager
         app.renderer
@@ -266,8 +270,10 @@ impl Gameplay {
 
         let mut bodies = vec![sun_entity];
 
+        let mut habitable_planet = 0;
         let planets = solar_system_gen::generate();
         for system in planets {
+            let planet_habitable = system.planet.0.habitable();
             let planet_entity = spawn_body(
                 system.planet.0,
                 system.planet.1,
@@ -280,6 +286,9 @@ impl Gameplay {
                 &app.renderer,
                 &mut bvh,
             );
+            if planet_habitable {
+                habitable_planet = bodies.len();
+            }
             bodies.push(planet_entity);
 
             for moon in system.moons {
@@ -298,6 +307,40 @@ impl Gameplay {
                 bodies.push(moon_entity);
             }
         }
+
+        let craft_entity = spawn_craft(
+            Orbit {
+                semi_major_axis: 2.0,
+                eccentricity: 0.0,
+                inclination: 0.0,
+                longitude_of_ascending_node: 0.0,
+                argument_of_periapsis: 0.0,
+                mean_anomaly_at_epoch: 0.0,
+                period: 1.0 / 365.0,
+            },
+            SceneObject {
+                bvh_node_id: None,
+                name: String::from("craft"),
+            },
+            Some(Parent {
+                id: bodies[habitable_planet],
+            }),
+            &mut world,
+            &app.renderer,
+            &mut bvh,
+        );
+        let _landed_craft_entity = spawn_landed_craft(
+            SceneObject {
+                bvh_node_id: None,
+                name: String::from("landed craft"),
+            },
+            Some(Parent {
+                id: bodies[habitable_planet],
+            }),
+            &mut world,
+            &app.renderer,
+            &mut bvh,
+        );
 
         let event_queue = Arc::new(EventQueue::new());
 
@@ -350,7 +393,7 @@ impl Gameplay {
                 1024,
             ),
 
-            selection: 2,
+            selection: habitable_planet,
             selected_pos: vec3(0.0, 0.0, 0.0),
             prev_selected_pos: vec3(0.0, 0.0, 0.0),
             transition: 1.0,
@@ -418,7 +461,7 @@ impl Gameplay {
             }
         }
 
-        const TURN_TIME: f64 = 10.0;
+        const TURN_TIME: f64 = 1.0;
         let t = 1.0 / 12.0
             * (self.turn as f64
                 + cubic_ease_in_out(
@@ -429,17 +472,6 @@ impl Gameplay {
         for root in roots {
             let root_pos = vec3(0.0, 0.0, 0.0);
             self.propagate(&children, root, root_pos, t, app);
-        }
-    }
-
-    fn select_system(&mut self) {
-        for (entity, (world_pos, planet)) in
-            self.world.query_mut::<(&mut WorldPosition, &mut Body)>()
-        {
-            if entity == self.bodies[self.selection] {
-                self.selected_pos = world_pos.pos;
-                self.selected_body_radius = planet.body_radius;
-            }
         }
     }
 
@@ -486,6 +518,46 @@ impl Gameplay {
         if let Some(kids) = children.get(&entity) {
             for &child in kids {
                 self.propagate(children, child, new_world, t, app);
+            }
+        }
+    }
+
+    // Updates craft to be on the surface of their planet
+    fn landed_system(&mut self, app: &App) {
+        // Extract out positions
+        let mut pos_map = HashMap::new();
+        for (entity, (world_pos, body)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
+            pos_map.insert(entity, (world_pos.pos, body.body_radius));
+        }
+
+        for (_entity, (world_pos, parent, _landed, scene_obj, model)) in self.world.query_mut::<(
+            &mut WorldPosition,
+            &Parent,
+            &Landed,
+            &SceneObject,
+            &mut ModelComponent,
+        )>() {
+            let (parent_pos, parent_radius) = pos_map.get(&parent.id).unwrap();
+
+            let new_world = parent_pos + vec3(0.0, *parent_radius, 0.0);
+            let vel = new_world - world_pos.pos;
+            world_pos.pos = new_world;
+            model.set_position(nalgebra_glm::convert(new_world - self.camera_3d.world_pos));
+            self.bvh.move_obj(
+                scene_obj.bvh_node_id.unwrap(),
+                &app.renderer.get_model_aabb(model),
+                &nalgebra_glm::convert(vel),
+            );
+        }
+    }
+
+    fn select_system(&mut self) {
+        for (entity, (world_pos, planet)) in
+            self.world.query_mut::<(&mut WorldPosition, &mut Body)>()
+        {
+            if entity == self.bodies[self.selection] {
+                self.selected_pos = world_pos.pos;
+                self.selected_body_radius = planet.body_radius;
             }
         }
     }
