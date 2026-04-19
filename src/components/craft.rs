@@ -29,7 +29,7 @@ pub fn spawn_craft(
     let craft_mesh = renderer.get_mesh_id_from_name("cone").unwrap();
 
     let position: DVec3 = vec3(0., 0., 0.);
-    let scale_vec: DVec3 = vec3(1.0, 1.0, 1.0);
+    let scale_vec: DVec3 = vec3(0.01, 0.01, 0.01);
 
     let texture_id = renderer.get_texture_id_from_name("europa").unwrap();
 
@@ -82,7 +82,7 @@ pub fn spawn_landed_craft(
     let craft_mesh = renderer.get_mesh_id_from_name("cone").unwrap();
 
     let position: DVec3 = vec3(0., 0., 0.);
-    let scale_vec: DVec3 = vec3(1.0, 1.0, 1.0);
+    let scale_vec: DVec3 = vec3(0.01, 0.01, 0.01);
 
     let texture_id = renderer.get_texture_id_from_name("europa").unwrap();
 
