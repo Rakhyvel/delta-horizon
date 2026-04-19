@@ -1,4 +1,5 @@
 use apricot::{app::App, rectangle::Rectangle, render_core::TextureId};
+use nalgebra_glm::Vec2;
 
 use crate::ui::{msg::MsgQueue, widget::Widget};
 
@@ -54,5 +55,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextureButton<Msg> {
             },
             Rectangle::new(0.0, 0.0, 360.0, 360.0),
         );
+    }
+
+    fn size(&self) -> Vec2 {
+        self.rect.size
+    }
+
+    fn layout(&mut self, pos: Vec2) {
+        self.rect.pos = pos
     }
 }

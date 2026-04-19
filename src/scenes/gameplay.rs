@@ -408,7 +408,7 @@ impl Gameplay {
             )
             .on_click(Message::NextTurn),
             TextButton::new(
-                Rectangle::new(100.0, 120.0, 90.0, 20.0,),
+                Rectangle::new(100.0, 120.0, 200.0, 20.0,),
                 "Click me!",
                 vec4(0.0, 0.0, 0.0, 0.5),
                 vec4(1.0, 1.0, 1.0, 0.5),

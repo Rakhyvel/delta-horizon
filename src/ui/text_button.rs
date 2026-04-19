@@ -1,6 +1,6 @@
 use crate::ui::{msg::MsgQueue, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
-use nalgebra_glm::Vec4;
+use nalgebra_glm::{Vec2, Vec4};
 
 /// A button with text
 pub struct TextButton<Msg> {
@@ -57,5 +57,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
         app.renderer.set_color(color);
         app.renderer.fill_rect(self.rect);
         app.renderer.draw_text(self.rect.pos, &self.label);
+    }
+
+    fn size(&self) -> Vec2 {
+        self.rect.size
+    }
+
+    fn layout(&mut self, pos: Vec2) {
+        self.rect.pos = pos
     }
 }

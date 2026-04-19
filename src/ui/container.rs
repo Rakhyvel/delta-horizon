@@ -1,13 +1,64 @@
 use crate::ui::{msg::MsgQueue, widget::Widget};
-use apricot::app::App;
+use apricot::{app::App, rectangle::Rectangle};
+use nalgebra_glm::{vec2, Vec2};
 
-pub struct Container<Msg> {
-    children: Vec<Box<dyn Widget<Msg>>>,
+/// How widgets are stacked
+pub enum Flow {
+    Vertical,
+    Horizontal,
 }
 
-impl<Msg> Container<Msg> {
+/// How widgets are position on the flow-axis
+pub enum Align {
+    // left or top
+    Start,
+    Center,
+    // right or bottom
+    End,
+}
+
+pub struct Container<Msg> {
+    rect: Rectangle,
+    children: Vec<Box<dyn Widget<Msg>>>,
+    flow: Flow,
+    /// Alignment on the perpendicular axis
+    cross_align: Align,
+    fixed_width: bool,
+    fixed_height: bool,
+}
+
+impl<Msg: Clone + 'static> Container<Msg> {
     pub fn new(children: Vec<Box<dyn Widget<Msg>>>) -> Self {
-        Self { children }
+        let mut retval = Self {
+            rect: Rectangle::new(0.0, 0.0, 0.0, 0.0),
+            children,
+            flow: Flow::Vertical,
+            cross_align: Align::Start,
+            fixed_width: false,
+            fixed_height: false,
+        };
+        retval.layout(retval.rect.pos);
+        retval
+    }
+
+    pub fn flow(mut self, flow: Flow) -> Self {
+        self.flow = flow;
+        self.layout(self.rect.pos);
+        self
+    }
+
+    pub fn cross_align(mut self, cross_align: Align) -> Self {
+        self.cross_align = cross_align;
+        self.layout(self.rect.pos);
+        self
+    }
+
+    pub fn fixed_size(mut self, size: Vec2) -> Self {
+        self.rect.size = size;
+        self.fixed_height = true;
+        self.fixed_width = true;
+        self.layout(self.rect.pos);
+        self
     }
 }
 
@@ -28,6 +79,110 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
     fn render(&self, app: &App) {
         for child in self.children.iter() {
             child.as_ref().render(app);
+        }
+    }
+
+    fn size(&self) -> Vec2 {
+        self.rect.size
+    }
+
+    fn layout(&mut self, pos: Vec2) {
+        self.rect.pos = pos;
+
+        // Collect child sizes
+        let child_sizes: Vec<Vec2> = self
+            .children
+            .iter_mut()
+            .map(|child| {
+                child.layout(Vec2::zeros());
+                child.size()
+            })
+            .collect();
+
+        let max_content_size = child_sizes
+            .iter()
+            .fold(Vec2::zeros(), |acc, s| nalgebra_glm::max2(&acc, s));
+        let additive_content_size = child_sizes.iter().fold(Vec2::zeros(), |acc, s| acc + *s);
+
+        // Compute spacer
+        let mut spacer = if self.children.is_empty() {
+            Vec2::zeros()
+        } else {
+            (self.rect.size - additive_content_size) / (self.children.len() as f32 + 1.0)
+        };
+        match self.flow {
+            Flow::Vertical => spacer.x = 0.0,
+            Flow::Horizontal => spacer.y = 0.0,
+        }
+        if spacer.x < 0.0 {
+            spacer.x = 0.0;
+        }
+        if spacer.y < 0.0 {
+            spacer.y = 0.0;
+        }
+
+        // Second pass to place children
+        let mut main_offset = match self.flow {
+            Flow::Vertical => spacer.y,
+            Flow::Horizontal => spacer.x,
+        };
+        let mut working_size = Vec2::zeros();
+
+        for (child, child_size) in self.children.iter_mut().zip(child_sizes.iter()) {
+            // Cross axis: how to position perpendicular to flow
+            let cross_size_available = match self.flow {
+                Flow::Vertical => {
+                    if self.fixed_width {
+                        self.rect.size.x
+                    } else {
+                        max_content_size.x
+                    }
+                }
+                Flow::Horizontal => {
+                    if self.fixed_height {
+                        self.rect.size.y
+                    } else {
+                        max_content_size.y
+                    }
+                }
+            };
+            let cross_child_size = match self.flow {
+                Flow::Vertical => child_size.x,
+                Flow::Horizontal => child_size.y,
+            };
+            let cross_offset = match self.cross_align {
+                Align::Start => 0.0,
+                Align::Center => cross_size_available / 2.0 - cross_child_size / 2.0,
+                Align::End => cross_size_available - cross_child_size,
+            };
+
+            // Compute child position from main + cross offsets
+            let child_pos = match self.flow {
+                Flow::Vertical => vec2(pos.x + cross_offset, pos.y + main_offset),
+                Flow::Horizontal => vec2(pos.x + main_offset, pos.y + cross_offset),
+            };
+            child.layout(child_pos);
+
+            // Advance main axis and accumulate working size
+            match self.flow {
+                Flow::Vertical => {
+                    main_offset += spacer.y + child_size.y;
+                    working_size.x = max_content_size.x;
+                    working_size.y += spacer.y + child_size.y;
+                }
+                Flow::Horizontal => {
+                    main_offset += spacer.x + child_size.x;
+                    working_size.x += spacer.x + child_size.x;
+                    working_size.y = max_content_size.y;
+                }
+            }
+        }
+
+        if !self.fixed_width {
+            self.rect.size.x = working_size.x;
+        }
+        if !self.fixed_height {
+            self.rect.size.y = working_size.y;
         }
     }
 }
