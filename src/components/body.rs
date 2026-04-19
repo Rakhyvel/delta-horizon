@@ -13,6 +13,7 @@ pub struct SceneObject {
     pub name: String,
 }
 
+#[derive(Copy, Clone)]
 pub struct Orbit {
     pub semi_major_axis: f64, // In earth radii
     pub eccentricity: f64,

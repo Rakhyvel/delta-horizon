@@ -8,7 +8,17 @@ use nalgebra_glm::{vec3, DVec3};
 
 use crate::components::body::{Orbit, Parent, SceneObject};
 
-pub struct Craft {}
+pub struct Craft {
+    pub command: Option<Command>,
+}
+
+#[derive(Clone)]
+pub enum Command {
+    Orbit,
+    Transfer { to: Entity },
+    Capture,
+    Land,
+}
 
 pub struct Transfer {
     pub from: Entity,
@@ -66,7 +76,7 @@ pub fn spawn_craft(
     scene_obj.bvh_node_id = Some(bvh_node_id);
 
     world
-        .insert(craft_entity, (scene_obj, orbit, Craft {}))
+        .insert(craft_entity, (scene_obj, orbit, Craft { command: None }))
         .unwrap();
 
     craft_entity
@@ -111,7 +121,10 @@ pub fn spawn_landed_craft(
     scene_obj.bvh_node_id = Some(bvh_node_id);
 
     world
-        .insert(craft_entity, (scene_obj, Landed {}, Craft {}))
+        .insert(
+            craft_entity,
+            (scene_obj, Landed {}, Craft { command: None }),
+        )
         .unwrap();
 
     craft_entity

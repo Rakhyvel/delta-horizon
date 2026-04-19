@@ -18,6 +18,7 @@ use nalgebra_glm::{vec2, vec3, vec4, DVec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
+    components::craft::Command,
     container,
     ui::{container::Flow, label::Label, text_button::TextButton},
 };
@@ -73,10 +74,7 @@ pub struct Gameplay {
 #[derive(Clone)]
 enum Message {
     NextTurn,
-    Orbit,
-    Transfer { to: Entity },
-    Capture,
-    Land,
+    CraftCommand(Command),
 }
 
 struct SelectionState {
@@ -147,19 +145,37 @@ impl Scene for Gameplay {
                     if (app.seconds as f64 - self.turn_transition_time) >= 1.0 {
                         self.turn += 1;
                         self.turn_transition_time = app.seconds as f64;
+                        self.execute_commands();
+                        self.gui = self.rebuild_gui(app);
                         println!("doing the next turn!")
                     }
                 }
-                Message::Orbit => {
+                Message::CraftCommand(Command::Orbit) => {
+                    if let Some(selected) = self.selection.selected_entity() {
+                        self.world.get::<&mut Craft>(selected).unwrap().command =
+                            Some(Command::Orbit);
+                    }
                     println!("Yeah, I'll take off")
                 }
-                Message::Transfer { to } => {
+                Message::CraftCommand(Command::Transfer { to }) => {
+                    if let Some(selected) = self.selection.selected_entity() {
+                        self.world.get::<&mut Craft>(selected).unwrap().command =
+                            Some(Command::Transfer { to });
+                    }
                     println!("Yeah, I'll transfer to {:?}", to)
                 }
-                Message::Capture => {
+                Message::CraftCommand(Command::Capture) => {
+                    if let Some(selected) = self.selection.selected_entity() {
+                        self.world.get::<&mut Craft>(selected).unwrap().command =
+                            Some(Command::Capture);
+                    }
                     println!("Yeah, I'll capture around whatever body I'm fly-bying")
                 }
-                Message::Land => {
+                Message::CraftCommand(Command::Land) => {
+                    if let Some(selected) = self.selection.selected_entity() {
+                        self.world.get::<&mut Craft>(selected).unwrap().command =
+                            Some(Command::Land);
+                    }
                     println!("Yeah, I'll land on whatever body I'm on")
                 }
             }
@@ -567,6 +583,18 @@ impl Gameplay {
             font,
         ))];
 
+        // Land on body
+        widgets.push(Box::new(
+            TextButton::<Message>::new(
+                Rectangle::new(100.0, 120.0, 220.0, 40.0),
+                format!("Land on {}", parent_scene_object.name),
+                vec4(0.0, 0.0, 1.0, 0.5),
+                vec4(1.0, 1.0, 1.0, 0.5),
+            )
+            .on_click(Message::CraftCommand(Command::Land {})),
+        ));
+
+        // Escape transfer to grandparent body
         if let Ok(grandparent) = self.world.get::<&Parent>(parent.id) {
             let grandparent_scene_object = self.world.get::<&SceneObject>(grandparent.id).unwrap();
             widgets.push(Box::new(
@@ -576,10 +604,13 @@ impl Gameplay {
                     vec4(0.0, 0.0, 1.0, 0.5),
                     vec4(1.0, 1.0, 1.0, 0.5),
                 )
-                .on_click(Message::Transfer { to: grandparent.id }),
+                .on_click(Message::CraftCommand(Command::Transfer {
+                    to: grandparent.id,
+                })),
             ));
         }
 
+        // Transfers to sibling bodies
         let mut binding = self.world.query::<(&Orbit, &Body, &SceneObject, &Parent)>();
         let transfers = binding
             .iter()
@@ -592,7 +623,7 @@ impl Gameplay {
                         vec4(0.0, 0.0, 1.0, 0.5),
                         vec4(1.0, 1.0, 1.0, 0.5),
                     )
-                    .on_click(Message::Transfer { to: entity }),
+                    .on_click(Message::CraftCommand(Command::Transfer { to: entity })),
                 ) as Box<dyn Widget<Message>>
             });
 
@@ -621,9 +652,52 @@ impl Gameplay {
                     vec4(0.0, 0.0, 1.0, 0.5),
                     vec4(1.0, 1.0, 1.0, 0.5),
                 )
-                .on_click(Message::Orbit),
+                .on_click(Message::CraftCommand(Command::Orbit)),
             ),
         ])
+    }
+    fn execute_commands(&mut self) {
+        let crafts_with_commands: Vec<(Entity, Command)> = self
+            .world
+            .query::<(&mut Craft,)>()
+            .iter()
+            .filter_map(|(entity, (craft,))| craft.command.take().map(|cmd| (entity, cmd)))
+            .collect();
+
+        let orbit_to_use = Orbit {
+            semi_major_axis: 2.0,
+            eccentricity: 0.0,
+            inclination: 0.0,
+            longitude_of_ascending_node: 0.0,
+            argument_of_periapsis: 0.0,
+            mean_anomaly_at_epoch: 0.0,
+            period: 1.0 / 365.0,
+        };
+
+        for (entity, command) in crafts_with_commands {
+            match command {
+                Command::Transfer { to } => {
+                    // Remove old orbit, add new one with different parent
+                    self.world.remove_one::<Orbit>(entity).ok();
+                    self.world.insert_one(entity, orbit_to_use).unwrap();
+                    self.world.insert_one(entity, Parent { id: to }).unwrap();
+                }
+                Command::Orbit => {
+                    // Remove landed, add orbit around the body they were on
+                    let parent_id = self.world.get::<&Parent>(entity).unwrap().id;
+                    self.world.remove_one::<Landed>(entity).ok();
+                    self.world.insert_one(entity, orbit_to_use).unwrap();
+                    self.world
+                        .insert_one(entity, Parent { id: parent_id })
+                        .unwrap();
+                }
+                Command::Land => {
+                    self.world.remove_one::<Orbit>(entity).ok();
+                    self.world.insert_one(entity, Landed {}).unwrap();
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Updates planets based on their on-rails orbits around their parent bodies
