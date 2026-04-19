@@ -55,8 +55,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
             self.color
         };
         app.renderer.set_color(color);
+        let text_size = {
+            let current_font = app.renderer.get_current_font().unwrap();
+            current_font.measure(&self.label)
+        };
         app.renderer.fill_rect(self.rect);
-        app.renderer.draw_text(self.rect.pos, &self.label);
+        app.renderer.draw_text(
+            self.rect.pos + (self.rect.size - text_size) * 0.5,
+            &self.label,
+        );
     }
 
     fn size(&self) -> Vec2 {

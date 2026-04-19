@@ -13,10 +13,13 @@ use apricot::{
     shadow_map::DirectionalLightSource,
 };
 use hecs::{Entity, World};
-use nalgebra_glm::{vec3, vec4, DVec3};
+use nalgebra_glm::{vec2, vec3, vec4, DVec3};
 use sdl2::keyboard::Scancode;
 
-use crate::{container, ui::text_button::TextButton};
+use crate::{
+    container,
+    ui::{container::Flow, text_button::TextButton},
+};
 
 use crate::{
     components::{
@@ -408,13 +411,14 @@ impl Gameplay {
             )
             .on_click(Message::NextTurn),
             TextButton::new(
-                Rectangle::new(100.0, 120.0, 200.0, 20.0,),
+                Rectangle::new(100.0, 120.0, 200.0, 30.0,),
                 "Click me!",
-                vec4(0.0, 0.0, 0.0, 0.5),
+                vec4(0.0, 0.0, 1.0, 0.5),
                 vec4(1.0, 1.0, 1.0, 0.5),
             )
             .on_click(Message::NextTurn),
-        ];
+        ]
+        .at(vec2(100.0, 100.0));
 
         Self {
             world,

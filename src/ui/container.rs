@@ -41,6 +41,12 @@ impl<Msg: Clone + 'static> Container<Msg> {
         retval
     }
 
+    pub fn at(mut self, pos: Vec2) -> Self {
+        self.rect.pos = pos;
+        self.layout(self.rect.pos);
+        self
+    }
+
     pub fn flow(mut self, flow: Flow) -> Self {
         self.flow = flow;
         self.layout(self.rect.pos);
