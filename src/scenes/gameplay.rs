@@ -6,6 +6,7 @@ use apricot::{
     app::{App, Scene},
     bvh::BVH,
     camera::{Camera, ProjectionKind},
+    font::Font,
     high_precision::{self, WorldPosition},
     opengl::create_program,
     rectangle::Rectangle,
@@ -18,7 +19,7 @@ use sdl2::keyboard::Scancode;
 
 use crate::{
     container,
-    ui::{container::Flow, text_button::TextButton},
+    ui::{container::Flow, label::Label, text_button::TextButton},
 };
 
 use crate::{
@@ -72,6 +73,10 @@ pub struct Gameplay {
 #[derive(Clone)]
 enum Message {
     NextTurn,
+    Orbit,
+    Transfer { to: Entity },
+    Capture,
+    Land,
 }
 
 struct SelectionState {
@@ -145,6 +150,18 @@ impl Scene for Gameplay {
                         println!("doing the next turn!")
                     }
                 }
+                Message::Orbit => {
+                    println!("Yeah, I'll take off")
+                }
+                Message::Transfer { to } => {
+                    println!("Yeah, I'll transfer to {:?}", to)
+                }
+                Message::Capture => {
+                    println!("Yeah, I'll capture around whatever body I'm fly-bying")
+                }
+                Message::Land => {
+                    println!("Yeah, I'll land on whatever body I'm on")
+                }
             }
         }
 
@@ -175,24 +192,8 @@ impl Scene for Gameplay {
 
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         app.renderer.set_font(font);
-        if let Some(selected_entity) = self.selection.selected_entity() {
-            for (entity, scene_obj) in self.world.query::<&SceneObject>().iter() {
-                if entity == selected_entity {
-                    app.renderer
-                        .draw_text(nalgebra_glm::vec2(10.0, 10.0), &scene_obj.name);
-                }
-            }
-        }
 
         self.gui.render(app);
-
-        app.renderer.draw_text(
-            nalgebra_glm::vec2(
-                app.window_size.x as f32 - 90.0,
-                app.window_size.y as f32 - 20.0,
-            ),
-            format!("turn: {}", self.turn).to_string().as_str(),
-        );
 
         app.renderer
             .render_3d_line_paths(&self.world, Some(&self.camera_3d));
@@ -478,6 +479,7 @@ impl Gameplay {
             } else {
                 self.selection.next(app.seconds as f64);
             }
+            self.gui = self.rebuild_gui(app);
         }
         self.prev_tab_state = curr_tab_state;
 
@@ -495,6 +497,133 @@ impl Gameplay {
 
         self.distance = (self.distance - zoom_control_speed * (app.mouse_wheel as f64))
             .clamp(0.0, MAX_DISTANCE);
+    }
+
+    fn rebuild_gui(&self, app: &App) -> Container<Message> {
+        let font = app.renderer.get_current_font().unwrap();
+
+        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![];
+        widgets.extend(self.build_footer_widgets(app, &font));
+
+        let selected = self.selection.selected_entity();
+        if let Some(selected) = selected {
+            widgets.extend(self.build_selection_widgets(selected, &font));
+        }
+
+        Container::new(widgets)
+    }
+
+    fn build_footer_widgets(&self, app: &App, font: &Font) -> Vec<Box<dyn Widget<Message>>> {
+        vec![
+            Box::new(
+                TextureButton::new(
+                    Rectangle::new(
+                        app.window_size.x as f32 - 100.0,
+                        app.window_size.y as f32 - 120.0,
+                        90.0,
+                        90.0,
+                    ),
+                    app.renderer.get_texture_id_from_name("next-turn").unwrap(),
+                    app.renderer
+                        .get_texture_id_from_name("next-turn-hover")
+                        .unwrap(),
+                )
+                .on_click(Message::NextTurn),
+            ),
+            Box::new(Label::new(format!("turn: {}", self.turn), font)),
+        ]
+    }
+
+    fn build_selection_widgets(
+        &self,
+        selected: Entity,
+        font: &Font,
+    ) -> Vec<Box<dyn Widget<Message>>> {
+        let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
+        let mut widgets: Vec<Box<dyn Widget<Message>>> =
+            vec![Box::new(Label::new(scene_object.name.clone(), font))];
+
+        if let Some(status) = self.build_orbit_widgets(selected, font) {
+            widgets.extend(status);
+        }
+        if let Some(status) = self.build_landed_widgets(selected, font) {
+            widgets.extend(status);
+        }
+
+        widgets
+    }
+
+    fn build_orbit_widgets(
+        &self,
+        selected: Entity,
+        font: &Font,
+    ) -> Option<Vec<Box<dyn Widget<Message>>>> {
+        let _orbit = self.world.get::<&Orbit>(selected).ok()?;
+        let parent = self.world.get::<&Parent>(selected).ok()?;
+        let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
+
+        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![Box::new(Label::new(
+            format!("Status: Orbiting {}", parent_scene_object.name),
+            font,
+        ))];
+
+        if let Ok(grandparent) = self.world.get::<&Parent>(parent.id) {
+            let grandparent_scene_object = self.world.get::<&SceneObject>(grandparent.id).unwrap();
+            widgets.push(Box::new(
+                TextButton::<Message>::new(
+                    Rectangle::new(100.0, 120.0, 220.0, 40.0),
+                    format!("Transfer to {}", grandparent_scene_object.name),
+                    vec4(0.0, 0.0, 1.0, 0.5),
+                    vec4(1.0, 1.0, 1.0, 0.5),
+                )
+                .on_click(Message::Transfer { to: grandparent.id }),
+            ));
+        }
+
+        let mut binding = self.world.query::<(&Orbit, &Body, &SceneObject, &Parent)>();
+        let transfers = binding
+            .iter()
+            .filter(|(_, (_, _, _, p))| p.id == parent.id)
+            .map(|(entity, (_, _, scene_obj, _))| {
+                Box::new(
+                    TextButton::<Message>::new(
+                        Rectangle::new(100.0, 120.0, 220.0, 40.0),
+                        format!("Transfer to {}", scene_obj.name),
+                        vec4(0.0, 0.0, 1.0, 0.5),
+                        vec4(1.0, 1.0, 1.0, 0.5),
+                    )
+                    .on_click(Message::Transfer { to: entity }),
+                ) as Box<dyn Widget<Message>>
+            });
+
+        widgets.extend(transfers);
+        Some(widgets)
+    }
+
+    fn build_landed_widgets(
+        &self,
+        selected: Entity,
+        font: &Font,
+    ) -> Option<Vec<Box<dyn Widget<Message>>>> {
+        let _landed = self.world.get::<&Landed>(selected).ok()?;
+        let parent = self.world.get::<&Parent>(selected).ok()?;
+        let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
+
+        Some(vec![
+            Box::new(Label::new(
+                format!("Status: Landed on {}", parent_scene_object.name),
+                font,
+            )),
+            Box::new(
+                TextButton::<Message>::new(
+                    Rectangle::new(100.0, 120.0, 220.0, 40.0),
+                    "Orbit",
+                    vec4(0.0, 0.0, 1.0, 0.5),
+                    vec4(1.0, 1.0, 1.0, 0.5),
+                )
+                .on_click(Message::Orbit),
+            ),
+        ])
     }
 
     /// Updates planets based on their on-rails orbits around their parent bodies
