@@ -1,0 +1,62 @@
+use std::collections::BTreeMap;
+
+use hecs::Entity;
+
+use crate::scenes::astro::HohmannTransfer;
+
+/// Microseconds after the save start epoch
+/// Should allow for ~292,000 years future and past
+pub type EphemerisTime = i64;
+
+pub enum Event {
+    SoiChange {
+        craft: Entity,
+        new_parent: Entity,
+    },
+    FlybyClosure {
+        craft: Entity,
+        body: Entity,
+    },
+    ManeuverReady {
+        craft: Entity,
+        to: Entity,
+        plan: HohmannTransfer,
+    },
+    TakeOff {
+        craft: Entity,
+    },
+    Land {
+        craft: Entity,
+    },
+}
+
+pub struct EventQueue {
+    pub events: BTreeMap<EphemerisTime, Vec<Event>>,
+}
+
+impl EventQueue {
+    pub fn new() -> Self {
+        Self {
+            events: BTreeMap::new(),
+        }
+    }
+
+    pub fn push(&mut self, time: EphemerisTime, event: Event) {
+        self.events.entry(time).or_default().push(event);
+    }
+
+    /// Pop all events up to and including `current_time`
+    pub fn pop_due(&mut self, current_time: EphemerisTime) -> Vec<Event> {
+        let future = self.events.split_off(&(current_time + 1));
+        std::mem::replace(&mut self.events, future)
+            .into_values()
+            .flatten()
+            .collect()
+    }
+}
+
+impl Default for EventQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -2,7 +2,13 @@ use std::f64::consts::PI;
 
 use rand::{Rng, SeedableRng};
 
-use crate::components::body::{Body, Category, Orbit};
+use crate::{
+    components::{
+        body::{Body, Category},
+        orbit::Orbit,
+    },
+    scenes::astro::orbital_period,
+};
 
 const DENSITY_IRON_G_CM3: f64 = 12.0;
 const DENSITY_ROCK_G_CM3: f64 = 3.5;
@@ -137,10 +143,8 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
         let max = max_moons(planet.body_radius);
         let mut moon_orbital_radius = rng.gen_range(2.5..20.0) * roche_limit;
         while moon_orbital_radius < 0.5 * hill_sphere && moons.len() < max {
-            let moon_orbital_radius_au = moon_orbital_radius / EARTH_RADII_PER_AU;
             let moon = generate_planet(rng, orbital_radius_au, MOON_MASS_CATEGORIES);
-            let moon_mu = G * (moon.mass() + planet.mass()) / EARTH_MASSES_PER_SUN_MASS;
-            let moon_period = 2.0 * PI * (moon_orbital_radius_au.powf(3.0) / moon_mu).sqrt();
+            let moon_period = orbital_period(moon_orbital_radius, planet.mass());
             let moon_orbit = Orbit {
                 semi_major_axis: moon_orbital_radius,
                 eccentricity: 0.0,

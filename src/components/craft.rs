@@ -6,10 +6,17 @@ use apricot::{
 use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
-use crate::components::body::{Orbit, Parent, SceneObject};
+use crate::{
+    components::{
+        body::{Body, Parent, SceneObject},
+        orbit::Orbit,
+    },
+    scenes::astro::orbital_period,
+};
 
 pub struct Craft {
     pub command: Option<Command>,
+    pub line_path_entity: Option<Entity>,
 }
 
 #[derive(Clone)]
@@ -29,7 +36,7 @@ pub struct Transfer {
 pub struct Landed {}
 
 pub fn spawn_craft(
-    orbit: Orbit,
+    mut orbit: Orbit,
     mut scene_obj: SceneObject,
     parent: Option<Parent>,
     world: &mut World,
@@ -53,17 +60,24 @@ pub fn spawn_craft(
         ),
     ));
 
-    if let Some(parent) = parent {
+    let line_path_entity = if let Some(parent) = parent {
+        {
+            let parent_body = world.get::<&Body>(parent.id).unwrap();
+            orbit.period = orbital_period(orbit.semi_major_axis, parent_body.mass());
+        }
         let parent_world_pos = world.get::<&WorldPosition>(parent.id).unwrap().pos;
-        let _line_path_entity = world.spawn((
+        let line_path_entity = world.spawn((
             WorldPosition {
                 pos: parent_world_pos,
             },
             parent,
-            LinePathComponent::from_orbit(orbit.semi_major_axis as f32, 0.0, 2048),
+            LinePathComponent::new(orbit.generate_orbit_vertices(2048)),
         ));
         world.insert(craft_entity, (parent,)).unwrap();
-    }
+        Some(line_path_entity)
+    } else {
+        None
+    };
 
     let bvh_node_id = bvh.insert(
         craft_entity,
@@ -76,7 +90,17 @@ pub fn spawn_craft(
     scene_obj.bvh_node_id = Some(bvh_node_id);
 
     world
-        .insert(craft_entity, (scene_obj, orbit, Craft { command: None }))
+        .insert(
+            craft_entity,
+            (
+                scene_obj,
+                orbit,
+                Craft {
+                    command: None,
+                    line_path_entity,
+                },
+            ),
+        )
         .unwrap();
 
     craft_entity
@@ -123,9 +147,40 @@ pub fn spawn_landed_craft(
     world
         .insert(
             craft_entity,
-            (scene_obj, Landed {}, Craft { command: None }),
+            (
+                scene_obj,
+                Landed {},
+                Craft {
+                    command: None,
+                    line_path_entity: None,
+                },
+            ),
         )
         .unwrap();
 
     craft_entity
+}
+
+pub fn replace_line_path(
+    world: &mut World,
+    renderer: &RenderContext,
+    craft_entity: Entity,
+    new_line_path: Option<(WorldPosition, Parent, LinePathComponent)>,
+) {
+    let old_line_path = world.get::<&Craft>(craft_entity).unwrap().line_path_entity;
+
+    if let Some(old) = old_line_path {
+        {
+            let mut line_path = world.get::<&mut LinePathComponent>(old).unwrap();
+            renderer.queue_vao_deletion(&mut line_path.vao);
+            renderer.queue_buffer_deletion(&mut line_path.vertices_buffer);
+        }
+        world.despawn(old).ok();
+    }
+
+    let new_entity = new_line_path.map(|components| world.spawn(components));
+    world
+        .get::<&mut Craft>(craft_entity)
+        .unwrap()
+        .line_path_entity = new_entity;
 }

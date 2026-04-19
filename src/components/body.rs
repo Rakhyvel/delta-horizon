@@ -8,20 +8,11 @@ use apricot::{
 use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
+use crate::components::orbit::Orbit;
+
 pub struct SceneObject {
     pub bvh_node_id: Option<BVHNodeId>,
     pub name: String,
-}
-
-#[derive(Copy, Clone)]
-pub struct Orbit {
-    pub semi_major_axis: f64, // In earth radii
-    pub eccentricity: f64,
-    pub inclination: f64,
-    pub longitude_of_ascending_node: f64,
-    pub argument_of_periapsis: f64,
-    pub mean_anomaly_at_epoch: f64,
-    pub period: f64, // In years
 }
 
 pub struct Body {
@@ -91,7 +82,7 @@ pub fn spawn_body(
                 pos: parent_world_pos,
             },
             parent,
-            LinePathComponent::from_orbit(orbit.semi_major_axis as f32, 0.0, 2048),
+            LinePathComponent::new(orbit.generate_orbit_vertices(2048)),
         ));
         world.insert(body_entity, (parent,)).unwrap();
     }

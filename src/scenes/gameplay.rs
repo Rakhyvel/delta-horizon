@@ -18,19 +18,26 @@ use nalgebra_glm::{vec2, vec3, vec4, DVec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
-    components::craft::Command,
+    components::{
+        craft::{replace_line_path, Command},
+        orbit::Orbit,
+    },
     container,
-    ui::{container::Flow, label::Label, text_button::TextButton},
+    scenes::{
+        astro::plan_hohmann,
+        events::{EphemerisTime, Event, EventQueue},
+    },
+    ui::{label::Label, text_button::TextButton},
 };
 
 use crate::{
     components::{
-        body::{spawn_body, Body, Category, Orbit, Parent, SceneObject},
+        body::{spawn_body, Body, Category, Parent, SceneObject},
         craft::{spawn_craft, spawn_landed_craft, Craft, Landed},
     },
     generation::solar_system_gen::{self},
     ui::{
-        container::{self, Container},
+        container::Container,
         texture_button::TextureButton,
         widget::{recv_msgs, Widget},
     },
@@ -67,8 +74,12 @@ pub struct Gameplay {
 
     gui: Container<Message>,
 
-    turn: usize,
-    turn_transition_time: f64,
+    // Events and timeline
+    event_queue: EventQueue,
+    current_et: EphemerisTime,
+    animation_start_et: EphemerisTime,
+    animation_target_et: EphemerisTime,
+    animation_start_real: f64,
 }
 
 #[derive(Clone)]
@@ -142,42 +153,40 @@ impl Scene for Gameplay {
         for msg in recv_msgs(app, &mut self.gui) {
             match msg {
                 Message::NextTurn => {
-                    if (app.seconds as f64 - self.turn_transition_time) >= 1.0 {
-                        self.turn += 1;
-                        self.turn_transition_time = app.seconds as f64;
-                        self.execute_commands();
-                        self.gui = self.rebuild_gui(app);
-                        println!("doing the next turn!")
+                    if !self.is_animating() {
+                        self.plan_commands();
+                        if let Some((&next_event_time, _)) = self.event_queue.events.iter().next() {
+                            self.animation_start_et = self.current_et;
+                            self.animation_target_et = next_event_time;
+                            self.animation_start_real = app.seconds as f64;
+                        }
                     }
                 }
-                Message::CraftCommand(Command::Orbit) => {
+                Message::CraftCommand(cmd) => {
                     if let Some(selected) = self.selection.selected_entity() {
-                        self.world.get::<&mut Craft>(selected).unwrap().command =
-                            Some(Command::Orbit);
+                        self.world.get::<&mut Craft>(selected).unwrap().command = Some(cmd);
                     }
-                    println!("Yeah, I'll take off")
                 }
-                Message::CraftCommand(Command::Transfer { to }) => {
-                    if let Some(selected) = self.selection.selected_entity() {
-                        self.world.get::<&mut Craft>(selected).unwrap().command =
-                            Some(Command::Transfer { to });
-                    }
-                    println!("Yeah, I'll transfer to {:?}", to)
+            }
+        }
+
+        if self.is_animating() {
+            const TURN_TIME: f64 = 5.0;
+            let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
+            let eased = t;
+
+            // Interpolate ET between start and target
+            self.current_et = self.animation_start_et
+                + ((self.animation_target_et - self.animation_start_et) as f64 * eased) as i64;
+
+            // Animation finished
+            if t >= 1.0 {
+                self.current_et = self.animation_target_et;
+                let due = self.event_queue.pop_due(self.current_et);
+                for event in due {
+                    self.handle_event(event, app);
                 }
-                Message::CraftCommand(Command::Capture) => {
-                    if let Some(selected) = self.selection.selected_entity() {
-                        self.world.get::<&mut Craft>(selected).unwrap().command =
-                            Some(Command::Capture);
-                    }
-                    println!("Yeah, I'll capture around whatever body I'm fly-bying")
-                }
-                Message::CraftCommand(Command::Land) => {
-                    if let Some(selected) = self.selection.selected_entity() {
-                        self.world.get::<&mut Craft>(selected).unwrap().command =
-                            Some(Command::Land);
-                    }
-                    println!("Yeah, I'll land on whatever body I'm on")
-                }
+                self.gui = self.rebuild_gui(app);
             }
         }
 
@@ -187,12 +196,20 @@ impl Scene for Gameplay {
         self.select_system();
         self.line_path_system(app);
         self.camera_update(app);
+
+        // Delete anything we want deleted
+        app.renderer.flush_deletion_queue();
     }
 
     /// Render the scene to the screen when time allows
     fn render(&mut self, app: &App) {
+        // Set everything up
         self.directional_light.light_dir = -self.camera_3d.inner.position().normalize();
         app.renderer.set_camera(self.camera_3d.inner);
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+        app.renderer.set_font(font);
+
+        // Draw the 3D stuff
         app.renderer.directional_light_system(
             &mut self.directional_light,
             &mut self.world,
@@ -205,14 +222,11 @@ impl Scene for Gameplay {
             Some(&self.camera_3d),
             false,
         );
-
-        let font = app.renderer.get_font_id_from_name("font").unwrap();
-        app.renderer.set_font(font);
-
-        self.gui.render(app);
-
         app.renderer
             .render_3d_line_paths(&self.world, Some(&self.camera_3d));
+
+        // Draw the 2D stuff
+        self.gui.render(app);
     }
 }
 
@@ -324,7 +338,7 @@ impl Gameplay {
                 longitude_of_ascending_node: 0.0,
                 argument_of_periapsis: 0.0,
                 mean_anomaly_at_epoch: 0.0,
-                period: 0.0,
+                period: 1.0,
             },
             SceneObject {
                 bvh_node_id: None,
@@ -479,9 +493,16 @@ impl Gameplay {
 
             gui,
 
-            turn: 0,
-            turn_transition_time: 0.001,
+            current_et: 0,
+            animation_start_et: 0,
+            animation_target_et: 0,
+            animation_start_real: 0.0,
+            event_queue: EventQueue::new(),
         }
+    }
+
+    fn is_animating(&self) -> bool {
+        self.current_et < self.animation_target_et
     }
 
     /// Changes various game state based on user mouse and keyboard input
@@ -546,7 +567,7 @@ impl Gameplay {
                 )
                 .on_click(Message::NextTurn),
             ),
-            Box::new(Label::new(format!("turn: {}", self.turn), font)),
+            Box::new(Label::new(format!("ET: {} us", self.current_et), font)),
         ]
     }
 
@@ -656,7 +677,8 @@ impl Gameplay {
             ),
         ])
     }
-    fn execute_commands(&mut self) {
+
+    fn plan_commands(&mut self) {
         let crafts_with_commands: Vec<(Entity, Command)> = self
             .world
             .query::<(&mut Craft,)>()
@@ -664,6 +686,55 @@ impl Gameplay {
             .filter_map(|(entity, (craft,))| craft.command.take().map(|cmd| (entity, cmd)))
             .collect();
 
+        for (entity, command) in crafts_with_commands {
+            match command {
+                Command::Transfer { to } => {
+                    let craft_orbit = self.world.get::<&Orbit>(entity).unwrap();
+                    let parent = self.world.get::<&Parent>(entity).unwrap().id;
+                    let target_orbit = self.world.get::<&Orbit>(to).unwrap();
+                    let parent_body = self.world.get::<&Body>(parent).unwrap();
+                    let plan = plan_hohmann(
+                        &craft_orbit,
+                        &target_orbit,
+                        self.current_et,
+                        parent_body.mass(),
+                    );
+
+                    // TODO: Compute real hohmann transfer window and delta-vs
+                    // For now just schedule an immediate SOI change at the next ET
+                    let departure_time = plan.departure_time;
+                    let soi_change_time = plan.arrival_time;
+
+                    self.event_queue.push(
+                        departure_time,
+                        Event::ManeuverReady {
+                            craft: entity,
+                            to,
+                            plan,
+                        },
+                    );
+                    self.event_queue.push(
+                        soi_change_time,
+                        Event::SoiChange {
+                            craft: entity,
+                            new_parent: to,
+                        },
+                    );
+                }
+                Command::Orbit => {
+                    self.event_queue
+                        .push(self.animation_target_et, Event::TakeOff { craft: entity });
+                }
+                Command::Land => {
+                    self.event_queue
+                        .push(self.animation_target_et, Event::Land { craft: entity });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn handle_event(&mut self, event: Event, app: &App) {
         let orbit_to_use = Orbit {
             semi_major_axis: 2.0,
             eccentricity: 0.0,
@@ -674,29 +745,58 @@ impl Gameplay {
             period: 1.0 / 365.0,
         };
 
-        for (entity, command) in crafts_with_commands {
-            match command {
-                Command::Transfer { to } => {
-                    // Remove old orbit, add new one with different parent
-                    self.world.remove_one::<Orbit>(entity).ok();
-                    self.world.insert_one(entity, orbit_to_use).unwrap();
-                    self.world.insert_one(entity, Parent { id: to }).unwrap();
-                }
-                Command::Orbit => {
-                    // Remove landed, add orbit around the body they were on
-                    let parent_id = self.world.get::<&Parent>(entity).unwrap().id;
-                    self.world.remove_one::<Landed>(entity).ok();
-                    self.world.insert_one(entity, orbit_to_use).unwrap();
-                    self.world
-                        .insert_one(entity, Parent { id: parent_id })
-                        .unwrap();
-                }
-                Command::Land => {
-                    self.world.remove_one::<Orbit>(entity).ok();
-                    self.world.insert_one(entity, Landed {}).unwrap();
-                }
-                _ => {}
+        match event {
+            Event::SoiChange { craft, new_parent } => {
+                let parent_world_pos = self.world.get::<&WorldPosition>(new_parent).unwrap().pos;
+                replace_line_path(
+                    &mut self.world,
+                    &app.renderer,
+                    craft,
+                    Some((
+                        WorldPosition {
+                            pos: parent_world_pos,
+                        },
+                        Parent { id: new_parent },
+                        LinePathComponent::new(orbit_to_use.generate_orbit_vertices(2048)),
+                    )),
+                );
+                self.world.remove_one::<Orbit>(craft).ok();
+                self.world
+                    .insert(craft, (orbit_to_use, Parent { id: new_parent }))
+                    .unwrap();
             }
+            Event::ManeuverReady { craft, to, plan } => {
+                let parent = self.world.get::<&Parent>(craft).unwrap().id;
+                let parent_world_pos = self.world.get::<&WorldPosition>(parent).unwrap().pos;
+                replace_line_path(
+                    &mut self.world,
+                    &app.renderer,
+                    craft,
+                    Some((
+                        WorldPosition {
+                            pos: parent_world_pos,
+                        },
+                        Parent { id: parent },
+                        LinePathComponent::new(plan.transfer_orbit.generate_orbit_vertices(2048)),
+                    )),
+                );
+                self.world.remove_one::<Orbit>(craft).ok();
+                self.world
+                    .insert(craft, (plan.transfer_orbit, Parent { id: parent }))
+                    .unwrap();
+            }
+            Event::TakeOff { craft } => {
+                let parent_id = self.world.get::<&Parent>(craft).unwrap().id;
+                self.world.remove_one::<Landed>(craft).ok();
+                self.world
+                    .insert(craft, (orbit_to_use, Parent { id: parent_id }))
+                    .unwrap();
+            }
+            Event::Land { craft } => {
+                self.world.remove_one::<Orbit>(craft).ok();
+                self.world.insert_one(craft, Landed {}).unwrap();
+            }
+            _ => {}
         }
     }
 
@@ -723,12 +823,7 @@ impl Gameplay {
             }
         }
 
-        const TURN_TIME: f64 = 1.0;
-        let t = 1.0 / 12.0
-            * (self.turn as f64
-                + cubic_ease_in_out(
-                    ((app.seconds as f64 - self.turn_transition_time) / TURN_TIME).min(1.0),
-                ));
+        let t = self.current_et as f64 / (365.0 * 24.0 * 3600.0 * 1_000_000.0); // Microseconds to years
 
         // Kick off from roots
         for root in roots {
@@ -752,12 +847,7 @@ impl Gameplay {
 
         // Compute local offset if Orbit exists
         let local_offset = if let Ok(orbit) = self.world.get::<&Orbit>(entity) {
-            let theta = 2.0 * PI * (t + orbit.mean_anomaly_at_epoch) / (orbit.period + 0.0001);
-            vec3(
-                theta.cos() * orbit.semi_major_axis,
-                theta.sin() * orbit.semi_major_axis,
-                0.0,
-            )
+            orbit.position_at(t)
         } else {
             vec3(0.0, 0.0, 0.0)
         };

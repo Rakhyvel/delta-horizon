@@ -1,11 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::ui::{msg::MsgQueue, widget::Widget};
-use apricot::{
-    app::App,
-    font::{Font, FontId},
-    rectangle::Rectangle,
-};
+use apricot::{app::App, font::Font, rectangle::Rectangle};
 use nalgebra_glm::Vec2;
 
 /// A button with text
