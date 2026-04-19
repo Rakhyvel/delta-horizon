@@ -1,6 +1,6 @@
 //! This module is responsible for defining the gameplay scene.
 
-use std::{collections::HashMap, f64::consts::PI, iter::Scan, sync::Arc};
+use std::{collections::HashMap, f64::consts::PI};
 
 use apricot::{
     app::{App, Scene},
@@ -13,8 +13,10 @@ use apricot::{
     shadow_map::DirectionalLightSource,
 };
 use hecs::{Entity, World};
-use nalgebra_glm::{vec3, DVec3};
+use nalgebra_glm::{vec3, vec4, DVec3};
 use sdl2::keyboard::Scancode;
+
+use crate::{container, ui::text_button::TextButton};
 
 use crate::{
     components::{
@@ -23,7 +25,8 @@ use crate::{
     },
     generation::solar_system_gen::{self},
     ui::{
-        button::{self, TextureButton},
+        container::{self, Container},
+        texture_button::TextureButton,
         widget::{recv_msgs, Widget},
     },
 };
@@ -57,7 +60,7 @@ pub struct Gameplay {
     /// Used for tab key latch
     prev_tab_state: bool,
 
-    next_turn_button: TextureButton<Message>,
+    gui: Container<Message>,
 
     turn: usize,
     turn_transition_time: f64,
@@ -130,7 +133,7 @@ impl Scene for Gameplay {
     /// Update the scene every tick
     fn update(&mut self, app: &App) {
         // Handle all the messages from UI
-        for msg in recv_msgs(app, &mut self.next_turn_button) {
+        for msg in recv_msgs(app, &mut self.gui) {
             match msg {
                 Message::NextTurn => {
                     if (app.seconds as f64 - self.turn_transition_time) >= 1.0 {
@@ -178,7 +181,7 @@ impl Scene for Gameplay {
             }
         }
 
-        self.next_turn_button.render(app);
+        self.gui.render(app);
 
         app.renderer.draw_text(
             nalgebra_glm::vec2(
@@ -390,19 +393,28 @@ impl Gameplay {
         );
         crafts.push(landed_craft_entity);
 
-        let next_turn_button = TextureButton::new(
-            Rectangle::new(
-                app.window_size.x as f32 - 100.0,
-                app.window_size.y as f32 - 120.0,
-                90.0,
-                90.0,
-            ),
-            app.renderer.get_texture_id_from_name("next-turn").unwrap(),
-            app.renderer
-                .get_texture_id_from_name("next-turn-hover")
-                .unwrap(),
-        )
-        .on_click(Message::NextTurn);
+        let gui = container![
+            TextureButton::new(
+                Rectangle::new(
+                    app.window_size.x as f32 - 100.0,
+                    app.window_size.y as f32 - 120.0,
+                    90.0,
+                    90.0,
+                ),
+                app.renderer.get_texture_id_from_name("next-turn").unwrap(),
+                app.renderer
+                    .get_texture_id_from_name("next-turn-hover")
+                    .unwrap(),
+            )
+            .on_click(Message::NextTurn),
+            TextButton::new(
+                Rectangle::new(100.0, 120.0, 90.0, 20.0,),
+                "Click me!",
+                vec4(0.0, 0.0, 0.0, 0.5),
+                vec4(1.0, 1.0, 1.0, 0.5),
+            )
+            .on_click(Message::NextTurn),
+        ];
 
         Self {
             world,
@@ -444,7 +456,7 @@ impl Gameplay {
             distance: 20.0,
             prev_tab_state: false,
 
-            next_turn_button,
+            gui,
 
             turn: 0,
             turn_transition_time: 0.001,

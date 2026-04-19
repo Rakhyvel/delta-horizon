@@ -17,11 +17,6 @@ impl<Msg> MsgQueue<Msg> {
     pub fn push(&mut self, msg: Msg) {
         self.queue.push_back(msg);
     }
-
-    /// Removes and returns the first msg in the queue, or None
-    pub fn pop(&mut self) -> Option<Msg> {
-        self.queue.pop_front()
-    }
 }
 
 impl<Msg> IntoIterator for MsgQueue<Msg> {
