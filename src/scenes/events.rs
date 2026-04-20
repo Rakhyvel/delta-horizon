@@ -2,11 +2,7 @@ use std::collections::BTreeMap;
 
 use hecs::Entity;
 
-use crate::scenes::astro::HohmannTransfer;
-
-/// Microseconds after the save start epoch
-/// Should allow for ~292,000 years future and past
-pub type EphemerisTime = i64;
+use crate::scenes::{astro::HohmannTransfer, epoch::EphemerisTime};
 
 pub enum Event {
     SoiChange {
@@ -47,7 +43,9 @@ impl EventQueue {
 
     /// Pop all events up to and including `current_time`
     pub fn pop_due(&mut self, current_time: EphemerisTime) -> Vec<Event> {
-        let future = self.events.split_off(&(current_time + 1));
+        let future = self
+            .events
+            .split_off(&(current_time + EphemerisTime::new(1)));
         std::mem::replace(&mut self.events, future)
             .into_values()
             .flatten()

@@ -25,7 +25,8 @@ use crate::{
     container,
     scenes::{
         astro::plan_hohmann,
-        events::{EphemerisTime, Event, EventQueue},
+        epoch::EphemerisTime,
+        events::{Event, EventQueue},
     },
     ui::{label::Label, text_button::TextButton},
 };
@@ -176,8 +177,9 @@ impl Scene for Gameplay {
             let eased = t;
 
             // Interpolate ET between start and target
-            self.current_et = self.animation_start_et
-                + ((self.animation_target_et - self.animation_start_et) as f64 * eased) as i64;
+            self.current_et = self
+                .animation_start_et
+                .lerp(self.animation_target_et, eased);
 
             // Animation finished
             if t >= 1.0 {
@@ -493,9 +495,9 @@ impl Gameplay {
 
             gui,
 
-            current_et: 0,
-            animation_start_et: 0,
-            animation_target_et: 0,
+            current_et: EphemerisTime::from_years(0.25),
+            animation_start_et: EphemerisTime::new(0),
+            animation_target_et: EphemerisTime::new(0),
             animation_start_real: 0.0,
             event_queue: EventQueue::new(),
         }
@@ -567,7 +569,7 @@ impl Gameplay {
                 )
                 .on_click(Message::NextTurn),
             ),
-            Box::new(Label::new(format!("ET: {} us", self.current_et), font)),
+            Box::new(Label::new(format!("ET: {:?} us", self.current_et), font)),
         ]
     }
 
@@ -823,7 +825,7 @@ impl Gameplay {
             }
         }
 
-        let t = self.current_et as f64 / (365.0 * 24.0 * 3600.0 * 1_000_000.0); // Microseconds to years
+        let t = self.current_et.as_years();
 
         // Kick off from roots
         for root in roots {
