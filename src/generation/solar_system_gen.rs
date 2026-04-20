@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng};
 use crate::{
     components::{
         body::{Body, Category},
-        orbit::Orbit,
+        orbit::{Orbit, OrbitKind},
     },
     scenes::astro::orbital_period,
 };
@@ -128,8 +128,10 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
             inclination: 0.0,
             longitude_of_ascending_node: 0.0,
             argument_of_periapsis: 0.0,
-            mean_anomaly_at_epoch: 0.0,
-            period,
+            kind: OrbitKind::Periodic {
+                period,
+                mean_anomaly_at_epoch: 0.0,
+            },
         };
 
         let spacing = compute_spacing(rng, orbital_radius_au, planet.body_radius);
@@ -151,8 +153,10 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
                 inclination: 0.0,
                 longitude_of_ascending_node: 0.0,
                 argument_of_periapsis: 0.0,
-                mean_anomaly_at_epoch: 0.0,
-                period: moon_period,
+                kind: OrbitKind::Periodic {
+                    period: moon_period,
+                    mean_anomaly_at_epoch: 0.0,
+                },
             };
             moons.push((moon, moon_orbit));
             moon_orbital_radius *= rng.gen_range(1.5..5.0);

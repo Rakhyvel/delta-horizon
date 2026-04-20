@@ -9,7 +9,7 @@ use nalgebra_glm::{vec3, DVec3};
 use crate::{
     components::{
         body::{Body, Parent, SceneObject},
-        orbit::Orbit,
+        orbit::{Orbit, OrbitKind},
     },
     scenes::astro::orbital_period,
 };
@@ -63,7 +63,10 @@ pub fn spawn_craft(
     let line_path_entity = if let Some(parent) = parent {
         {
             let parent_body = world.get::<&Body>(parent.id).unwrap();
-            orbit.period = orbital_period(orbit.semi_major_axis, parent_body.mass());
+            orbit.kind = OrbitKind::Periodic {
+                period: orbital_period(orbit.semi_major_axis, parent_body.mass()),
+                mean_anomaly_at_epoch: 0.0,
+            };
         }
         let parent_world_pos = world.get::<&WorldPosition>(parent.id).unwrap().pos;
         let line_path_entity = world.spawn((

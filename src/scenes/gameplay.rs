@@ -20,7 +20,7 @@ use sdl2::keyboard::Scancode;
 use crate::{
     components::{
         craft::{replace_line_path, Command},
-        orbit::Orbit,
+        orbit::{Orbit, OrbitKind},
     },
     container,
     scenes::{
@@ -172,7 +172,7 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 5.0;
+            const TURN_TIME: f64 = 10.0;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
             let eased = t;
 
@@ -339,8 +339,10 @@ impl Gameplay {
                 inclination: 0.0,
                 longitude_of_ascending_node: 0.0,
                 argument_of_periapsis: 0.0,
-                mean_anomaly_at_epoch: 0.0,
-                period: 1.0,
+                kind: OrbitKind::Periodic {
+                    period: 1.0,
+                    mean_anomaly_at_epoch: 0.0,
+                },
             },
             SceneObject {
                 bvh_node_id: None,
@@ -400,8 +402,10 @@ impl Gameplay {
                 inclination: 0.0,
                 longitude_of_ascending_node: 0.0,
                 argument_of_periapsis: 0.0,
-                mean_anomaly_at_epoch: 0.0,
-                period: 1.0 / 365.0,
+                kind: OrbitKind::Periodic {
+                    period: 1.0,
+                    mean_anomaly_at_epoch: 0.0,
+                },
             },
             SceneObject {
                 bvh_node_id: None,
@@ -694,32 +698,45 @@ impl Gameplay {
                     let craft_orbit = self.world.get::<&Orbit>(entity).unwrap();
                     let parent = self.world.get::<&Parent>(entity).unwrap().id;
                     let target_orbit = self.world.get::<&Orbit>(to).unwrap();
+                    let target_body = self.world.get::<&Body>(to).unwrap();
                     let parent_body = self.world.get::<&Body>(parent).unwrap();
                     let plan = plan_hohmann(
                         &craft_orbit,
                         &target_orbit,
-                        self.current_et,
+                        target_body.mass(),
                         parent_body.mass(),
+                        1.0,
+                        self.current_et,
                     );
 
                     // TODO: Compute real hohmann transfer window and delta-vs
                     // For now just schedule an immediate SOI change at the next ET
                     let departure_time = plan.departure_time;
-                    let soi_change_time = plan.arrival_time;
+                    let soi_entry_time = plan.soi_entry_time;
+                    let periapsis_time = plan.periapsis_time;
 
                     self.event_queue.push(
                         departure_time,
                         Event::ManeuverReady {
                             craft: entity,
                             to,
-                            plan,
+                            transfer_orbit: plan.transfer_orbit,
                         },
                     );
                     self.event_queue.push(
-                        soi_change_time,
+                        soi_entry_time,
                         Event::SoiChange {
                             craft: entity,
                             new_parent: to,
+                            flyby_orbit: plan.flyby_orbit,
+                        },
+                    );
+                    self.event_queue.push(
+                        periapsis_time,
+                        Event::ManeuverReady {
+                            craft: entity,
+                            to,
+                            transfer_orbit: plan.flyby_orbit,
                         },
                     );
                 }
@@ -743,12 +760,18 @@ impl Gameplay {
             inclination: 0.0,
             longitude_of_ascending_node: 0.0,
             argument_of_periapsis: 0.0,
-            mean_anomaly_at_epoch: 0.0,
-            period: 1.0 / 365.0,
+            kind: OrbitKind::Periodic {
+                period: 1.0,
+                mean_anomaly_at_epoch: 0.0,
+            },
         };
 
         match event {
-            Event::SoiChange { craft, new_parent } => {
+            Event::SoiChange {
+                craft,
+                new_parent,
+                flyby_orbit,
+            } => {
                 let parent_world_pos = self.world.get::<&WorldPosition>(new_parent).unwrap().pos;
                 replace_line_path(
                     &mut self.world,
@@ -759,15 +782,19 @@ impl Gameplay {
                             pos: parent_world_pos,
                         },
                         Parent { id: new_parent },
-                        LinePathComponent::new(orbit_to_use.generate_orbit_vertices(2048)),
+                        LinePathComponent::new(flyby_orbit.generate_orbit_vertices(2048)),
                     )),
                 );
                 self.world.remove_one::<Orbit>(craft).ok();
                 self.world
-                    .insert(craft, (orbit_to_use, Parent { id: new_parent }))
+                    .insert(craft, (flyby_orbit, Parent { id: new_parent }))
                     .unwrap();
             }
-            Event::ManeuverReady { craft, to, plan } => {
+            Event::ManeuverReady {
+                craft,
+                to,
+                transfer_orbit,
+            } => {
                 let parent = self.world.get::<&Parent>(craft).unwrap().id;
                 let parent_world_pos = self.world.get::<&WorldPosition>(parent).unwrap().pos;
                 replace_line_path(
@@ -779,12 +806,12 @@ impl Gameplay {
                             pos: parent_world_pos,
                         },
                         Parent { id: parent },
-                        LinePathComponent::new(plan.transfer_orbit.generate_orbit_vertices(2048)),
+                        LinePathComponent::new(transfer_orbit.generate_orbit_vertices(2048)),
                     )),
                 );
                 self.world.remove_one::<Orbit>(craft).ok();
                 self.world
-                    .insert(craft, (plan.transfer_orbit, Parent { id: parent }))
+                    .insert(craft, (transfer_orbit, Parent { id: parent }))
                     .unwrap();
             }
             Event::TakeOff { craft } => {
@@ -825,12 +852,12 @@ impl Gameplay {
             }
         }
 
-        let t = self.current_et.as_years();
+        let et = self.current_et;
 
         // Kick off from roots
         for root in roots {
             let root_pos = vec3(0.0, 0.0, 0.0);
-            self.propagate(&children, root, root_pos, t, app);
+            self.propagate(&children, root, root_pos, et, app);
         }
     }
 
@@ -839,7 +866,7 @@ impl Gameplay {
         children: &HashMap<Entity, Vec<Entity>>,
         entity: Entity,
         parent_pos: DVec3,
-        t: f64,
+        t: EphemerisTime,
         app: &App,
     ) {
         // Borrow components

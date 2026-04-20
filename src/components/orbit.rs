@@ -2,7 +2,22 @@ use std::f64::consts::PI;
 
 use nalgebra_glm::{vec3, vec4, DVec3};
 
-use crate::scenes::astro::mean_to_true_anomaly;
+use crate::scenes::{
+    astro::{hyperbolic_true_anomaly, mean_to_true_anomaly},
+    epoch::EphemerisTime,
+};
+
+#[derive(Copy, Clone)]
+pub enum OrbitKind {
+    Periodic {
+        period: f64,
+        mean_anomaly_at_epoch: f64,
+    },
+    Hyperbolic {
+        mu: f64,
+        periapsis_time: EphemerisTime,
+    },
+}
 
 #[derive(Copy, Clone)]
 pub struct Orbit {
@@ -11,12 +26,18 @@ pub struct Orbit {
     pub inclination: f64,
     pub longitude_of_ascending_node: f64,
     pub argument_of_periapsis: f64,
-    pub mean_anomaly_at_epoch: f64,
-    pub period: f64, // In years
+    pub kind: OrbitKind,
 }
 
 impl Orbit {
     pub fn generate_orbit_vertices(&self, segments: i32) -> Vec<f32> {
+        match self.kind {
+            OrbitKind::Periodic { .. } => self.generate_periodic_vertices(segments),
+            OrbitKind::Hyperbolic { .. } => self.generate_hyperbola_vertices(segments),
+        }
+    }
+
+    pub fn generate_periodic_vertices(&self, segments: i32) -> Vec<f32> {
         let semi_major_axis = self.semi_major_axis;
         let eccentricity = self.eccentricity;
         let inclination = self.inclination;
@@ -57,21 +78,79 @@ impl Orbit {
         vertices
     }
 
-    pub fn position_at(&self, t: f64) -> DVec3 {
-        assert!(self.period > 0.0);
-        assert!(self.eccentricity != 1.0);
+    /// Generates vertices for a hyperbolic orbit arc, clipped to the SOI boundary
+    fn generate_hyperbola_vertices(&self, segments: i32) -> Vec<f32> {
+        let OrbitKind::Hyperbolic { mu, .. } = self.kind else {
+            unreachable!()
+        };
 
-        let mean_anomaly = self.mean_anomaly_at_epoch + 2.0 * PI * t / self.period;
-        let true_anomaly = mean_to_true_anomaly(mean_anomaly, self.eccentricity);
+        // Semi-latus rectum
+        let p = self.semi_major_axis * (self.eccentricity * self.eccentricity - 1.0);
 
-        let r = self.semi_major_axis * (1.0 - self.eccentricity * self.eccentricity)
-            / (1.0 + self.eccentricity * true_anomaly.cos());
+        // Maximum true anomaly — asymptote of the hyperbola
+        // Craft can only reach angles where 1 + e*cos(v) > 0, i.e. v < acos(-1/e)
+        // We clip slightly inside the asymptote so r doesn't blow up
+        let true_anomaly_max = ((-1.0 / self.eccentricity).acos()) * 0.95;
 
-        // Position in orbital plane
+        let rotation = self.rotation_matrix();
+        let mut vertices = Vec::with_capacity((segments as usize + 1) * 3);
+
+        // Sweep from -true_anomaly_max to +true_anomaly_max (entry to exit)
+        for i in 0..=segments {
+            let t = i as f64 / segments as f64;
+            let true_anomaly = -true_anomaly_max + t * 2.0 * true_anomaly_max;
+
+            let r = p / (1.0 + self.eccentricity * true_anomaly.cos());
+
+            let x = r * true_anomaly.cos();
+            let y = r * true_anomaly.sin();
+
+            let pos = rotation * vec4(x as f32, y as f32, 0.0_f32, 1.0);
+            vertices.push(pos.x as f32);
+            vertices.push(pos.y as f32);
+            vertices.push(pos.z as f32);
+        }
+
+        vertices
+    }
+
+    pub fn position_at(&self, et: EphemerisTime) -> DVec3 {
+        match self.kind {
+            OrbitKind::Periodic {
+                period,
+                mean_anomaly_at_epoch,
+            } => {
+                let t = et.as_years();
+                let mean_anomaly = mean_anomaly_at_epoch + 2.0 * PI * t / period;
+                let true_anomaly = mean_to_true_anomaly(mean_anomaly, self.eccentricity);
+                self.position_from_true_anomaly(true_anomaly)
+            }
+            OrbitKind::Hyperbolic { mu, periapsis_time } => {
+                let dt_seconds = (et - periapsis_time).as_secs();
+                let true_anomaly = hyperbolic_true_anomaly(
+                    dt_seconds,
+                    self.semi_major_axis,
+                    self.eccentricity,
+                    mu,
+                );
+                self.position_from_true_anomaly(true_anomaly)
+            }
+        }
+    }
+
+    fn position_from_true_anomaly(&self, true_anomaly: f64) -> DVec3 {
+        let p = self.semi_major_axis * (1.0 - self.eccentricity * self.eccentricity).abs();
+        let r = p / (1.0 + self.eccentricity * true_anomaly.cos());
+
         let x = r * true_anomaly.cos();
         let y = r * true_anomaly.sin();
 
-        // Apply orbital rotations (same order as vertex generation)
+        let rotation = self.rotation_matrix();
+        let pos = rotation * vec4(x as f32, y as f32, 0.0_f32, 1.0);
+        vec3(pos.x as f64, pos.y as f64, pos.z as f64)
+    }
+
+    fn rotation_matrix(&self) -> nalgebra_glm::Mat4 {
         let rot_arg_periapsis =
             nalgebra_glm::rotation(self.argument_of_periapsis as f32, &vec3(0.0_f32, 0.0, 1.0));
         let rot_inclination =
@@ -80,9 +159,26 @@ impl Orbit {
             self.longitude_of_ascending_node as f32,
             &vec3(0.0_f32, 0.0, 1.0),
         );
-        let rotation = rot_lan * rot_inclination * rot_arg_periapsis;
+        rot_lan * rot_inclination * rot_arg_periapsis
+    }
 
-        let pos = rotation * vec4(x as f32, y as f32, 0.0_f32, 1.0);
-        vec3(pos.x as f64, pos.y as f64, pos.z as f64)
+    pub fn period(&self) -> f64 {
+        match self.kind {
+            OrbitKind::Periodic {
+                period,
+                mean_anomaly_at_epoch: _,
+            } => period,
+            _ => panic!("non-periodic orbits don't have periods"),
+        }
+    }
+
+    pub fn mean_anomaly_at_epoch(&self) -> f64 {
+        match self.kind {
+            OrbitKind::Periodic {
+                period: _,
+                mean_anomaly_at_epoch,
+            } => mean_anomaly_at_epoch,
+            _ => panic!("non-periodic orbits don't have w"),
+        }
     }
 }
