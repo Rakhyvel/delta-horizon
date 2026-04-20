@@ -62,6 +62,10 @@ pub fn plan_hohmann(
     );
 
     let target_soi = sphere_of_influence(target_orbit.semi_major_axis, target_mass, parent_mass);
+    println!(
+        "{} {} {} {}",
+        target_orbit.semi_major_axis, target_mass, parent_mass, target_soi
+    );
     let soi_entry_time = compute_soi_entry_time(
         &transfer_orbit,
         target_orbit,

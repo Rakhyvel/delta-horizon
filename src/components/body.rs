@@ -82,7 +82,7 @@ pub fn spawn_body(
                 pos: parent_world_pos,
             },
             parent,
-            LinePathComponent::new(orbit.generate_orbit_vertices(2048)),
+            LinePathComponent::new(orbit.generate_orbit_vertices(2048, None)),
         ));
         world.insert(body_entity, (parent,)).unwrap();
     }

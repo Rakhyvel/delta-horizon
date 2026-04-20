@@ -30,10 +30,13 @@ pub struct Orbit {
 }
 
 impl Orbit {
-    pub fn generate_orbit_vertices(&self, segments: i32) -> Vec<f32> {
+    pub fn generate_orbit_vertices(&self, segments: i32, soi_radius: Option<f64>) -> Vec<f32> {
         match self.kind {
             OrbitKind::Periodic { .. } => self.generate_periodic_vertices(segments),
-            OrbitKind::Hyperbolic { .. } => self.generate_hyperbola_vertices(segments),
+            OrbitKind::Hyperbolic { .. } => self.generate_hyperbola_vertices(
+                segments,
+                soi_radius.expect("hyperbolic orbit needs SOI radius"),
+            ),
         }
     }
 
@@ -79,18 +82,26 @@ impl Orbit {
     }
 
     /// Generates vertices for a hyperbolic orbit arc, clipped to the SOI boundary
-    fn generate_hyperbola_vertices(&self, segments: i32) -> Vec<f32> {
+    fn generate_hyperbola_vertices(&self, segments: i32, soi_radius: f64) -> Vec<f32> {
         let OrbitKind::Hyperbolic { mu, .. } = self.kind else {
             unreachable!()
         };
 
-        // Semi-latus rectum
+        // Semi-latus rectum (bruh)
         let p = self.semi_major_axis * (self.eccentricity * self.eccentricity - 1.0);
 
-        // Maximum true anomaly — asymptote of the hyperbola
+        // Figure out where the hyperbola intersects the SOI boundary
+        let cos_v_at_soi = (p / soi_radius - 1.0) / self.eccentricity;
+
+        // Maximum true anomaly, asymptote of the hyperbola
         // Craft can only reach angles where 1 + e*cos(v) > 0, i.e. v < acos(-1/e)
         // We clip slightly inside the asymptote so r doesn't blow up
-        let true_anomaly_max = ((-1.0 / self.eccentricity).acos()) * 0.95;
+        let true_anomaly_max = if cos_v_at_soi.abs() < 1.0 {
+            cos_v_at_soi.acos()
+        } else {
+            // SOI is larger than the hyperbola gets, clip to asymptote
+            ((-1.0 / self.eccentricity).acos()) * 0.95
+        };
 
         let rotation = self.rotation_matrix();
         let mut vertices = Vec::with_capacity((segments as usize + 1) * 3);

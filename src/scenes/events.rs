@@ -12,6 +12,7 @@ pub enum Event {
         craft: Entity,
         new_parent: Entity,
         flyby_orbit: Orbit,
+        soi_radius: f64,
     },
     FlybyClosure {
         craft: Entity,
@@ -21,6 +22,7 @@ pub enum Event {
         craft: Entity,
         to: Entity,
         transfer_orbit: Orbit,
+        soi_radius: Option<f64>,
     },
     TakeOff {
         craft: Entity,

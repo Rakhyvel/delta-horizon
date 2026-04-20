@@ -172,7 +172,7 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 10.0;
+            const TURN_TIME: f64 = 1.0;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
             let eased = t;
 
@@ -721,6 +721,7 @@ impl Gameplay {
                             craft: entity,
                             to,
                             transfer_orbit: plan.transfer_orbit,
+                            soi_radius: None,
                         },
                     );
                     self.event_queue.push(
@@ -729,6 +730,7 @@ impl Gameplay {
                             craft: entity,
                             new_parent: to,
                             flyby_orbit: plan.flyby_orbit,
+                            soi_radius: plan.target_soi,
                         },
                     );
                     self.event_queue.push(
@@ -737,6 +739,7 @@ impl Gameplay {
                             craft: entity,
                             to,
                             transfer_orbit: plan.flyby_orbit,
+                            soi_radius: Some(plan.target_soi),
                         },
                     );
                 }
@@ -771,6 +774,7 @@ impl Gameplay {
                 craft,
                 new_parent,
                 flyby_orbit,
+                soi_radius,
             } => {
                 let parent_world_pos = self.world.get::<&WorldPosition>(new_parent).unwrap().pos;
                 replace_line_path(
@@ -782,7 +786,9 @@ impl Gameplay {
                             pos: parent_world_pos,
                         },
                         Parent { id: new_parent },
-                        LinePathComponent::new(flyby_orbit.generate_orbit_vertices(2048)),
+                        LinePathComponent::new(
+                            flyby_orbit.generate_orbit_vertices(2048, Some(soi_radius)),
+                        ),
                     )),
                 );
                 self.world.remove_one::<Orbit>(craft).ok();
@@ -794,6 +800,7 @@ impl Gameplay {
                 craft,
                 to,
                 transfer_orbit,
+                soi_radius,
             } => {
                 let parent = self.world.get::<&Parent>(craft).unwrap().id;
                 let parent_world_pos = self.world.get::<&WorldPosition>(parent).unwrap().pos;
@@ -806,7 +813,9 @@ impl Gameplay {
                             pos: parent_world_pos,
                         },
                         Parent { id: parent },
-                        LinePathComponent::new(transfer_orbit.generate_orbit_vertices(2048)),
+                        LinePathComponent::new(
+                            transfer_orbit.generate_orbit_vertices(2048, soi_radius),
+                        ),
                     )),
                 );
                 self.world.remove_one::<Orbit>(craft).ok();

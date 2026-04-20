@@ -74,7 +74,7 @@ pub fn spawn_craft(
                 pos: parent_world_pos,
             },
             parent,
-            LinePathComponent::new(orbit.generate_orbit_vertices(2048)),
+            LinePathComponent::new(orbit.generate_orbit_vertices(2048, None)),
         ));
         world.insert(craft_entity, (parent,)).unwrap();
         Some(line_path_entity)
