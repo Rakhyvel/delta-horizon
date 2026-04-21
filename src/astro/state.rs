@@ -4,7 +4,7 @@ use nalgebra_glm::{vec3, DVec3};
 
 use crate::astro::epoch::EphemerisTime;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct State {
     pub r: DVec3,
     pub v: DVec3,
@@ -45,8 +45,8 @@ impl State {
         let mut chi = mu.sqrt() * alpha.abs() * dt;
 
         // newton rhapson, find chi that makes F 0
-        const MAX_ITER: usize = 50;
-        const TOL: f64 = 1e-8;
+        const MAX_ITER: usize = 500;
+        const TOL: f64 = 1e-6;
         for iter in 0..MAX_ITER {
             let chi2 = chi * chi;
             let z = alpha * chi2;
@@ -70,7 +70,7 @@ impl State {
                 + (1.0 - alpha * r0_mag) * chi2 * c
                 + r0_mag;
 
-            let delta = f / df_dchi;
+            let delta = (f / df_dchi).clamp(-1.0, 1.0);
             const DAMPING: f64 = 0.8; // Tweak if necessary
             chi -= DAMPING * delta;
 
@@ -97,8 +97,8 @@ impl State {
         let r = self.r * f + self.v * g;
         let r_mag = r.norm();
 
-        // fdot and gdot (used to find velocity at t)
-        let fdot = (mu.sqrt() / (r_mag * r0_mag)) * (alpha * chi2 * s - chi);
+        // derive fdot from position rather than chi for better numerical stability
+        let fdot = (mu.sqrt() / (r_mag * r0_mag)) * chi * (z * s - 1.0);
         let gdot = 1.0 - (chi2 / r_mag) * c;
 
         let v = self.r * fdot + self.v * gdot;
@@ -106,9 +106,18 @@ impl State {
         State { r, v, t }
     }
 
-    pub fn period(&self, mu: f64) -> f64 {
+    /// Returns the period of the orbit is periodic, otherwise returns None
+    pub fn period(&self, mu: f64) -> Option<f64> {
         let r = self.r.norm();
-        2.0 * PI * (r.powi(3) / mu).sqrt()
+        let v2 = self.v.dot(&self.v);
+        let a = 1.0 / (2.0 / r - v2 / mu); // semi-major axis from vis-viva
+
+        if a <= 0.0 {
+            // a < 0 -> hyperbolic, a = 0 -> parabolic (1/a = 0 means v = escape velocity)
+            return None;
+        }
+
+        Some(2.0 * PI * (a.powi(3) / mu).sqrt())
     }
 
     pub fn generate_orbit_vertices(
@@ -122,17 +131,20 @@ impl State {
 
         let mut vertices = Vec::with_capacity((segments as usize + 1) * 3);
 
-        let mut et = EphemerisTime::new(0);
-        let period = self.period(mu);
+        if let Some(period) = self.period(mu) {
+            let mut et = EphemerisTime::new(0);
 
-        for _ in 0..=segments {
-            let new_state = self.propagate(et, mu);
+            for _ in 0..=segments {
+                let new_state = self.propagate(et, mu);
 
-            vertices.push(new_state.r.x as f32);
-            vertices.push(new_state.r.y as f32);
-            vertices.push(new_state.r.z as f32);
+                vertices.push(new_state.r.x as f32);
+                vertices.push(new_state.r.y as f32);
+                vertices.push(new_state.r.z as f32);
 
-            et += EphemerisTime::from_years(period / (segments as f64));
+                et += EphemerisTime::from_years(period / (segments as f64));
+            }
+        } else {
+            panic!("TODO: Hyperbolic and parabolic orbits");
         }
 
         vertices

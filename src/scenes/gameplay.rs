@@ -18,7 +18,7 @@ use nalgebra_glm::{vec2, vec3, vec4, DVec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
-    astro::{epoch::EphemerisTime, state::State},
+    astro::{epoch::EphemerisTime, state::State, transfer::plan_transfer},
     components::craft::{replace_line_path, Command},
     container,
     generation::solar_system_gen::SUN_MU,
@@ -167,7 +167,7 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 15.0;
+            const TURN_TIME: f64 = 2.0;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
             let eased = t;
 
@@ -673,10 +673,22 @@ impl Gameplay {
         for (entity, command) in crafts_with_commands {
             match command {
                 Command::Transfer { to } => {
-                    // TODO: Add this
+                    let init_state = self.world.get::<&State>(entity).unwrap();
+                    let parent = self.world.get::<&Parent>(entity).unwrap().id;
+                    let parent_body = self.world.get::<&Body>(parent).unwrap();
+                    let transfer = plan_transfer(&init_state, self.current_et, parent_body.mu);
 
-                    self.event_queue
-                        .push(self.animation_target_et, Event::TakeOff { craft: entity });
+                    let departure_time = transfer.transfer_state.t;
+
+                    self.event_queue.push(
+                        departure_time,
+                        Event::ManeuverReady {
+                            craft: entity,
+                            to,
+                            transfer_orbit: transfer.transfer_state,
+                            soi_radius: None,
+                        },
+                    );
                 }
                 Command::Orbit => {
                     self.event_queue
