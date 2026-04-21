@@ -144,7 +144,7 @@ impl State {
                 et += EphemerisTime::from_years(period / (segments as f64));
             }
         } else {
-            panic!("TODO: Hyperbolic and parabolic orbits");
+            eprintln!("TODO: Hyperbolic and parabolic orbits");
         }
 
         vertices
