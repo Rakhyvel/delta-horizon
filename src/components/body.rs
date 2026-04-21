@@ -8,13 +8,14 @@ use apricot::{
 use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
-use crate::components::orbit::Orbit;
+use crate::astro::state::State;
 
 pub struct SceneObject {
     pub bvh_node_id: Option<BVHNodeId>,
     pub name: String,
 }
 
+#[derive(Clone, Copy)]
 pub struct Body {
     pub category: Category,
     pub body_radius: f64, // In earth radii
@@ -25,6 +26,7 @@ pub struct Body {
     pub core_mass_fraction: f64,
     pub magnetic_field: bool,
     pub density: f64, // In g/cm^3
+    pub mu: f64,      // In (earth radii)^3 * years^-2
 }
 
 /// Component relating an entity to a parent body
@@ -47,7 +49,7 @@ pub enum Category {
 
 pub fn spawn_body(
     body: Body,
-    orbit: Orbit,
+    init_state: State,
     mut scene_obj: SceneObject,
     parent: Option<Parent>,
     world: &mut World,
@@ -77,12 +79,13 @@ pub fn spawn_body(
 
     if let Some(parent) = parent {
         let parent_world_pos = world.get::<&WorldPosition>(parent.id).unwrap().pos;
+        let parent_mu = { world.get::<&Body>(parent.id).unwrap().mu };
         let _line_path_entity = world.spawn((
             WorldPosition {
                 pos: parent_world_pos,
             },
             parent,
-            LinePathComponent::new(orbit.generate_orbit_vertices(2048, None)),
+            LinePathComponent::new(init_state.generate_orbit_vertices(2048, parent_mu, None)),
         ));
         world.insert(body_entity, (parent,)).unwrap();
     }
@@ -97,7 +100,9 @@ pub fn spawn_body(
 
     scene_obj.bvh_node_id = Some(bvh_node_id);
 
-    world.insert(body_entity, (scene_obj, orbit, body)).unwrap();
+    world
+        .insert(body_entity, (scene_obj, init_state, body))
+        .unwrap();
 
     body_entity
 }

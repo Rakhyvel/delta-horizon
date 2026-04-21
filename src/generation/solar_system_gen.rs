@@ -3,11 +3,8 @@ use std::f64::consts::PI;
 use rand::{Rng, SeedableRng};
 
 use crate::{
-    components::{
-        body::{Body, Category},
-        orbit::{Orbit, OrbitKind},
-    },
-    scenes::astro::orbital_period,
+    astro::{epoch::EphemerisTime, state::State},
+    components::body::{Body, Category},
 };
 
 const DENSITY_IRON_G_CM3: f64 = 12.0;
@@ -16,10 +13,11 @@ const DENSITY_ROCK_G_CM3: f64 = 3.5;
 const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
 pub const EARTH_RADII_PER_AU: f64 = 23455.0;
 const G: f64 = 4.0 * PI * PI;
+pub const SUN_MU: f64 = 328900.0;
 
 pub struct BodySystem {
-    pub(crate) planet: (Body, Orbit),
-    pub(crate) moons: Vec<(Body, Orbit)>,
+    pub(crate) planet: (Body, State),
+    pub(crate) moons: Vec<(Body, State)>,
 }
 
 struct MassCategory {
@@ -120,25 +118,14 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
     while orbital_radius_au < 35.0 {
         let orbital_radius_earth_radii = orbital_radius_au * EARTH_RADII_PER_AU;
         let planet = generate_planet(rng, orbital_radius_au, PLANET_MASS_CATEGORIES);
-        let mu = G * (EARTH_MASSES_PER_SUN_MASS + planet.mass()) / EARTH_MASSES_PER_SUN_MASS;
-        let period = 2.0 * PI * (orbital_radius_au.powf(3.0) / mu).sqrt();
-        let orbit = Orbit {
-            semi_major_axis: orbital_radius_earth_radii,
-            eccentricity: 0.0,
-            inclination: 0.0,
-            longitude_of_ascending_node: 0.0,
-            argument_of_periapsis: 0.0,
-            kind: OrbitKind::Periodic {
-                period,
-                mean_anomaly_at_epoch: 0.0,
-            },
-        };
+        let initial_state =
+            State::circular(orbital_radius_earth_radii, EphemerisTime::new(0), SUN_MU);
 
         let spacing = compute_spacing(rng, orbital_radius_au, planet.body_radius);
         orbital_radius_au += spacing;
 
         let roche_limit = 2.44 * planet.body_radius * (planet.density).powf(1.0 / 3.0);
-        let hill_sphere = orbit.semi_major_axis
+        let hill_sphere = orbital_radius_earth_radii
             * (planet.mass() / (3.0 * EARTH_MASSES_PER_SUN_MASS)).powf(1.0 / 3.0);
 
         let mut moons = vec![];
@@ -146,24 +133,14 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
         let mut moon_orbital_radius = rng.gen_range(2.5..20.0) * roche_limit;
         while moon_orbital_radius < 0.5 * hill_sphere && moons.len() < max {
             let moon = generate_planet(rng, orbital_radius_au, MOON_MASS_CATEGORIES);
-            let moon_period = orbital_period(moon_orbital_radius, planet.mass());
-            let moon_orbit = Orbit {
-                semi_major_axis: moon_orbital_radius,
-                eccentricity: 0.0,
-                inclination: 0.0,
-                longitude_of_ascending_node: 0.0,
-                argument_of_periapsis: 0.0,
-                kind: OrbitKind::Periodic {
-                    period: moon_period,
-                    mean_anomaly_at_epoch: 0.0,
-                },
-            };
-            moons.push((moon, moon_orbit));
+            let moon_initial_state =
+                State::circular(moon_orbital_radius, EphemerisTime::new(0), planet.mu);
+            moons.push((moon, moon_initial_state));
             moon_orbital_radius *= rng.gen_range(1.5..5.0);
         }
 
         planets.push(BodySystem {
-            planet: (planet, orbit),
+            planet: (planet, initial_state),
             moons,
         });
     }
@@ -183,6 +160,13 @@ fn generate_planet(rng: &mut impl Rng, dist_from_sun: f64, category_dist: &[Mass
         sample_atmos_pressure(rng, magnetic_field, body_radius, dist_from_sun);
     let temperature = calculate_temperature(dist_from_sun, atmos_pressure);
 
+    pub fn mass(density: f64, body_radius: f64) -> f64 {
+        let earth_density = 5.51;
+        (density / earth_density) * body_radius.powi(3) / earth_density
+    }
+    let mu =
+        G * (EARTH_MASSES_PER_SUN_MASS + mass(density, body_radius)) / EARTH_MASSES_PER_SUN_MASS;
+
     Body {
         category,
         body_radius,
@@ -193,6 +177,7 @@ fn generate_planet(rng: &mut impl Rng, dist_from_sun: f64, category_dist: &[Mass
         core_mass_fraction,
         magnetic_field,
         density,
+        mu,
     }
 }
 

@@ -1,3 +1,4 @@
+mod astro;
 mod components;
 mod generation;
 mod scenes;

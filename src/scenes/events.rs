@@ -2,16 +2,13 @@ use std::collections::BTreeMap;
 
 use hecs::Entity;
 
-use crate::{
-    components::orbit::Orbit,
-    scenes::{astro::HohmannTransfer, epoch::EphemerisTime},
-};
+use crate::astro::{epoch::EphemerisTime, state::State};
 
 pub enum Event {
     SoiChange {
         craft: Entity,
         new_parent: Entity,
-        flyby_orbit: Orbit,
+        flyby_orbit: State,
         soi_radius: f64,
     },
     FlybyClosure {
@@ -21,7 +18,7 @@ pub enum Event {
     ManeuverReady {
         craft: Entity,
         to: Entity,
-        transfer_orbit: Orbit,
+        transfer_orbit: State,
         soi_radius: Option<f64>,
     },
     TakeOff {

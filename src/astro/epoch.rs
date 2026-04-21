@@ -5,7 +5,7 @@ use std::ops::{Add, AddAssign, Sub};
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
 pub struct EphemerisTime(i64);
 
-const SECONDS_PER_YEAR: f64 = 365.0 * 24.0 * 3600.0;
+pub const SECONDS_PER_YEAR: f64 = 365.0 * 24.0 * 3600.0;
 const ET_PER_SECOND: f64 = 1_000_000.0;
 const ET_PER_YEAR: f64 = SECONDS_PER_YEAR * ET_PER_SECOND;
 

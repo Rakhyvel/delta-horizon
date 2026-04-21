@@ -7,11 +7,8 @@ use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
 use crate::{
-    components::{
-        body::{Body, Parent, SceneObject},
-        orbit::{Orbit, OrbitKind},
-    },
-    scenes::astro::orbital_period,
+    astro::state::State,
+    components::body::{Body, Parent, SceneObject},
 };
 
 pub struct Craft {
@@ -36,7 +33,7 @@ pub struct Transfer {
 pub struct Landed {}
 
 pub fn spawn_craft(
-    mut orbit: Orbit,
+    init_state: State,
     mut scene_obj: SceneObject,
     parent: Option<Parent>,
     world: &mut World,
@@ -46,7 +43,7 @@ pub fn spawn_craft(
     let craft_mesh = renderer.get_mesh_id_from_name("cone").unwrap();
 
     let position: DVec3 = vec3(0., 0., 0.);
-    let scale_vec: DVec3 = vec3(0.01, 0.01, 0.01);
+    let scale_vec: DVec3 = vec3(0.1, 0.1, 0.1);
 
     let texture_id = renderer.get_texture_id_from_name("europa").unwrap();
 
@@ -61,20 +58,14 @@ pub fn spawn_craft(
     ));
 
     let line_path_entity = if let Some(parent) = parent {
-        {
-            let parent_body = world.get::<&Body>(parent.id).unwrap();
-            orbit.kind = OrbitKind::Periodic {
-                period: orbital_period(orbit.semi_major_axis, parent_body.mass()),
-                mean_anomaly_at_epoch: 0.0,
-            };
-        }
         let parent_world_pos = world.get::<&WorldPosition>(parent.id).unwrap().pos;
+        let parent_mu = { world.get::<&Body>(parent.id).unwrap().mu };
         let line_path_entity = world.spawn((
             WorldPosition {
                 pos: parent_world_pos,
             },
             parent,
-            LinePathComponent::new(orbit.generate_orbit_vertices(2048, None)),
+            LinePathComponent::new(init_state.generate_orbit_vertices(2048, parent_mu, None)),
         ));
         world.insert(craft_entity, (parent,)).unwrap();
         Some(line_path_entity)
@@ -97,7 +88,7 @@ pub fn spawn_craft(
             craft_entity,
             (
                 scene_obj,
-                orbit,
+                init_state,
                 Craft {
                     command: None,
                     line_path_entity,

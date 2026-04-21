@@ -18,16 +18,11 @@ use nalgebra_glm::{vec2, vec3, vec4, DVec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
-    components::{
-        craft::{replace_line_path, Command},
-        orbit::{Orbit, OrbitKind},
-    },
+    astro::{epoch::EphemerisTime, state::State},
+    components::craft::{replace_line_path, Command},
     container,
-    scenes::{
-        astro::plan_hohmann,
-        epoch::EphemerisTime,
-        events::{Event, EventQueue},
-    },
+    generation::solar_system_gen::SUN_MU,
+    scenes::events::{Event, EventQueue},
     ui::{label::Label, text_button::TextButton},
 };
 
@@ -172,7 +167,7 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 1.0;
+            const TURN_TIME: f64 = 15.0;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
             let eased = t;
 
@@ -332,18 +327,9 @@ impl Gameplay {
                 core_mass_fraction: 0.0,
                 magnetic_field: true,
                 density: 1.0,
+                mu: SUN_MU,
             },
-            Orbit {
-                semi_major_axis: 0.0,
-                eccentricity: 0.0,
-                inclination: 0.0,
-                longitude_of_ascending_node: 0.0,
-                argument_of_periapsis: 0.0,
-                kind: OrbitKind::Periodic {
-                    period: 1.0,
-                    mean_anomaly_at_epoch: 0.0,
-                },
-            },
+            State::circular(0.1, EphemerisTime::new(0), 1.0),
             SceneObject {
                 bvh_node_id: None,
                 name: String::from("Sun"),
@@ -358,6 +344,7 @@ impl Gameplay {
         let mut crafts = vec![];
 
         let mut habitable_planet = 0;
+        let mut habitable_planet_mu = 0.0;
         let planets = solar_system_gen::generate();
         for system in planets {
             let planet_habitable = system.planet.0.habitable();
@@ -375,6 +362,7 @@ impl Gameplay {
             );
             if planet_habitable {
                 habitable_planet = bodies.len();
+                habitable_planet_mu = system.planet.0.mu;
             }
             bodies.push(planet_entity);
 
@@ -396,17 +384,7 @@ impl Gameplay {
         }
 
         let craft_entity = spawn_craft(
-            Orbit {
-                semi_major_axis: 2.0,
-                eccentricity: 0.0,
-                inclination: 0.0,
-                longitude_of_ascending_node: 0.0,
-                argument_of_periapsis: 0.0,
-                kind: OrbitKind::Periodic {
-                    period: 1.0,
-                    mean_anomaly_at_epoch: 0.0,
-                },
-            },
+            State::circular(2.0, EphemerisTime::new(0), habitable_planet_mu),
             SceneObject {
                 bvh_node_id: None,
                 name: String::from("craft"),
@@ -601,7 +579,7 @@ impl Gameplay {
         selected: Entity,
         font: &Font,
     ) -> Option<Vec<Box<dyn Widget<Message>>>> {
-        let _orbit = self.world.get::<&Orbit>(selected).ok()?;
+        let _orbit = self.world.get::<&State>(selected).ok()?;
         let parent = self.world.get::<&Parent>(selected).ok()?;
         let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
 
@@ -638,7 +616,7 @@ impl Gameplay {
         }
 
         // Transfers to sibling bodies
-        let mut binding = self.world.query::<(&Orbit, &Body, &SceneObject, &Parent)>();
+        let mut binding = self.world.query::<(&State, &Body, &SceneObject, &Parent)>();
         let transfers = binding
             .iter()
             .filter(|(_, (_, _, _, p))| p.id == parent.id)
@@ -695,53 +673,10 @@ impl Gameplay {
         for (entity, command) in crafts_with_commands {
             match command {
                 Command::Transfer { to } => {
-                    let craft_orbit = self.world.get::<&Orbit>(entity).unwrap();
-                    let parent = self.world.get::<&Parent>(entity).unwrap().id;
-                    let target_orbit = self.world.get::<&Orbit>(to).unwrap();
-                    let target_body = self.world.get::<&Body>(to).unwrap();
-                    let parent_body = self.world.get::<&Body>(parent).unwrap();
-                    let plan = plan_hohmann(
-                        &craft_orbit,
-                        &target_orbit,
-                        target_body.mass(),
-                        parent_body.mass(),
-                        1.0,
-                        self.current_et,
-                    );
+                    // TODO: Add this
 
-                    // TODO: Compute real hohmann transfer window and delta-vs
-                    // For now just schedule an immediate SOI change at the next ET
-                    let departure_time = plan.departure_time;
-                    let soi_entry_time = plan.soi_entry_time;
-                    let periapsis_time = plan.periapsis_time;
-
-                    self.event_queue.push(
-                        departure_time,
-                        Event::ManeuverReady {
-                            craft: entity,
-                            to,
-                            transfer_orbit: plan.transfer_orbit,
-                            soi_radius: None,
-                        },
-                    );
-                    self.event_queue.push(
-                        soi_entry_time,
-                        Event::SoiChange {
-                            craft: entity,
-                            new_parent: to,
-                            flyby_orbit: plan.flyby_orbit,
-                            soi_radius: plan.target_soi,
-                        },
-                    );
-                    self.event_queue.push(
-                        periapsis_time,
-                        Event::ManeuverReady {
-                            craft: entity,
-                            to,
-                            transfer_orbit: plan.flyby_orbit,
-                            soi_radius: Some(plan.target_soi),
-                        },
-                    );
+                    self.event_queue
+                        .push(self.animation_target_et, Event::TakeOff { craft: entity });
                 }
                 Command::Orbit => {
                     self.event_queue
@@ -757,18 +692,6 @@ impl Gameplay {
     }
 
     fn handle_event(&mut self, event: Event, app: &App) {
-        let orbit_to_use = Orbit {
-            semi_major_axis: 2.0,
-            eccentricity: 0.0,
-            inclination: 0.0,
-            longitude_of_ascending_node: 0.0,
-            argument_of_periapsis: 0.0,
-            kind: OrbitKind::Periodic {
-                period: 1.0,
-                mean_anomaly_at_epoch: 0.0,
-            },
-        };
-
         match event {
             Event::SoiChange {
                 craft,
@@ -777,6 +700,7 @@ impl Gameplay {
                 soi_radius,
             } => {
                 let parent_world_pos = self.world.get::<&WorldPosition>(new_parent).unwrap().pos;
+                let parent_mu = { self.world.get::<&Body>(new_parent).unwrap().mu };
                 replace_line_path(
                     &mut self.world,
                     &app.renderer,
@@ -786,12 +710,14 @@ impl Gameplay {
                             pos: parent_world_pos,
                         },
                         Parent { id: new_parent },
-                        LinePathComponent::new(
-                            flyby_orbit.generate_orbit_vertices(2048, Some(soi_radius)),
-                        ),
+                        LinePathComponent::new(flyby_orbit.generate_orbit_vertices(
+                            2048,
+                            parent_mu,
+                            Some(soi_radius),
+                        )),
                     )),
                 );
-                self.world.remove_one::<Orbit>(craft).ok();
+                self.world.remove_one::<State>(craft).ok();
                 self.world
                     .insert(craft, (flyby_orbit, Parent { id: new_parent }))
                     .unwrap();
@@ -804,6 +730,7 @@ impl Gameplay {
             } => {
                 let parent = self.world.get::<&Parent>(craft).unwrap().id;
                 let parent_world_pos = self.world.get::<&WorldPosition>(parent).unwrap().pos;
+                let parent_mu = { self.world.get::<&Body>(parent).unwrap().mu };
                 replace_line_path(
                     &mut self.world,
                     &app.renderer,
@@ -814,24 +741,31 @@ impl Gameplay {
                         },
                         Parent { id: parent },
                         LinePathComponent::new(
-                            transfer_orbit.generate_orbit_vertices(2048, soi_radius),
+                            transfer_orbit.generate_orbit_vertices(2048, parent_mu, soi_radius),
                         ),
                     )),
                 );
-                self.world.remove_one::<Orbit>(craft).ok();
+                self.world.remove_one::<State>(craft).ok();
                 self.world
                     .insert(craft, (transfer_orbit, Parent { id: parent }))
                     .unwrap();
             }
             Event::TakeOff { craft } => {
                 let parent_id = self.world.get::<&Parent>(craft).unwrap().id;
+                let parent_body_mu = self.world.get::<&Body>(parent_id).unwrap().mu;
                 self.world.remove_one::<Landed>(craft).ok();
                 self.world
-                    .insert(craft, (orbit_to_use, Parent { id: parent_id }))
+                    .insert(
+                        craft,
+                        (
+                            State::circular(2.0, self.current_et, parent_body_mu),
+                            Parent { id: parent_id },
+                        ),
+                    )
                     .unwrap();
             }
             Event::Land { craft } => {
-                self.world.remove_one::<Orbit>(craft).ok();
+                self.world.remove_one::<State>(craft).ok();
                 self.world.insert_one(craft, Landed {}).unwrap();
             }
             _ => {}
@@ -855,7 +789,7 @@ impl Gameplay {
 
         // Find roots (entities without parent)
         let mut roots = Vec::new();
-        for (entity, _) in self.world.query::<&WorldPosition>().iter() {
+        for (entity, _) in self.world.query::<(&WorldPosition, &Body)>().iter() {
             if !has_parent.contains_key(&entity) {
                 roots.push(entity);
             }
@@ -865,8 +799,9 @@ impl Gameplay {
 
         // Kick off from roots
         for root in roots {
+            let mu = { self.world.get::<&mut Body>(root).unwrap().mu };
             let root_pos = vec3(0.0, 0.0, 0.0);
-            self.propagate(&children, root, root_pos, et, app);
+            self.propagate(&children, root, root_pos, mu, et, app);
         }
     }
 
@@ -875,6 +810,7 @@ impl Gameplay {
         children: &HashMap<Entity, Vec<Entity>>,
         entity: Entity,
         parent_pos: DVec3,
+        parent_mu: f64,
         t: EphemerisTime,
         app: &App,
     ) {
@@ -884,8 +820,8 @@ impl Gameplay {
         let scene_obj = self.world.get::<&SceneObject>(entity).unwrap();
 
         // Compute local offset if Orbit exists
-        let local_offset = if let Ok(orbit) = self.world.get::<&Orbit>(entity) {
-            orbit.position_at(t)
+        let local_offset = if let Ok(orbit) = self.world.get::<&State>(entity) {
+            orbit.propagate(t, parent_mu).r
         } else {
             vec3(0.0, 0.0, 0.0)
         };
@@ -907,7 +843,8 @@ impl Gameplay {
         // Recurse into children
         if let Some(kids) = children.get(&entity) {
             for &child in kids {
-                self.propagate(children, child, new_world, t, app);
+                let mu = { self.world.get::<&mut Body>(entity).unwrap().mu };
+                self.propagate(children, child, new_world, mu, t, app);
             }
         }
     }
