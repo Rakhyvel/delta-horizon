@@ -674,11 +674,18 @@ impl Gameplay {
             match command {
                 Command::Transfer { to } => {
                     let init_state = self.world.get::<&State>(entity).unwrap();
+                    let target_state = self.world.get::<&State>(to).unwrap();
                     let parent = self.world.get::<&Parent>(entity).unwrap().id;
                     let parent_body = self.world.get::<&Body>(parent).unwrap();
-                    let transfer = plan_transfer(&init_state, self.current_et, parent_body.mu);
+                    let transfer = plan_transfer(
+                        &init_state,
+                        &target_state,
+                        self.current_et + EphemerisTime::from_years(0.1),
+                        parent_body.mu,
+                    );
 
                     let departure_time = transfer.transfer_state.t;
+                    let arrival_time = transfer.arrival_et;
 
                     self.event_queue.push(
                         departure_time,
@@ -687,6 +694,16 @@ impl Gameplay {
                             to,
                             transfer_orbit: transfer.transfer_state,
                             soi_radius: None,
+                        },
+                    );
+
+                    self.event_queue.push(
+                        arrival_time,
+                        Event::SoiChange {
+                            craft: entity,
+                            new_parent: parent,
+                            flyby_orbit: *init_state,
+                            soi_radius: 40.0,
                         },
                     );
                 }
