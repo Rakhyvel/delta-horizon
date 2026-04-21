@@ -8,7 +8,10 @@ use apricot::{
 use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
-use crate::astro::state::State;
+use crate::{
+    astro::{epoch::EphemerisTime, state::State},
+    generation::solar_system_gen::EARTH_RADII_PER_AU,
+};
 
 pub struct SceneObject {
     pub bvh_node_id: Option<BVHNodeId>,
@@ -114,7 +117,8 @@ impl Body {
 
     pub fn mass(&self) -> f64 {
         let earth_density = 5.51;
-        (self.density / earth_density) * self.body_radius.powi(3) / earth_density
+        let density_ratio = self.density / earth_density;
+        density_ratio * self.body_radius.powi(3)
     }
 
     pub fn habitable(&self) -> bool {

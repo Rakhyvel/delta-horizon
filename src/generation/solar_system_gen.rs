@@ -11,9 +11,10 @@ const DENSITY_IRON_G_CM3: f64 = 12.0;
 const DENSITY_ROCK_G_CM3: f64 = 3.5;
 
 const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
-pub const EARTH_RADII_PER_AU: f64 = 23455.0;
-const G: f64 = 4.0 * PI * PI;
-pub const SUN_MU: f64 = 328900.0;
+pub const EARTH_RADII_PER_AU: f64 = 23_455.0;
+const G: f64 = 4.0 * PI * PI * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU
+    / EARTH_MASSES_PER_SUN_MASS;
+pub const SUN_MU: f64 = G * EARTH_MASSES_PER_SUN_MASS;
 
 pub struct BodySystem {
     pub(crate) planet: (Body, State),
@@ -164,8 +165,7 @@ fn generate_planet(rng: &mut impl Rng, dist_from_sun: f64, category_dist: &[Mass
         let earth_density = 5.51;
         (density / earth_density) * body_radius.powi(3) / earth_density
     }
-    let mu =
-        G * (EARTH_MASSES_PER_SUN_MASS + mass(density, body_radius)) / EARTH_MASSES_PER_SUN_MASS;
+    let mu = G * mass(density, body_radius);
 
     Body {
         category,

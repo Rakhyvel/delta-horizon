@@ -1,7 +1,10 @@
+use std::f64::consts::PI;
+
 use nalgebra_glm::{vec3, DVec3};
 
 use crate::astro::epoch::EphemerisTime;
 
+#[derive(Clone, Copy)]
 pub struct State {
     pub r: DVec3,
     pub v: DVec3,
@@ -69,7 +72,7 @@ impl State {
 
             let delta = f / df_dchi;
             const DAMPING: f64 = 0.8; // Tweak if necessary
-            chi -= 0.8 * delta;
+            chi -= DAMPING * delta;
 
             if delta.abs() < TOL {
                 break;
@@ -95,12 +98,17 @@ impl State {
         let r_mag = r.norm();
 
         // fdot and gdot (used to find velocity at t)
-        let fdot = (mu.sqrt() / (r_mag * r0_mag)) * (alpha * chi2 * s - chi); // TODO: Is this right?
+        let fdot = (mu.sqrt() / (r_mag * r0_mag)) * (alpha * chi2 * s - chi);
         let gdot = 1.0 - (chi2 / r_mag) * c;
 
         let v = self.r * fdot + self.v * gdot;
 
         State { r, v, t }
+    }
+
+    pub fn period(&self, mu: f64) -> f64 {
+        let r = self.r.norm();
+        2.0 * PI * (r.powi(3) / mu).sqrt()
     }
 
     pub fn generate_orbit_vertices(
@@ -115,15 +123,16 @@ impl State {
         let mut vertices = Vec::with_capacity((segments as usize + 1) * 3);
 
         let mut et = EphemerisTime::new(0);
+        let period = self.period(mu);
 
         for _ in 0..=segments {
-            let State { r, v: _, t: _ } = self.propagate(et, mu);
+            let new_state = self.propagate(et, mu);
 
-            vertices.push(r.x as f32);
-            vertices.push(r.y as f32);
-            vertices.push(r.z as f32);
+            vertices.push(new_state.r.x as f32);
+            vertices.push(new_state.r.y as f32);
+            vertices.push(new_state.r.z as f32);
 
-            et += EphemerisTime::from_years(1.0 / 365.0);
+            et += EphemerisTime::from_years(period / (segments as f64));
         }
 
         vertices
