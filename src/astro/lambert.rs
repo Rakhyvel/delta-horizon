@@ -15,7 +15,7 @@ pub fn lambert(r1: DVec3, r2: DVec3, tof: f64, mu: f64) -> DVec3 {
     let r2_mag = r2.norm();
 
     let cos_dnu = r1.dot(&r2) / (r1_mag * r2_mag);
-    let a = (r1_mag * r2_mag * (1.0 + cos_dnu)).sqrt();
+    let a = (r1_mag * r2_mag * (1.0 + cos_dnu)).sqrt(); // always take the short way
     assert!(a > LAMBERT_EPSILON, "transfer angle too close to 0 or 180");
 
     const TOL: f64 = 1e-4; // Time epsilon

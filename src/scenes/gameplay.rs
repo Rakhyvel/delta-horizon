@@ -167,7 +167,7 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 2.0;
+            const TURN_TIME: f64 = 20.0;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
             let eased = t;
 
@@ -383,8 +383,10 @@ impl Gameplay {
             }
         }
 
+        let mut state = State::circular(2.0, EphemerisTime::new(0), habitable_planet_mu);
+        state.v += vec3(0.0, 0.0, 0.0);
         let craft_entity = spawn_craft(
-            State::circular(2.0, EphemerisTime::new(0), habitable_planet_mu),
+            state,
             SceneObject {
                 bvh_node_id: None,
                 name: String::from("craft"),
@@ -677,12 +679,8 @@ impl Gameplay {
                     let target_state = self.world.get::<&State>(to).unwrap();
                     let parent = self.world.get::<&Parent>(entity).unwrap().id;
                     let parent_body = self.world.get::<&Body>(parent).unwrap();
-                    let transfer = plan_transfer(
-                        &init_state,
-                        &target_state,
-                        self.current_et + EphemerisTime::from_years(0.1),
-                        parent_body.mu,
-                    );
+                    let transfer =
+                        plan_transfer(&init_state, &target_state, self.current_et, parent_body.mu);
 
                     let departure_time = transfer.transfer_state.t;
                     let arrival_time = transfer.arrival_et;
