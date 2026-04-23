@@ -42,17 +42,29 @@ impl State {
         let alpha = 2.0 / r0_mag - (v0_mag * v0_mag) / mu; // 1/a (specific energy form)
 
         // Newton solver for chi (TODO: look into different initial guesses)
-        let mut chi = mu.sqrt() * alpha.abs() * dt;
+        let mut chi = if alpha > 0.0 {
+            // Elliptic: seed with circular orbit chi
+            mu.sqrt() * dt * alpha
+        } else {
+            // Hyperbolic/parabolic: seed conservatively
+            mu.sqrt() * dt / r0_mag
+        };
 
         // newton rhapson, find chi that makes F 0
         const MAX_ITER: usize = 500;
-        const TOL: f64 = 1e-6;
+        const TOL: f64 = 1e-2;
         for iter in 0..MAX_ITER {
             let chi2 = chi * chi;
             let z = alpha * chi2;
+            assert!(z.is_finite());
 
             let c = stumpff_c(z);
+            if !c.is_finite() {
+                println!("{c} {z} {alpha} {chi2}");
+            }
+            assert!(c.is_finite());
             let s = stumpff_s(z);
+            assert!(s.is_finite());
 
             let r0_vr0_over_sqrtmu = r0_mag * vr0 / mu.sqrt();
 
@@ -60,6 +72,7 @@ impl State {
                 + (1.0 - alpha * r0_mag) * chi2 * chi * s
                 + r0_mag * chi
                 - (mu.sqrt() * dt);
+            assert!(f.is_finite());
 
             if f.abs() < TOL {
                 break;
@@ -79,7 +92,7 @@ impl State {
             }
 
             if iter == MAX_ITER - 1 {
-                panic!("universal kepler equation did not converge");
+                eprintln!("universal kepler equation did not converge: {self:?}");
             }
         }
 
@@ -148,6 +161,21 @@ impl State {
         }
 
         vertices
+    }
+
+    pub fn semi_major_axis(&self, mu: f64) -> f64 {
+        let r_mag = self.r.norm();
+        1.0 / (2.0 / r_mag - self.v.norm_squared() / mu)
+    }
+
+    pub fn ecc(&self, mu: f64) -> f64 {
+        let r_mag = self.r.norm();
+
+        let v_cross_h = self.v.cross(&(self.r.cross(&self.v)));
+
+        let e_vec = (v_cross_h / mu) - (self.r / r_mag);
+
+        e_vec.norm()
     }
 }
 

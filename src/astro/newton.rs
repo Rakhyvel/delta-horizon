@@ -43,15 +43,20 @@ pub fn newton_target<const NC: usize, const NR: usize, P: NLProblem<NC, NR>>(
 ) -> Result<TVec<f64, NC>, String> {
     let mut controls = initial_guess;
 
-    for _ in 0..max_iter {
+    for iter in 0..max_iter {
+        println!("controls: {}", controls);
         let residual = problem.resid(&controls);
         let norm = residual.norm();
+
+        println!("iter {iter:3}: |residual| = {norm:.6e}");
 
         if norm < tol {
             return Ok(controls);
         }
 
         let j = problem.jacobian(&controls);
+
+        println!("j: {}", j);
 
         // Least-squares solve: (JᵀJ) dx = Jᵀ r
         let jtj = j.transpose() * j;

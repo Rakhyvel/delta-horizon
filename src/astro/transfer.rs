@@ -1,25 +1,38 @@
 use std::f64::consts::PI;
 
-use nalgebra_glm::vec3;
+use nalgebra_glm::{vec3, DVec3, DVec4, TVec};
 
-use crate::astro::{epoch::EphemerisTime, lambert::lambert, state::State};
+use crate::astro::{
+    epoch::EphemerisTime,
+    lambert::lambert,
+    newton::{newton_target, NLProblem},
+    state::State,
+};
 
 pub struct BurnTargeter {
     craft_state_t0: State,
     target_state_t0: State,
+    current_et: EphemerisTime,
+    tof: f64,
     mu: f64,
 }
 
-impl BurnTargeter {
-    fn miss(&self, x: [f64; 4]) -> [f64; 3] {
-        let depart_et = EphemerisTime::from_years(x[0]);
-        let dv = vec3(x[1], x[2], x[3]);
+impl NLProblem<3, 3> for BurnTargeter {
+    fn resid(&self, controls: &TVec<f64, 3>) -> TVec<f64, 3> {
+        let depart_et = self.current_et + EphemerisTime::from_years(1.0 / 365.0);
+        let dv = controls;
 
-        let mut craft = self.craft_state_t0.propagate(depart_et, self.mu);
-        craft.v += dv;
+        let mut new_state = self.craft_state_t0.propagate(depart_et, self.mu);
+        new_state.v += dv;
 
-        // TODO: Get pos defects at closest approach
-        [0.0, 0.0, 0.0]
+        let tf = depart_et + EphemerisTime::from_years(self.tof);
+
+        println!("ecc: {}", new_state.ecc(self.mu));
+
+        let craft_state_tf = new_state.propagate(tf, self.mu);
+        let target_state_tf = self.target_state_t0.propagate(tf, self.mu);
+
+        craft_state_tf.r - target_state_tf.r
     }
 }
 
@@ -34,76 +47,24 @@ pub fn plan_transfer(
     current_et: EphemerisTime,
     mu: f64,
 ) -> TransferInfo {
-    // Compute transfer geometry from current states
-    let r1_mag = init_state.r.norm();
-    let r2_mag = target_body_state.r.norm();
-    let a1 = 1.0 / (2.0 / r1_mag - init_state.v.norm_squared() / mu);
-    let a2 = 1.0 / (2.0 / r2_mag - target_body_state.v.norm_squared() / mu);
-    let a_transfer = (a1 + a2) / 2.0;
-    let transfer_duration_years = PI * (a_transfer.powi(3) / mu).sqrt();
-
-    // Angular velocities (rad/yr)
-    let omega_craft = (mu / a1.powi(3)).sqrt();
-    let omega_target = (mu / a2.powi(3)).sqrt();
-
-    // Target must be this far ahead of craft at departure (spacecraft travels PI radians)
-    let required_phase = (PI - omega_target * transfer_duration_years).rem_euclid(2.0 * PI);
-    assert!(
-        required_phase > 0.0 && required_phase < PI,
-        "required phase {required_phase} out of range, transfer geometry is wrong"
-    );
-
-    // Current phase angles
-    let craft_angle = init_state.r.y.atan2(init_state.r.x);
-    let target_angle = target_body_state.r.y.atan2(target_body_state.r.x);
-    let phase_rate = omega_craft - omega_target;
-    let synodic_period = 2.0 * PI / phase_rate;
-
-    let wait_years = (-PI + omega_target * transfer_duration_years - (craft_angle - target_angle))
-        .rem_euclid(2.0 * PI)
-        / phase_rate;
-    let wait_years = if wait_years < 1.0 / 365.0 {
-        wait_years + synodic_period
-    } else {
-        wait_years
+    let prob = BurnTargeter {
+        craft_state_t0: *init_state,
+        target_state_t0: *target_body_state,
+        current_et,
+        tof: 6.0 / 365.0,
+        mu,
     };
 
-    assert!(wait_years > 0.0, "departure_et has gotta be in the future");
-    let departure_et = current_et + EphemerisTime::from_years(wait_years);
-    let arrival_et = departure_et + EphemerisTime::from_years(transfer_duration_years);
+    let sol: DVec3 = newton_target(&prob, DVec3::new(0.0, 0.0, 0.0), 1000, 3.0, 0.01).unwrap();
 
-    // Propagate to departure
-    let craft_at_departure = init_state.propagate(departure_et, mu);
-    let r1 = craft_at_departure.r;
-    let r2 = target_body_state.propagate(arrival_et, mu).r;
+    let depart_et = current_et + EphemerisTime::from_years(1.0 / 365.0);
+    let dv = sol;
 
-    // Solve Lambert's problem
-    let v_departure = lambert(r1, r2, transfer_duration_years, mu);
-
-    let mut transfer_state = craft_at_departure;
-    transfer_state.v = v_departure;
-
-    println!("r1_mag:                  {}", r1_mag);
-    println!("r2_mag:                  {}", r2_mag);
-    println!("a_transfer:              {}", a_transfer);
-    println!("transfer_duration_years: {}", transfer_duration_years);
-    println!("omega_craft:             {}", omega_craft);
-    println!("omega_target:            {}", omega_target);
-    println!("phase_rate:              {}", phase_rate);
-    println!("synodic_period:          {}", synodic_period);
-    println!("craft_angle:             {}", craft_angle);
-    println!("target_angle:            {}", target_angle);
-    println!("wait_years:              {}", wait_years);
-    println!("craft_at_departure:      {:?}", craft_at_departure);
-    println!("target_at_arrival:       {:?}", r2);
-    println!("|r1|:                    {}", r1.norm());
-    println!("|r2|:                    {}", r2.norm());
-    println!("circular v at r1:        {}", (mu / r1_mag).sqrt());
-    println!("lambert v:               {:?}", v_departure);
-    println!("|lambert v|:             {}", v_departure.norm());
+    let mut transfer_state = init_state.propagate(depart_et, mu);
+    transfer_state.v += dv;
 
     TransferInfo {
         transfer_state,
-        arrival_et,
+        arrival_et: depart_et + EphemerisTime::from_years(6.0 / 365.0),
     }
 }
