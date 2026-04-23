@@ -12,7 +12,7 @@ const DENSITY_ROCK_G_CM3: f64 = 3.5;
 
 const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
 pub const EARTH_RADII_PER_AU: f64 = 23_455.0;
-const G: f64 = 4.0 * PI * PI * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU
+pub const G: f64 = 4.0 * PI * PI * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU
     / EARTH_MASSES_PER_SUN_MASS;
 pub const SUN_MU: f64 = G * EARTH_MASSES_PER_SUN_MASS;
 
@@ -187,7 +187,7 @@ fn max_moons(body_radius: f64) -> usize {
 
 fn has_habitable(planets: &[BodySystem]) -> bool {
     planets.iter().any(|p| {
-        p.planet.0.habitable() && p.planet.0.category == Category::EarthLike && !p.moons.is_empty()
+        p.planet.0.habitable() && p.planet.0.category == Category::EarthLike && !p.moons.len() > 1
     })
 }
 

@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Sub};
+use std::ops::{Add, AddAssign, Mul, Sub};
 
 /// Microseconds after the save start epoch
 /// Should allow for ~292,000 years future and past
@@ -48,6 +48,13 @@ impl Sub for EphemerisTime {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
         Self(self.0 - rhs.0)
+    }
+}
+
+impl Mul<i64> for EphemerisTime {
+    type Output = Self;
+    fn mul(self, rhs: i64) -> Self {
+        Self(self.0 * rhs)
     }
 }
 

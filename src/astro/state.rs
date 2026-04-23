@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use nalgebra_glm::{vec3, DVec3};
+use nalgebra_glm::{quat_angle_axis, quat_rotate_vec3, rotation, vec3, DVec3};
 
 use crate::astro::epoch::EphemerisTime;
 
@@ -15,16 +15,43 @@ impl State {
     /// Create a state along a circular orbit, at some orbital radius `r`, time `t`, and with the parent grav
     /// param `mu`.
     pub fn circular(r: f64, t: EphemerisTime, mu: f64) -> Self {
-        let v_mag = (mu / r).sqrt();
+        Self::from_kepler(r, 0.0, 0.0, 0.0, 0.0, 0.0, t, mu)
+    }
 
-        let r_vec: DVec3 = vec3(r, 0.0, 0.0);
-        let v_vec: DVec3 = vec3(0.0, v_mag, 0.0);
+    #[allow(clippy::too_many_arguments)] // TODO: Kepler struct?
+    pub fn from_kepler(
+        a: f64,
+        e: f64,
+        i: f64,
+        raan: f64,
+        arg_peri: f64,
+        true_anomaly: f64,
+        t: EphemerisTime,
+        mu: f64,
+    ) -> Self {
+        // Position in perifocal frame
+        let p = a * (1.0 - e * e);
+        let r_p = p / (1.0 + e * true_anomaly.cos());
+        let r_pf = vec3(r_p * true_anomaly.cos(), r_p * true_anomaly.sin(), 0.0);
 
-        Self {
-            r: r_vec,
-            v: v_vec,
-            t,
-        }
+        // Velocity in perifocal frame
+        let h = (mu * p).sqrt();
+        let v_pf = vec3(
+            -mu / h * true_anomaly.sin(),
+            mu / h * (e + true_anomaly.cos()),
+            0.0,
+        );
+
+        // Rotate to inertial frame
+        let q_raan = quat_angle_axis(raan, &vec3(0.0, 0.0, 1.0));
+        let q_i = quat_angle_axis(i, &vec3(1.0, 0.0, 0.0));
+        let q_argp = quat_angle_axis(arg_peri, &vec3(0.0, 0.0, 1.0));
+        let q = q_raan * q_i * q_argp;
+
+        let r = quat_rotate_vec3(&q, &r_pf);
+        let v = quat_rotate_vec3(&q, &v_pf);
+
+        Self { r, v, t }
     }
 
     /// Returns the ephemeris at some `t` given some mu
@@ -52,7 +79,7 @@ impl State {
 
         // newton rhapson, find chi that makes F 0
         const MAX_ITER: usize = 500;
-        const TOL: f64 = 1e-2;
+        const TOL: f64 = 1e-8;
         for iter in 0..MAX_ITER {
             let chi2 = chi * chi;
             let z = alpha * chi2;
@@ -119,25 +146,11 @@ impl State {
         State { r, v, t }
     }
 
-    /// Returns the period of the orbit is periodic, otherwise returns None
-    pub fn period(&self, mu: f64) -> Option<f64> {
-        let r = self.r.norm();
-        let v2 = self.v.dot(&self.v);
-        let a = 1.0 / (2.0 / r - v2 / mu); // semi-major axis from vis-viva
-
-        if a <= 0.0 {
-            // a < 0 -> hyperbolic, a = 0 -> parabolic (1/a = 0 means v = escape velocity)
-            return None;
-        }
-
-        Some(2.0 * PI * (a.powi(3) / mu).sqrt())
-    }
-
     pub fn generate_orbit_vertices(
         &self,
         segments: i32,
         mu: f64,
-        _soi_radius: Option<f64>,
+        soi_radius: Option<f64>,
     ) -> Vec<f32> {
         // Find period, if periodic, do the loop
         // If not periodic, clip to SOI
@@ -157,7 +170,22 @@ impl State {
                 et += EphemerisTime::from_years(period / (segments as f64));
             }
         } else {
-            eprintln!("TODO: Hyperbolic and parabolic orbits");
+            let soi_radius = soi_radius.expect("must specify a SOI radius for hyperbolic orbits");
+            for i in 0..=segments {
+                let t = i as f64 / segments as f64;
+                let sample_time = self.t + EphemerisTime::from_years(2.0 * t / 365.0);
+
+                let pos = self.propagate(sample_time, mu).r;
+                let distance = pos.norm();
+
+                if distance >= soi_radius {
+                    break;
+                }
+
+                vertices.push(pos.x as f32);
+                vertices.push(pos.y as f32);
+                vertices.push(pos.z as f32);
+            }
         }
 
         vertices
@@ -176,6 +204,20 @@ impl State {
         let e_vec = (v_cross_h / mu) - (self.r / r_mag);
 
         e_vec.norm()
+    }
+
+    /// Returns the period of the orbit is periodic, otherwise returns None
+    pub fn period(&self, mu: f64) -> Option<f64> {
+        let r = self.r.norm();
+        let v2 = self.v.dot(&self.v);
+        let a = 1.0 / (2.0 / r - v2 / mu); // semi-major axis from vis-viva
+
+        if a <= 0.0 {
+            // a < 0 -> hyperbolic, a = 0 -> parabolic (1/a = 0 means v = escape velocity)
+            return None;
+        }
+
+        Some(2.0 * PI * (a.powi(3) / mu).sqrt())
     }
 }
 
