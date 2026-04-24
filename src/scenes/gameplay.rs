@@ -23,7 +23,7 @@ use crate::{
         state::State,
         transfer::{plan_transfer, TransferObjective},
     },
-    components::craft::{replace_line_path, Command},
+    components::craft::{replace_line_path, AssociatedCraft, Command},
     container,
     generation::solar_system_gen::SUN_MU,
     scenes::events::{Event, EventQueue},
@@ -171,9 +171,9 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 20.0;
+            const TURN_TIME: f64 = 1.5;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
-            let eased = t;
+            let eased = cubic_ease_in_out(t);
 
             // Interpolate ET between start and target
             self.current_et = self
@@ -389,10 +389,10 @@ impl Gameplay {
 
         let state = State::from_kepler(
             1.5,
-            0.0006,
-            PI * 51.6 / 180.0,
+            0.1,
+            PI * 18.6 / 180.0,
             0.0,
-            PI / 2.0,
+            PI / 3.0,
             0.0,
             EphemerisTime::new(0),
             habitable_planet_mu,
@@ -772,6 +772,7 @@ impl Gameplay {
                             parent_mu,
                             Some(soi_radius),
                         )),
+                        AssociatedCraft { craft },
                     )),
                 );
                 self.world.remove_one::<State>(craft).ok();
@@ -800,6 +801,7 @@ impl Gameplay {
                         LinePathComponent::new(
                             transfer_orbit.generate_orbit_vertices(2048, parent_mu, soi_radius),
                         ),
+                        AssociatedCraft { craft },
                     )),
                 );
                 self.world.remove_one::<State>(craft).ok();
@@ -954,6 +956,16 @@ impl Gameplay {
             pos_map.insert(entity, world_pos.pos);
         }
 
+        let mut assoc_craft_map = HashMap::new();
+        for (entity, _line) in self.world.query::<&LinePathComponent>().iter() {
+            assoc_craft_map.insert(
+                entity,
+                self.world
+                    .get::<&AssociatedCraft>(entity)
+                    .map_or(Entity::DANGLING, |x| x.craft),
+            );
+        }
+
         // Set the origins of the line paths wrt the parent world positions
         for (entity, (line, world_pos, parent)) in
             self.world
@@ -961,18 +973,21 @@ impl Gameplay {
         {
             let parent_pos = pos_map.get(&parent.id).unwrap();
 
-            line.color.w = match self.selection.selected_entity() {
+            let selected = match self.selection.selected_entity() {
                 Some(selected_entity) => {
-                    if entity == selected_entity {
-                        0.8
-                    } else {
-                        0.2
-                    }
+                    let assoc_craft = *assoc_craft_map.get(&entity).unwrap();
+                    assoc_craft == selected_entity
                 }
-                None => 0.2,
+                None => false,
             };
 
-            line.width = 3.0;
+            if selected {
+                line.color.w = 0.8;
+                line.width = 3.0;
+            } else {
+                line.color.w = 0.2;
+                line.width = 2.0;
+            }
 
             world_pos.pos = *parent_pos;
         }

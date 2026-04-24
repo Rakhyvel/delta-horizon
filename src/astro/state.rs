@@ -223,6 +223,11 @@ impl State {
 
         Some(2.0 * PI * (a.powi(3) / mu).sqrt())
     }
+
+    pub fn mean_motion(&self, mu: f64) -> f64 {
+        let a = self.semi_major_axis(mu);
+        (mu / (a.powi(3))).sqrt()
+    }
 }
 
 fn stumpff_c(z: f64) -> f64 {

@@ -1,6 +1,6 @@
-use std::f64::{consts::PI, INFINITY};
+use std::f64::consts::PI;
 
-use nalgebra_glm::{vec3, DVec3, DVec4, TVec};
+use nalgebra_glm::{DVec1, TVec};
 
 use crate::{
     astro::{
@@ -13,29 +13,39 @@ use crate::{
 };
 
 pub struct BurnTargeter {
-    craft_state_t0: State,
-    target_state_t0: State,
-    current_et: EphemerisTime,
+    transfer_state: State,
+    target_state: State,
+    parent_mu: f64,
+    target_mu: f64,
+    soi_radius: f64,
     tof: f64,
-    depart_et: EphemerisTime,
-    mu: f64,
+    target_peri: f64,
 }
 
-impl NLProblem<3, 3> for BurnTargeter {
-    fn resid(&self, controls: &TVec<f64, 3>) -> TVec<f64, 3> {
-        let dv = controls;
+impl NLProblem<1, 1> for BurnTargeter {
+    fn resid(&self, controls: &TVec<f64, 1>) -> TVec<f64, 1> {
+        let mut transfer_state = self.transfer_state;
+        transfer_state.v *= controls.x;
 
-        let mut new_state = self.craft_state_t0.propagate(self.depart_et, self.mu);
-        new_state.v += dv;
+        let arrival_et = find_soi_entry(
+            &transfer_state,
+            &self.target_state,
+            self.soi_radius,
+            self.tof,
+            self.parent_mu,
+        );
+        let flyby_state = get_flyby_state(
+            &transfer_state,
+            &self.target_state,
+            arrival_et,
+            self.parent_mu,
+        );
 
-        let tf = self.depart_et + EphemerisTime::from_years(self.tof);
+        let peri_state = find_periapsis(&flyby_state, self.target_mu);
 
-        println!("ecc: {}", new_state.ecc(self.mu));
+        let peri = peri_state.r.norm();
 
-        let craft_state_tf = new_state.propagate(tf, self.mu);
-        let target_state_tf = self.target_state_t0.propagate(tf, self.mu);
-
-        craft_state_tf.r - target_state_tf.r
+        TVec::<f64, 1>::new(peri - self.target_peri)
     }
 }
 
@@ -93,13 +103,16 @@ pub fn plan_transfer(
     // Sweep through the orbit, find cheapest dv transfer
     let craft_period = init_state.period(mu).unwrap();
     let target_period = target_body_state.period(mu).unwrap();
-    let full_period = craft_period.max(target_period);
+    let full_period = craft_period.min(target_period);
 
     const DEPART_STEPS: usize = 100;
     const TOF_STEPS: usize = 20;
     let tof_min = tof_guess * 0.5;
     let tof_max = tof_guess * 2.0;
     let step = EphemerisTime::from_years(full_period / DEPART_STEPS as f64);
+
+    const EARTH_RADIUS_KM: f64 = 6371.0;
+    const YEAR_S: f64 = 31_557_600.0;
 
     let (best_dv, best_et, best_tof, _) = (0..TOF_STEPS)
         .flat_map(|j| {
@@ -109,15 +122,19 @@ pub fn plan_transfer(
         .map(|(i, tof)| {
             let et = current_et + step * i as i64;
 
-            let new_init_state = init_state.propagate(et, mu);
-            let new_target_state =
-                target_body_state.propagate(et + EphemerisTime::from_years(tof), mu);
+            let new_craft_state = init_state.propagate(et, mu);
 
-            let offset = vec3(0.0, 2.0, 0.0);
+            // Lag the target position by our desired flyby periapsis
+            // little hack that lets us easily get reasonable prograde flyby periapsis without too much complexity
+            const DESIRED_TARGET_PE: f64 = 2.0;
+            let target_arrival_et = et + EphemerisTime::from_years(tof);
+            let target_future = target_body_state.propagate(target_arrival_et, mu);
+            let delta_t = DESIRED_TARGET_PE / target_future.v.norm();
+            let lagged_et = target_arrival_et - EphemerisTime::from_years(delta_t);
+            let new_target_state = target_future.propagate(lagged_et, mu);
 
-            let departure_velocity =
-                lambert(new_init_state.r, new_target_state.r + offset, tof, mu);
-            let dv = departure_velocity - new_init_state.v;
+            let departure_velocity = lambert(new_craft_state.r, new_target_state.r, tof, mu);
+            let dv = departure_velocity - new_craft_state.v;
             (dv, et, tof)
         })
         .filter_map(|(dv, et, tof)| {
@@ -126,9 +143,6 @@ pub fn plan_transfer(
         })
         .min_by(|(_, _, _, cost_a), (_, _, _, cost_b)| cost_a.partial_cmp(cost_b).unwrap())
         .expect("no feasible transfer found");
-
-    const EARTH_RADIUS_KM: f64 = 6371.0;
-    const YEAR_S: f64 = 31_557_600.0;
 
     let dv_mag = best_dv.norm();
     let dv_mag_kms: f64 = dv_mag * EARTH_RADIUS_KM / YEAR_S;
@@ -149,11 +163,30 @@ pub fn plan_transfer(
         parent_mass,
     );
 
+    let prob = BurnTargeter {
+        transfer_state,
+        target_state: *target_body_state,
+        parent_mu: mu,
+        target_mu,
+        soi_radius,
+        tof: best_tof,
+        target_peri: 2.0,
+    };
+    let res = newton_target(&prob, DVec1::new(1.0), 100, 0.5, 1.0);
+
+    if let Ok(refined_v) = res {
+        transfer_state.v *= refined_v;
+    } else {
+        println!("WARNING: couldn't refine the periapsis")
+    }
+
     let arrival_et = find_soi_entry(&transfer_state, target_body_state, soi_radius, best_tof, mu);
     let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu);
 
-    let peri_et = find_periapsis_et(&flyby_state, target_mu);
-    let circ_state = circularization(&flyby_state, peri_et, target_mu);
+    let peri_state = find_periapsis(&flyby_state, target_mu);
+    let circ_state = circularization(&peri_state, target_mu);
+
+    println!("peri: {}", peri_state.r.norm());
 
     TransferInfo {
         transfer_state,
@@ -166,28 +199,32 @@ pub fn plan_transfer(
 fn find_soi_entry(
     transfer_orbit: &State,
     target_orbit: &State,
-    target_soi: f64, // earth radii
-    tof: f64,        // in years
-    mu: f64,         // of the common parent
+    target_soi: f64,
+    tof: f64,
+    mu: f64,
 ) -> EphemerisTime {
-    let n_samples = 10_000;
-
-    // Sweep through transfer orbit backward, find the first instance where the craft is NOT in the SOI
-    for i in 0..n_samples {
-        let t = 1.0 - (i as f64 / n_samples as f64);
+    let distance_at_t = |t: f64| -> f64 {
         let sample_time = transfer_orbit.t + EphemerisTime::from_years(t * tof);
-
         let craft_pos = transfer_orbit.propagate(sample_time, mu).r;
         let target_pos = target_orbit.propagate(sample_time, mu).r;
-        let distance = (craft_pos - target_pos).norm();
-        println!("{}", distance);
+        (craft_pos - target_pos).norm()
+    };
 
-        if distance >= target_soi {
-            return sample_time;
+    // Binary search between 0 and 1 (normalized departure and periapsis)
+    let mut lo = 0.0_f64;
+    let mut hi = 1.0_f64;
+
+    const ITERATIONS: usize = 50;
+    for _ in 0..ITERATIONS {
+        let mid = (lo + hi) / 2.0;
+        if distance_at_t(mid) < target_soi {
+            hi = mid; // inside SOI, search earlier
+        } else {
+            lo = mid; // outside SOI, search later
         }
     }
 
-    panic!("SOI entry not found!");
+    transfer_orbit.t + EphemerisTime::from_years(hi * tof)
 }
 
 fn get_flyby_state(
@@ -213,27 +250,38 @@ pub fn sphere_of_influence(orbital_radius: f64, body_mass: f64, parent_mass: f64
     orbital_radius * (body_mass / parent_mass).powf(2.0 / 5.0)
 }
 
-fn find_periapsis_et(
-    flyby_orbit: &State,
-    mu: f64, // of the parent body
-) -> EphemerisTime {
-    // scan forward, whenever the distance starts to increase you found the periapsis
-    let mut prev_dist = f64::INFINITY;
-    let mut et = flyby_orbit.t;
-    loop {
-        let pos = flyby_orbit.propagate(et, mu).r;
-        let dist = pos.norm();
-        if dist > prev_dist {
-            return et;
-        }
-        prev_dist = dist;
-        et += EphemerisTime::from_secs(1.0);
+fn find_periapsis(flyby_orbit: &State, mu: f64) -> State {
+    let rdotv_at_t = |et: EphemerisTime| -> f64 {
+        let state = flyby_orbit.propagate(et, mu);
+        state.r.dot(&state.v)
+    };
+
+    // Find a bracket where rdotv changes sign (negative -> positive)
+    // Periapsis is where rdotv = 0
+    let dt = EphemerisTime::from_secs(60.0);
+    let mut lo = flyby_orbit.t;
+    let mut hi = flyby_orbit.t;
+
+    // March forward until we bracket the zero crossing
+    while rdotv_at_t(hi) < 0.0 {
+        hi += dt;
     }
+
+    // Binary search for the zero crossing
+    const ITERATIONS: usize = 50;
+    for _ in 0..ITERATIONS {
+        let mid = lo + (hi - lo) / 2;
+        if rdotv_at_t(mid) < 0.0 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+
+    flyby_orbit.propagate(lo, mu)
 }
 
-fn circularization(flyby_orbit: &State, peri_et: EphemerisTime, mu: f64) -> State {
-    let peri_state = flyby_orbit.propagate(peri_et, mu);
-
+fn circularization(peri_state: &State, mu: f64) -> State {
     let r = peri_state.r;
     let v = peri_state.v;
 
@@ -254,6 +302,6 @@ fn circularization(flyby_orbit: &State, peri_et: EphemerisTime, mu: f64) -> Stat
     State {
         r: peri_state.r,
         v: v_circ,
-        t: peri_et,
+        t: peri_state.t,
     }
 }

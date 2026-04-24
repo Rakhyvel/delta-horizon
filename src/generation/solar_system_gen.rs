@@ -187,7 +187,7 @@ fn max_moons(body_radius: f64) -> usize {
 
 fn has_habitable(planets: &[BodySystem]) -> bool {
     planets.iter().any(|p| {
-        p.planet.0.habitable() && p.planet.0.category == Category::EarthLike && !p.moons.len() > 1
+        p.planet.0.habitable() && p.planet.0.category == Category::EarthLike && !p.moons.is_empty()
     })
 }
 
