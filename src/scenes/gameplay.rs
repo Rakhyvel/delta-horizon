@@ -388,9 +388,9 @@ impl Gameplay {
         }
 
         let state = State::from_kepler(
-            90.0,
-            0.99,
-            PI / 2.0,
+            1.5,
+            0.0006,
+            PI * 51.6 / 180.0,
             0.0,
             PI / 2.0,
             0.0,
@@ -703,6 +703,7 @@ impl Gameplay {
 
                     let departure_time = transfer.transfer_state.t;
                     let arrival_time = transfer.flyby_state.t;
+                    let circ_time = transfer.circ_state.t;
 
                     self.event_queue.push(
                         departure_time,
@@ -710,7 +711,7 @@ impl Gameplay {
                             craft: entity,
                             to,
                             transfer_orbit: transfer.transfer_state,
-                            soi_radius: Some(100.0),
+                            soi_radius: Some(transfer.soi_radius * 1.1),
                         },
                     );
 
@@ -720,17 +721,17 @@ impl Gameplay {
                             craft: entity,
                             new_parent: to,
                             flyby_orbit: transfer.flyby_state,
-                            soi_radius: transfer.soi_radius,
+                            soi_radius: transfer.soi_radius * 1.6,
                         },
                     );
 
                     self.event_queue.push(
-                        arrival_time + EphemerisTime::from_years(2.0 / 365.0),
-                        Event::SoiChange {
+                        circ_time,
+                        Event::ManeuverReady {
                             craft: entity,
-                            new_parent: to,
-                            flyby_orbit: transfer.flyby_state,
-                            soi_radius: 40.0,
+                            to,
+                            transfer_orbit: transfer.circ_state,
+                            soi_radius: Some(transfer.soi_radius * 1.1),
                         },
                     );
                 }

@@ -25,7 +25,7 @@ pub fn lambert(r1: DVec3, r2: DVec3, tof: f64, mu: f64) -> DVec3 {
     let mut phi = 0.0;
     let mut c2 = 0.5_f64;
     let mut c3 = 1.0_f64 / 6.0;
-    let mut cur_tof = 0.0_f64;
+    let mut cur_tof;
     let mut y = 0.0;
     for _ in 0..1000 {
         y = r1_mag + r2_mag + a * (phi * c3 - 1.0) / c2.sqrt();

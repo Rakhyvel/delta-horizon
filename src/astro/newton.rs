@@ -1,4 +1,4 @@
-use nalgebra_glm::{zero, TMat, TVec};
+use nalgebra_glm::{TMat, TVec};
 
 /// A nonlinear problem with a fixed number of controls and residuals.
 ///

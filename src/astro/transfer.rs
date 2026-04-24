@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::f64::{consts::PI, INFINITY};
 
 use nalgebra_glm::{vec3, DVec3, DVec4, TVec};
 
@@ -71,6 +71,7 @@ impl TransferObjective {
 pub struct TransferInfo {
     pub transfer_state: State,
     pub flyby_state: State,
+    pub circ_state: State,
     pub soi_radius: f64,
 }
 
@@ -83,6 +84,7 @@ pub fn plan_transfer(
     objective: TransferObjective,
 ) -> TransferInfo {
     let mu = G * parent_mass;
+    let target_mu = G * target_mass;
 
     // Start off with just a basic hohmann
     let transfer_a = (init_state.semi_major_axis(mu) + target_body_state.semi_major_axis(mu)) / 2.0;
@@ -111,7 +113,10 @@ pub fn plan_transfer(
             let new_target_state =
                 target_body_state.propagate(et + EphemerisTime::from_years(tof), mu);
 
-            let departure_velocity = lambert(new_init_state.r, new_target_state.r, tof, mu);
+            let offset = vec3(0.0, 2.0, 0.0);
+
+            let departure_velocity =
+                lambert(new_init_state.r, new_target_state.r + offset, tof, mu);
             let dv = departure_velocity - new_init_state.v;
             (dv, et, tof)
         })
@@ -147,9 +152,13 @@ pub fn plan_transfer(
     let arrival_et = find_soi_entry(&transfer_state, target_body_state, soi_radius, best_tof, mu);
     let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu);
 
+    let peri_et = find_periapsis_et(&flyby_state, target_mu);
+    let circ_state = circularization(&flyby_state, peri_et, target_mu);
+
     TransferInfo {
         transfer_state,
-        flyby_state: transfer_state,
+        flyby_state,
+        circ_state,
         soi_radius,
     }
 }
@@ -202,4 +211,49 @@ fn get_flyby_state(
 
 pub fn sphere_of_influence(orbital_radius: f64, body_mass: f64, parent_mass: f64) -> f64 {
     orbital_radius * (body_mass / parent_mass).powf(2.0 / 5.0)
+}
+
+fn find_periapsis_et(
+    flyby_orbit: &State,
+    mu: f64, // of the parent body
+) -> EphemerisTime {
+    // scan forward, whenever the distance starts to increase you found the periapsis
+    let mut prev_dist = f64::INFINITY;
+    let mut et = flyby_orbit.t;
+    loop {
+        let pos = flyby_orbit.propagate(et, mu).r;
+        let dist = pos.norm();
+        if dist > prev_dist {
+            return et;
+        }
+        prev_dist = dist;
+        et += EphemerisTime::from_secs(1.0);
+    }
+}
+
+fn circularization(flyby_orbit: &State, peri_et: EphemerisTime, mu: f64) -> State {
+    let peri_state = flyby_orbit.propagate(peri_et, mu);
+
+    let r = peri_state.r;
+    let v = peri_state.v;
+
+    let r_mag = r.norm();
+
+    // the velocity if we were in a circular orbit
+    let v_circ_mag = (mu / r_mag).sqrt();
+
+    // convert the scalar velocity to a scalar
+    let r_hat = r.normalize();
+    let h_hat = r.cross(&v).normalize();
+    let t_hat = h_hat.cross(&r_hat);
+
+    let v_circ = t_hat * v_circ_mag;
+
+    // circ dv is just the differnce between v_circ and v
+
+    State {
+        r: peri_state.r,
+        v: v_circ,
+        t: peri_et,
+    }
 }

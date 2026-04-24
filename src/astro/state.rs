@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use nalgebra_glm::{quat_angle_axis, quat_rotate_vec3, rotation, vec3, DVec3};
+use nalgebra_glm::{quat_angle_axis, quat_rotate_vec3, vec3, DVec3};
 
 use crate::astro::epoch::EphemerisTime;
 
@@ -181,6 +181,10 @@ impl State {
                 if distance >= soi_radius {
                     break;
                 }
+
+                assert!(pos.x.is_finite());
+                assert!(pos.y.is_finite());
+                assert!(pos.z.is_finite());
 
                 vertices.push(pos.x as f32);
                 vertices.push(pos.y as f32);
