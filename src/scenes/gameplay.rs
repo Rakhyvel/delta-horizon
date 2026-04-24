@@ -281,7 +281,7 @@ impl Gameplay {
         app.renderer.add_program(
             create_program(
                 include_str!("../shaders/line.vert"),
-                include_str!("../shaders/solid-color.frag"),
+                include_str!("../shaders/line.frag"),
             )
             .unwrap(),
             Some("line"),
@@ -368,6 +368,8 @@ impl Gameplay {
                 habitable_planet = bodies.len();
                 habitable_planet_mu = system.planet.0.mu;
             }
+
+            println!("{}", system.planet.1.semi_major_axis(SUN_MU));
             bodies.push(planet_entity);
 
             for moon in system.moons {
@@ -388,8 +390,8 @@ impl Gameplay {
         }
 
         let state = State::from_kepler(
-            1.5,
-            0.1,
+            819398.7239274858,
+            0.50,
             PI * 18.6 / 180.0,
             0.0,
             PI / 3.0,

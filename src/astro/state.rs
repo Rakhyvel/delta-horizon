@@ -80,7 +80,7 @@ impl State {
         // newton rhapson, find chi that makes F 0
         const MAX_ITER: usize = 500;
         const TOL: f64 = 1e-8;
-        for iter in 0..MAX_ITER {
+        for _ in 0..MAX_ITER {
             let chi2 = chi * chi;
             let z = alpha * chi2;
             assert!(z.is_finite());
@@ -116,10 +116,6 @@ impl State {
 
             if delta.abs() < TOL {
                 break;
-            }
-
-            if iter == MAX_ITER - 1 {
-                eprintln!("universal kepler equation did not converge: {self:?}");
             }
         }
 
@@ -160,14 +156,14 @@ impl State {
         if let Some(period) = self.period(mu) {
             let mut et = EphemerisTime::new(0);
 
-            for _ in 0..=segments {
+            for i in 0..=segments {
                 let new_state = self.propagate(et, mu);
 
                 vertices.push(new_state.r.x as f32);
                 vertices.push(new_state.r.y as f32);
                 vertices.push(new_state.r.z as f32);
 
-                et += EphemerisTime::from_years(period / (segments as f64));
+                et += EphemerisTime::from_years(period / (segments as f64)); // TODO: It's possible to overflow here?!
             }
         } else {
             let soi_radius = soi_radius.expect("must specify a SOI radius for hyperbolic orbits");
