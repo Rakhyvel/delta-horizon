@@ -21,7 +21,7 @@ use crate::{
     astro::{
         epoch::EphemerisTime,
         state::State,
-        transfer::{plan_transfer, sphere_of_influence, TransferObjective},
+        transfer::{plan_transfer, sphere_of_influence, TransferObjective, EARTH_RADIUS_KM},
     },
     components::craft::{replace_line_path, AssociatedEntity, Command},
     container,
@@ -692,6 +692,8 @@ impl Gameplay {
             if let Some(status) = self.build_landed_widgets(selected, font) {
                 widgets.extend(status);
             }
+        } else if self.world.get::<&Body>(selected).is_ok() {
+            widgets.extend(self.build_body_info(selected, font));
         }
 
         widgets
@@ -704,7 +706,61 @@ impl Gameplay {
                 format!("Name: {}", scene_object.name.clone()),
                 font,
             )),
-            Box::new(Label::new(format!("Delta V: {} km/s", 10.0), font)),
+            Box::new(Label::new(format!("Delta V: {} m/s", 10_000.0), font)),
+        ];
+        widgets
+    }
+
+    fn build_body_info(&self, selected: Entity, font: &Font) -> Vec<Box<dyn Widget<Message>>> {
+        let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
+        let body = self.world.get::<&Body>(selected).unwrap();
+        // let state = self.world.get::<&State>(selected).unwrap();
+        // Know: name, radius, mass, density, orbital radius, rotation in hours
+        // Have to find: atmos press, temp, core mass fraction, magnetic field
+        let widgets: Vec<Box<dyn Widget<Message>>> = vec![
+            Box::new(Label::new(
+                format!("NAME:\n  {}\n", scene_object.name.clone()),
+                font,
+            )),
+            Box::new(Label::new(
+                format!("EARTH RADII:\n  {:.1}\n", body.body_radius),
+                font,
+            )),
+            Box::new(Label::new(
+                format!("EARTH MASSES:\n  {:.1}\n", body.mass()),
+                font,
+            )),
+            Box::new(Label::new(
+                format!("DENSITY (g/cm^3):\n  {:.1}\n", body.density),
+                font,
+            )),
+            Box::new(Label::new(
+                format!("DAY (hours):\n  {:.1}\n", body.rotation_period_hours),
+                font,
+            )),
+            Box::new(Label::new(
+                format!("SURFACE PRESSURE:\n  {:.1} bar\n", body.atmos_pressure),
+                font,
+            )),
+            Box::new(Label::new(
+                format!("SURFACE TEMPERATURE:\n  {:.0} K\n", body.temperature),
+                font,
+            )),
+            Box::new(Label::new(
+                format!("CMF\n  {:.0}%\n", body.core_mass_fraction * 100.0),
+                font,
+            )),
+            Box::new(Label::new(
+                format!(
+                    "MAGNETIC FIELD:\n  {}\n",
+                    if body.magnetic_field {
+                        "present"
+                    } else {
+                        "absent"
+                    }
+                ),
+                font,
+            )),
         ];
         widgets
     }
@@ -726,7 +782,7 @@ impl Gameplay {
         // Land on body
         widgets.push(Box::new(
             TextButton::<Message>::new(
-                Rectangle::new(100.0, 120.0, 220.0, 40.0),
+                Rectangle::new(100.0, 120.0, 360.0, 40.0),
                 format!("Land on {}", parent_scene_object.name),
                 vec4(0.02, 0.07, 0.11, 1.0),
                 vec4(1.0, 1.0, 1.0, 0.5),
@@ -739,7 +795,7 @@ impl Gameplay {
             let grandparent_scene_object = self.world.get::<&SceneObject>(grandparent.id).unwrap();
             widgets.push(Box::new(
                 TextButton::<Message>::new(
-                    Rectangle::new(100.0, 120.0, 220.0, 40.0),
+                    Rectangle::new(100.0, 120.0, 360.0, 40.0),
                     format!("Transfer to {}", grandparent_scene_object.name),
                     vec4(0.02, 0.07, 0.11, 1.0),
                     vec4(1.0, 1.0, 1.0, 0.5),
@@ -755,15 +811,32 @@ impl Gameplay {
         let transfers = binding
             .iter()
             .filter(|(_, (_, _, _, p))| p.id == parent.id)
-            .map(|(entity, (_, _, scene_obj, _))| {
+            .map(|(to, (_, _, scene_obj, _))| {
+                let init_state = self.world.get::<&State>(selected).unwrap();
+                let target_state = self.world.get::<&State>(to).unwrap();
+                let target_body = self.world.get::<&Body>(to).unwrap();
+                let parent = self.world.get::<&Parent>(selected).unwrap().id;
+                let parent_body = self.world.get::<&Body>(parent).unwrap();
+                let transfer = plan_transfer(
+                    &init_state,
+                    &target_state,
+                    self.current_et,
+                    parent_body.mass(),
+                    target_body.mass(),
+                    TransferObjective::MinFuel,
+                );
+
                 Box::new(
                     TextButton::<Message>::new(
-                        Rectangle::new(100.0, 120.0, 220.0, 40.0),
-                        format!("Transfer to {}", scene_obj.name),
+                        Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                        format!(
+                            "Transfer to {} ({:.0} m/s)",
+                            scene_obj.name, transfer.total_dv
+                        ),
                         vec4(0.02, 0.07, 0.11, 1.0),
                         vec4(1.0, 1.0, 1.0, 0.5),
                     )
-                    .on_click(Message::CraftCommand(Command::Transfer { to: entity })),
+                    .on_click(Message::CraftCommand(Command::Transfer { to })),
                 ) as Box<dyn Widget<Message>>
             });
 
@@ -787,7 +860,7 @@ impl Gameplay {
             )),
             Box::new(
                 TextButton::<Message>::new(
-                    Rectangle::new(100.0, 120.0, 220.0, 40.0),
+                    Rectangle::new(100.0, 120.0, 360.0, 40.0),
                     "Orbit",
                     vec4(0.02, 0.07, 0.11, 1.0),
                     vec4(1.0, 1.0, 1.0, 0.5),

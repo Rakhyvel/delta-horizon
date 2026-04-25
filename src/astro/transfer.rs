@@ -12,6 +12,10 @@ use crate::{
     generation::solar_system_gen::G,
 };
 
+pub const EARTH_RADIUS_KM: f64 = 6371.0;
+pub const EARTH_RADIUS_M: f64 = EARTH_RADIUS_KM * 1000.0;
+pub const YEAR_S: f64 = 31_557_600.0;
+
 pub struct BurnTargeter {
     transfer_state: State,
     target_state: State,
@@ -83,6 +87,7 @@ pub struct TransferInfo {
     pub flyby_state: State,
     pub circ_state: State,
     pub soi_radius: f64,
+    pub total_dv: f64,
 }
 
 pub fn plan_transfer(
@@ -112,9 +117,6 @@ pub fn plan_transfer(
     let tof_min = tof_guess * 0.5;
     let tof_max = tof_guess * 2.0;
     let step = EphemerisTime::from_years(full_period / DEPART_STEPS as f64);
-
-    const EARTH_RADIUS_KM: f64 = 6371.0;
-    const YEAR_S: f64 = 31_557_600.0;
 
     let (best_dv, best_et, best_tof, _) = (0..TOF_STEPS)
         .flat_map(|j| {
@@ -146,12 +148,7 @@ pub fn plan_transfer(
         .min_by(|(_, _, _, cost_a), (_, _, _, cost_b)| cost_a.partial_cmp(cost_b).unwrap())
         .expect("no feasible transfer found");
 
-    let dv_mag = best_dv.norm();
-    let dv_mag_kms: f64 = dv_mag * EARTH_RADIUS_KM / YEAR_S;
-    println!(
-        "best xfer is {} ({} km/s) at {:?}",
-        dv_mag, dv_mag_kms, best_et
-    );
+    let xfer_dv = best_dv.norm();
 
     let depart_et = best_et;
     let dv = best_dv;
@@ -186,13 +183,14 @@ pub fn plan_transfer(
     let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu);
 
     let peri_state = find_periapsis(&flyby_state, target_mu);
-    let circ_state = circularization(&peri_state, target_mu);
+    let (circ_state, circ_dv) = circularization(&peri_state, target_mu);
 
     TransferInfo {
         transfer_state,
         flyby_state,
         circ_state,
         soi_radius,
+        total_dv: (xfer_dv + circ_dv) * EARTH_RADIUS_M / YEAR_S,
     }
 }
 
@@ -281,7 +279,7 @@ fn find_periapsis(flyby_orbit: &State, mu: f64) -> State {
     flyby_orbit.propagate(lo, mu)
 }
 
-fn circularization(peri_state: &State, mu: f64) -> State {
+fn circularization(peri_state: &State, mu: f64) -> (State, f64) {
     let r = peri_state.r;
     let v = peri_state.v;
 
@@ -299,9 +297,12 @@ fn circularization(peri_state: &State, mu: f64) -> State {
 
     // circ dv is just the differnce between v_circ and v
 
-    State {
-        r: peri_state.r,
-        v: v_circ,
-        t: peri_state.t,
-    }
+    (
+        State {
+            r: peri_state.r,
+            v: v_circ,
+            t: peri_state.t,
+        },
+        (v_circ - v).norm(),
+    )
 }
