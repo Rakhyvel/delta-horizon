@@ -69,7 +69,7 @@ pub fn spawn_craft(
                 pos: parent_world_pos,
             },
             parent,
-            LinePathComponent::new(init_state.generate_orbit_vertices(2048, parent_mu, None)),
+            LinePathComponent::new(init_state.generate_orbit_vertices(8192, parent_mu, None)),
             AssociatedEntity {
                 associate: craft_entity,
             },

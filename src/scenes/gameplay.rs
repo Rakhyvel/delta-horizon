@@ -89,9 +89,17 @@ enum Message {
     CraftCommand(Command),
 }
 
+#[derive(Debug)]
+enum SelectionKind {
+    Craft,
+    Body,
+}
+
 struct SelectionState {
     pub crafts: Vec<Entity>,
+    pub bodies: Vec<Entity>,
     pub selected: Option<usize>,
+    pub kind: SelectionKind,
 
     // For swoosh animation
     pub selected_pos: DVec3,
@@ -100,10 +108,12 @@ struct SelectionState {
 }
 
 impl SelectionState {
-    pub fn new(crafts: Vec<Entity>) -> Self {
+    pub fn new(crafts: Vec<Entity>, bodies: Vec<Entity>) -> Self {
         Self {
             crafts,
+            bodies,
             selected: None,
+            kind: SelectionKind::Craft,
             selected_pos: vec3(0.0, 0.0, 0.0),
             prev_selected_pos: vec3(0.0, 0.0, 0.0),
             transition: 0.0,
@@ -111,14 +121,35 @@ impl SelectionState {
     }
 
     pub fn selected_entity(&self) -> Option<Entity> {
-        self.selected.map(|s| self.crafts[s])
+        self.selected.map(|s| self.curr_sel_track()[s])
+    }
+
+    pub fn set_selected(&mut self, entity: Entity, app_seconds: f64) {
+        let found = self
+            .crafts
+            .iter()
+            .position(|e| *e == entity)
+            .map(|x| (x, SelectionKind::Craft))
+            .or(self
+                .bodies
+                .iter()
+                .position(|e| *e == entity)
+                .map(|x| (x, SelectionKind::Body)));
+
+        if let Some((idx, kind)) = found {
+            self.selected = Some(idx);
+            self.kind = kind;
+
+            self.prev_selected_pos = self.selected_pos;
+            self.transition = app_seconds;
+        }
     }
 
     pub fn prev(&mut self, app_seconds: f64) {
         if let Some(selected) = self.selected {
             let mut new_selection = selected;
             if selected == 0 {
-                new_selection = self.crafts.len() - 1;
+                new_selection = self.curr_sel_track().len() - 1;
             } else {
                 new_selection -= 1;
             }
@@ -134,7 +165,7 @@ impl SelectionState {
     pub fn next(&mut self, app_seconds: f64) {
         if let Some(selected) = self.selected {
             let mut new_selection = selected + 1;
-            if new_selection >= self.crafts.len() {
+            if new_selection >= self.curr_sel_track().len() {
                 new_selection = 0;
             }
             self.selected = Some(new_selection);
@@ -148,6 +179,13 @@ impl SelectionState {
 
     pub fn is_animating(&self, app_seconds: f64) -> bool {
         app_seconds - self.transition < 1.0
+    }
+
+    fn curr_sel_track(&self) -> &Vec<Entity> {
+        match self.kind {
+            SelectionKind::Body => &self.bodies,
+            SelectionKind::Craft => &self.crafts,
+        }
     }
 }
 
@@ -176,7 +214,7 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 15.0;
+            const TURN_TIME: f64 = 1.5;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
             let eased = t;
 
@@ -236,7 +274,7 @@ impl Scene for Gameplay {
             .render_3d_line_paths(&self.world, Some(&self.camera_3d));
 
         // Draw the 2D stuff
-        self.gui.render(app);
+        // Draw selected reticle
         if !self.selection.is_animating(app.seconds as f64) {
             let reticle_texture = app.renderer.get_texture_id_from_name("reticle").unwrap();
             const WIDTH: f32 = 16.0;
@@ -251,6 +289,8 @@ impl Scene for Gameplay {
                 Rectangle::new(0.0, 0.0, WIDTH, WIDTH),
             );
         }
+
+        // Draw hovered reticle
         if let (Some(hovered), Some(selected)) = (self.hovered, self.selection.selected_entity()) {
             if hovered != selected {
                 let hovered_world_pos = self.world.get::<&WorldPosition>(hovered).unwrap().pos;
@@ -260,20 +300,24 @@ impl Scene for Gameplay {
                     .world_to_screen(relative_pos, app)
                     .expect("we're hovering over it so it should exist");
 
+                let width = 16.0;
+
                 let reticle_texture = app.renderer.get_texture_id_from_name("reticle").unwrap();
-                const WIDTH: f32 = 16.0;
                 app.renderer.copy_texture(
                     Rectangle::new(
-                        screen_pos.x - WIDTH * 0.5,
-                        screen_pos.y - WIDTH * 0.5,
-                        WIDTH,
-                        WIDTH,
+                        screen_pos.x - width * 0.5,
+                        screen_pos.y - width * 0.5,
+                        width,
+                        width,
                     ),
                     reticle_texture,
-                    Rectangle::new(0.0, 0.0, WIDTH, WIDTH),
+                    Rectangle::new(0.0, 0.0, 16.0, 16.0),
                 );
             }
         }
+
+        // Draw GUI
+        self.gui.render(app);
     }
 }
 
@@ -535,7 +579,7 @@ impl Gameplay {
                 1024,
             ),
 
-            selection: SelectionState::new(crafts),
+            selection: SelectionState::new(crafts, bodies),
             hovered: None,
 
             phi: 2.5,
@@ -632,11 +676,13 @@ impl Gameplay {
         let mut widgets: Vec<Box<dyn Widget<Message>>> =
             vec![Box::new(Label::new(scene_object.name.clone(), font))];
 
-        if let Some(status) = self.build_orbit_widgets(selected, font) {
-            widgets.extend(status);
-        }
-        if let Some(status) = self.build_landed_widgets(selected, font) {
-            widgets.extend(status);
+        if self.world.get::<&Craft>(selected).is_ok() {
+            if let Some(status) = self.build_orbit_widgets(selected, font) {
+                widgets.extend(status);
+            }
+            if let Some(status) = self.build_landed_widgets(selected, font) {
+                widgets.extend(status);
+            }
         }
 
         widgets
@@ -822,7 +868,7 @@ impl Gameplay {
                         },
                         Parent { id: new_parent },
                         LinePathComponent::new(flyby_orbit.generate_orbit_vertices(
-                            2048,
+                            8192,
                             parent_mu,
                             Some(soi_radius),
                         )),
@@ -853,7 +899,7 @@ impl Gameplay {
                         },
                         Parent { id: parent },
                         LinePathComponent::new(
-                            transfer_orbit.generate_orbit_vertices(2048, parent_mu, soi_radius),
+                            transfer_orbit.generate_orbit_vertices(8192, parent_mu, soi_radius),
                         ),
                         AssociatedEntity { associate: craft },
                     )),
@@ -993,9 +1039,7 @@ impl Gameplay {
 
     fn select_system(&mut self) {
         if let Some(selected_entity) = self.selection.selected_entity() {
-            for (entity, (world_pos, _craft)) in
-                self.world.query_mut::<(&mut WorldPosition, &mut Craft)>()
-            {
+            for (entity, world_pos) in self.world.query_mut::<(&mut WorldPosition)>() {
                 if entity == selected_entity {
                     self.selection.selected_pos = world_pos.pos;
                 }
@@ -1020,7 +1064,11 @@ impl Gameplay {
             let screen_pos = screen_pos.unwrap();
             let dist = nalgebra_glm::l1_norm(&(screen_pos - mouse_pos));
             if dist < 8.0 {
-                self.hovered = Some(entity)
+                self.hovered = Some(entity);
+                if app.mouse_left_clicked {
+                    self.selection.set_selected(entity, app.seconds as f64);
+                    self.gui = self.rebuild_gui(app);
+                }
             }
         }
     }

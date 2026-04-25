@@ -89,7 +89,7 @@ pub fn spawn_body(
                 pos: parent_world_pos,
             },
             parent,
-            LinePathComponent::new(init_state.generate_orbit_vertices(2048, parent_mu, None)),
+            LinePathComponent::new(init_state.generate_orbit_vertices(8192, parent_mu, None)),
             AssociatedEntity {
                 associate: body_entity,
             },
