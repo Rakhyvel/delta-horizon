@@ -23,7 +23,7 @@ use crate::{
         state::State,
         transfer::{plan_transfer, TransferObjective},
     },
-    components::craft::{replace_line_path, AssociatedCraft, Command},
+    components::craft::{replace_line_path, AssociatedEntity, Command},
     container,
     generation::solar_system_gen::SUN_MU,
     scenes::events::{Event, EventQueue},
@@ -171,9 +171,9 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 1.5;
+            const TURN_TIME: f64 = 15.0;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
-            let eased = cubic_ease_in_out(t);
+            let eased = t;
 
             // Interpolate ET between start and target
             self.current_et = self
@@ -390,9 +390,9 @@ impl Gameplay {
         }
 
         let state = State::from_kepler(
-            819398.7239274858,
-            0.50,
-            PI * 18.6 / 180.0,
+            43.7239274858,
+            0.9,
+            PI * 90.6 / 180.0,
             0.0,
             PI / 3.0,
             0.0,
@@ -774,7 +774,7 @@ impl Gameplay {
                             parent_mu,
                             Some(soi_radius),
                         )),
-                        AssociatedCraft { craft },
+                        AssociatedEntity { associate: craft },
                     )),
                 );
                 self.world.remove_one::<State>(craft).ok();
@@ -803,7 +803,7 @@ impl Gameplay {
                         LinePathComponent::new(
                             transfer_orbit.generate_orbit_vertices(2048, parent_mu, soi_radius),
                         ),
-                        AssociatedCraft { craft },
+                        AssociatedEntity { associate: craft },
                     )),
                 );
                 self.world.remove_one::<State>(craft).ok();
@@ -958,14 +958,41 @@ impl Gameplay {
             pos_map.insert(entity, world_pos.pos);
         }
 
-        let mut assoc_craft_map = HashMap::new();
+        // Get the associated craft, if it exists
+        let mut assoc_entity_map = HashMap::new();
         for (entity, _line) in self.world.query::<&LinePathComponent>().iter() {
-            assoc_craft_map.insert(
+            assoc_entity_map.insert(
                 entity,
                 self.world
-                    .get::<&AssociatedCraft>(entity)
-                    .map_or(Entity::DANGLING, |x| x.craft),
+                    .get::<&AssociatedEntity>(entity)
+                    .map_or(Entity::DANGLING, |x| x.associate),
             );
+        }
+
+        let mut mu_map = HashMap::new();
+        for (entity, (_line, parent)) in self.world.query::<(&LinePathComponent, &Parent)>().iter()
+        {
+            let parent_entity = parent.id;
+            let parent_body_mu = self.world.get::<&Body>(parent_entity).unwrap().mu;
+
+            mu_map.insert(entity, parent_body_mu);
+        }
+
+        let mut mean_anomaly_map = HashMap::new();
+        for (entity, assoc_entity) in &assoc_entity_map {
+            if *assoc_entity == Entity::DANGLING {
+                mean_anomaly_map.insert(entity, 0.0);
+            } else {
+                let assoc_state = self
+                    .world
+                    .get::<&State>(*assoc_entity)
+                    .expect("the associated entity's gotta have state");
+                let mu = *mu_map.get(entity).unwrap();
+                let mean_anomaly_0 = assoc_state.mean_anomaly(mu); // M at assoc_state.t = vertex 0
+                let state_now = assoc_state.propagate(self.current_et, mu);
+                let mean_anomaly = state_now.mean_anomaly(mu);
+                mean_anomaly_map.insert(entity, mean_anomaly - mean_anomaly_0);
+            }
         }
 
         // Set the origins of the line paths wrt the parent world positions
@@ -977,7 +1004,7 @@ impl Gameplay {
 
             let selected = match self.selection.selected_entity() {
                 Some(selected_entity) => {
-                    let assoc_craft = *assoc_craft_map.get(&entity).unwrap();
+                    let assoc_craft = *assoc_entity_map.get(&entity).unwrap();
                     assoc_craft == selected_entity
                 }
                 None => false,
@@ -985,11 +1012,14 @@ impl Gameplay {
 
             if selected {
                 line.color.w = 0.8;
-                line.width = 3.0;
+                line.width = 2.0;
             } else {
                 line.color.w = 0.2;
-                line.width = 2.0;
+                line.width = 1.0;
             }
+
+            let mean_anomaly = mean_anomaly_map.get(&entity).unwrap();
+            line.seam = (mean_anomaly / (2.0 * PI)).rem_euclid(1.0) as f32;
 
             world_pos.pos = *parent_pos;
         }

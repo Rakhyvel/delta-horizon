@@ -154,7 +154,7 @@ impl State {
         let mut vertices = Vec::with_capacity((segments as usize + 1) * 3);
 
         if let Some(period) = self.period(mu) {
-            let mut et = EphemerisTime::new(0);
+            let mut et = self.t;
 
             for i in 0..=segments {
                 let new_state = self.propagate(et, mu);
@@ -204,6 +204,59 @@ impl State {
         let e_vec = (v_cross_h / mu) - (self.r / r_mag);
 
         e_vec.norm()
+    }
+
+    pub fn true_anomaly(&self, mu: f64) -> f64 {
+        let r = self.r;
+        let v = self.v;
+
+        let r_mag = r.norm();
+        let h = r.cross(&v);
+
+        let e_vec = (v.cross(&h) / mu) - (r / r_mag);
+        let e = e_vec.norm();
+
+        // If eccentricity is near 0, orbit is near-circular and true anomaly is undefined (no periapsis!)
+        // Fallback to argument of latitude
+        const EPS: f64 = 1e-6;
+        if e < EPS {
+            let k = DVec3::z();
+            let n = k.cross(&h);
+            let n_mag = n.norm();
+            // Inclined
+            if n_mag > EPS {
+                let u = r.dot(&n).atan2(r.dot(&h.cross(&n)));
+                return u.rem_euclid(2.0 * PI);
+            }
+            // Equatorial
+            else {
+                let lambda = r.y.atan2(r.x);
+                return lambda.rem_euclid(2.0 * PI);
+            }
+        }
+
+        // Regular case for elliptical orbits
+        let cos_nu = e_vec.dot(&r) / (e * r_mag);
+        let nu = cos_nu.clamp(-1.0, 1.0).acos();
+
+        if r.dot(&v) < 0.0 {
+            2.0 * PI - nu
+        } else {
+            nu
+        }
+    }
+
+    pub fn mean_anomaly(&self, mu: f64) -> f64 {
+        let e = self.ecc(mu);
+        let nu = self.true_anomaly(mu);
+
+        // Eccentric anomaly from true anomaly
+        let cos_ea = (e + nu.cos()) / (1.0 + e * nu.cos());
+        let sin_ea = (1.0 - e * e).sqrt() * nu.sin() / (1.0 + e * nu.cos());
+        let ea = sin_ea.atan2(cos_ea);
+
+        // Mean anomaly from eccentric anomaly (Kepler's equation)
+        (ea - e * ea.sin()).rem_euclid(2.0 * PI)
     }
 
     /// Returns the period of the orbit is periodic, otherwise returns None

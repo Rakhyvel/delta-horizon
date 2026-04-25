@@ -10,6 +10,7 @@ use nalgebra_glm::{vec3, DVec3};
 
 use crate::{
     astro::{epoch::EphemerisTime, state::State},
+    components::craft::AssociatedEntity,
     generation::solar_system_gen::EARTH_RADII_PER_AU,
 };
 
@@ -89,6 +90,9 @@ pub fn spawn_body(
             },
             parent,
             LinePathComponent::new(init_state.generate_orbit_vertices(2048, parent_mu, None)),
+            AssociatedEntity {
+                associate: body_entity,
+            },
         ));
         world.insert(body_entity, (parent,)).unwrap();
     }

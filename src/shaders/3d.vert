@@ -23,7 +23,7 @@ void main()
     vec4 view_pos = u_view_matrix * mod_pos;
     vec4 uv = u_proj_matrix * view_pos;
 
-    // Vertex normal, converted to camera space
+    // Vertex normal, converted to camera spaces
 	Normal_cameraspace = Normal_modelspace;
 
     // Vector from vector to eye in camera space

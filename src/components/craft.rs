@@ -16,8 +16,8 @@ pub struct Craft {
     pub line_path_entity: Option<Entity>,
 }
 
-pub struct AssociatedCraft {
-    pub craft: Entity,
+pub struct AssociatedEntity {
+    pub associate: Entity,
 }
 
 #[derive(Clone)]
@@ -70,8 +70,8 @@ pub fn spawn_craft(
             },
             parent,
             LinePathComponent::new(init_state.generate_orbit_vertices(2048, parent_mu, None)),
-            AssociatedCraft {
-                craft: craft_entity,
+            AssociatedEntity {
+                associate: craft_entity,
             },
         ));
         world.insert(craft_entity, (parent,)).unwrap();
@@ -166,7 +166,7 @@ pub fn replace_line_path(
     world: &mut World,
     renderer: &RenderContext,
     craft_entity: Entity,
-    new_line_path: Option<(WorldPosition, Parent, LinePathComponent, AssociatedCraft)>,
+    new_line_path: Option<(WorldPosition, Parent, LinePathComponent, AssociatedEntity)>,
 ) {
     let old_line_path = world.get::<&Craft>(craft_entity).unwrap().line_path_entity;
 
