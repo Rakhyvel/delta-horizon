@@ -14,7 +14,7 @@ use apricot::{
     shadow_map::DirectionalLightSource,
 };
 use hecs::{Entity, World};
-use nalgebra_glm::{vec2, vec3, vec4, DVec3};
+use nalgebra_glm::{vec2, vec3, vec4, DMat4, DVec3, IVec2, Mat4, Vec2};
 use sdl2::keyboard::Scancode;
 
 use crate::{
@@ -144,6 +144,10 @@ impl SelectionState {
         self.prev_selected_pos = self.selected_pos;
         self.transition = app_seconds;
     }
+
+    pub fn is_animating(&self, app_seconds: f64) -> bool {
+        app_seconds - self.transition < 1.0
+    }
 }
 
 impl Scene for Gameplay {
@@ -211,6 +215,9 @@ impl Scene for Gameplay {
         app.renderer.set_font(font);
 
         // Draw the 3D stuff
+        app.renderer.set_color(vec4(0.01, 0.01, 0.01, 1.0));
+        app.renderer.clear();
+        self.render_dots(app);
         app.renderer.directional_light_system(
             &mut self.directional_light,
             &mut self.world,
@@ -228,6 +235,20 @@ impl Scene for Gameplay {
 
         // Draw the 2D stuff
         self.gui.render(app);
+        if !self.selection.is_animating(app.seconds as f64) {
+            let reticle_texture = app.renderer.get_texture_id_from_name("reticle").unwrap();
+            const WIDTH: f32 = 16.0;
+            app.renderer.copy_texture(
+                Rectangle::new(
+                    (app.window_size.x as f32 - WIDTH) * 0.5,
+                    (app.window_size.y as f32 - WIDTH) * 0.5,
+                    WIDTH,
+                    WIDTH,
+                ),
+                reticle_texture,
+                Rectangle::new(0.0, 0.0, WIDTH, WIDTH),
+            );
+        }
     }
 }
 
@@ -313,6 +334,8 @@ impl Gameplay {
             .add_texture_from_png("res/next-turn.png", Some("next-turn"));
         app.renderer
             .add_texture_from_png("res/next-turn-hover.png", Some("next-turn-hover"));
+        app.renderer
+            .add_texture_from_png("res/reticle.png", Some("reticle"));
 
         // Setup the font manager
         app.renderer
@@ -333,7 +356,7 @@ impl Gameplay {
                 density: 1.0,
                 mu: SUN_MU,
             },
-            State::circular(0.1, EphemerisTime::new(0), 1.0),
+            State::circular(0.1, EphemerisTime::new(rand::random()), 1.0),
             SceneObject {
                 bvh_node_id: None,
                 name: String::from("Sun"),
@@ -349,6 +372,7 @@ impl Gameplay {
 
         let mut habitable_planet = 0;
         let mut habitable_planet_mu = 0.0;
+        let mut habitable_planet_radius = 0.0;
         let planets = solar_system_gen::generate();
         for system in planets {
             let planet_habitable = system.planet.0.habitable();
@@ -364,9 +388,10 @@ impl Gameplay {
                 &app.renderer,
                 &mut bvh,
             );
-            if planet_habitable {
+            if !system.moons.is_empty() {
                 habitable_planet = bodies.len();
                 habitable_planet_mu = system.planet.0.mu;
+                habitable_planet_radius = system.planet.0.body_radius;
             }
 
             println!("{}", system.planet.1.semi_major_axis(SUN_MU));
@@ -390,8 +415,8 @@ impl Gameplay {
         }
 
         let state = State::from_kepler(
-            43.7239274858,
-            0.9,
+            habitable_planet_radius * 10.0,
+            0.3,
             PI * 90.6 / 180.0,
             0.0,
             PI / 3.0,
@@ -444,7 +469,7 @@ impl Gameplay {
             TextButton::new(
                 Rectangle::new(100.0, 120.0, 200.0, 30.0,),
                 "Click me!",
-                vec4(0.0, 0.0, 1.0, 0.5),
+                vec4(0.02, 0.07, 0.11, 1.0),
                 vec4(1.0, 1.0, 1.0, 0.5),
             )
             .on_click(Message::NextTurn),
@@ -493,9 +518,9 @@ impl Gameplay {
 
             gui,
 
-            current_et: EphemerisTime::from_years(0.25),
-            animation_start_et: EphemerisTime::new(0),
-            animation_target_et: EphemerisTime::new(0),
+            current_et: EphemerisTime::from_years(-200.0),
+            animation_start_et: EphemerisTime::from_years(-200.0),
+            animation_target_et: EphemerisTime::from_years(-200.0),
             animation_start_real: 0.0,
             event_queue: EventQueue::new(),
         }
@@ -609,7 +634,7 @@ impl Gameplay {
             TextButton::<Message>::new(
                 Rectangle::new(100.0, 120.0, 220.0, 40.0),
                 format!("Land on {}", parent_scene_object.name),
-                vec4(0.0, 0.0, 1.0, 0.5),
+                vec4(0.02, 0.07, 0.11, 1.0),
                 vec4(1.0, 1.0, 1.0, 0.5),
             )
             .on_click(Message::CraftCommand(Command::Land {})),
@@ -622,7 +647,7 @@ impl Gameplay {
                 TextButton::<Message>::new(
                     Rectangle::new(100.0, 120.0, 220.0, 40.0),
                     format!("Transfer to {}", grandparent_scene_object.name),
-                    vec4(0.0, 0.0, 1.0, 0.5),
+                    vec4(0.02, 0.07, 0.11, 1.0),
                     vec4(1.0, 1.0, 1.0, 0.5),
                 )
                 .on_click(Message::CraftCommand(Command::Transfer {
@@ -641,7 +666,7 @@ impl Gameplay {
                     TextButton::<Message>::new(
                         Rectangle::new(100.0, 120.0, 220.0, 40.0),
                         format!("Transfer to {}", scene_obj.name),
-                        vec4(0.0, 0.0, 1.0, 0.5),
+                        vec4(0.02, 0.07, 0.11, 1.0),
                         vec4(1.0, 1.0, 1.0, 0.5),
                     )
                     .on_click(Message::CraftCommand(Command::Transfer { to: entity })),
@@ -670,7 +695,7 @@ impl Gameplay {
                 TextButton::<Message>::new(
                     Rectangle::new(100.0, 120.0, 220.0, 40.0),
                     "Orbit",
-                    vec4(0.0, 0.0, 1.0, 0.5),
+                    vec4(0.02, 0.07, 0.11, 1.0),
                     vec4(1.0, 1.0, 1.0, 0.5),
                 )
                 .on_click(Message::CraftCommand(Command::Orbit)),
@@ -951,7 +976,7 @@ impl Gameplay {
         }
     }
 
-    fn line_path_system(&mut self, _app: &App) {
+    fn line_path_system(&mut self, app: &App) {
         // Extract out the world positions
         let mut pos_map = HashMap::new();
         for (entity, world_pos) in self.world.query::<&WorldPosition>().iter() {
@@ -1010,11 +1035,13 @@ impl Gameplay {
                 None => false,
             };
 
-            if selected {
+            line.color = vec4(91.25, 160.0, 228.75, 0.0) / 255.0;
+
+            if selected && !self.selection.is_animating(app.seconds as f64) {
                 line.color.w = 0.8;
                 line.width = 2.0;
             } else {
-                line.color.w = 0.2;
+                line.color.w = 0.36606;
                 line.width = 1.0;
             }
 
@@ -1038,6 +1065,50 @@ impl Gameplay {
         self.camera_3d.world_pos =
             (rot_matrix * nalgebra_glm::vec4(self.distance, 0., 0., 0.)).xyz() + offset;
         self.camera_3d.sync(offset);
+    }
+
+    fn render_dots(&mut self, app: &App) {
+        fn world_to_screen(
+            world_pos: DVec3,
+            view: Mat4,
+            proj: Mat4,
+            window_size: IVec2,
+        ) -> Option<Vec2> {
+            let clip = proj
+                * view
+                * vec4(
+                    world_pos.x as f32,
+                    world_pos.y as f32,
+                    world_pos.z as f32,
+                    1.0,
+                );
+            if clip.w <= 0.0 {
+                return None;
+            } // behind camera
+            let ndc = clip.xyz() / clip.w;
+            Some(vec2(
+                ((ndc.x + 1.0) / 2.0) as f32 * window_size.x as f32,
+                ((1.0 - ndc.y) / 2.0) as f32 * window_size.y as f32,
+            ))
+        }
+
+        let (view, proj) = self.camera_3d.inner.view_proj_matrices();
+        app.renderer.set_color(vec4(1.0, 1.0, 1.0, 1.0));
+
+        for (_entity, (world_pos, _model)) in self
+            .world
+            .query::<(&WorldPosition, &ModelComponent)>()
+            .iter()
+        {
+            let relative_pos = world_pos.pos - self.camera_3d.world_pos;
+            if let Some(screen) = world_to_screen(relative_pos, view, proj, app.window_size) {
+                let rect = Rectangle {
+                    pos: screen,
+                    size: vec2(1.0, 1.0),
+                };
+                app.renderer.fill_rect(rect);
+            }
+        }
     }
 }
 

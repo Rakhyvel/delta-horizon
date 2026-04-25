@@ -90,21 +90,21 @@ pub fn generate() -> Vec<BodySystem> {
     loop {
         let planets = generate_system(&mut rng);
 
-        if !has_habitable(&planets) {
-            continue;
-        }
-        if !all_moons_small(&planets) {
-            continue;
-        }
-        if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 1) {
-            continue;
-        }
-        if !has_planet(&planets, &[Category::MiniNeptune, Category::GasGiant], 3) {
-            continue;
-        }
-        if !no_stripped(&planets) {
-            continue;
-        }
+        // if !has_habitable(&planets) {
+        //     continue;
+        // }
+        // if !all_moons_small(&planets) {
+        //     continue;
+        // }
+        // if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 1) {
+        //     continue;
+        // }
+        // if !has_planet(&planets, &[Category::MiniNeptune, Category::GasGiant], 3) {
+        //     continue;
+        // }
+        // if !no_stripped(&planets) {
+        //     continue;
+        // }
         if planets.len() < 7 {
             continue;
         }
