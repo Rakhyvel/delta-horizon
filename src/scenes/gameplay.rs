@@ -61,6 +61,7 @@ pub struct Gameplay {
     bvh: BVH<Entity>,
 
     selection: SelectionState,
+    hovered: Option<Entity>,
 
     /// Up-down view angle
     phi: f64,
@@ -198,6 +199,7 @@ impl Scene for Gameplay {
         self.control(app);
         self.orbit_system(app);
         self.landed_system(app);
+        self.mouse_hover_system(app);
         self.select_system();
         self.line_path_system(app);
         self.camera_update(app);
@@ -248,6 +250,29 @@ impl Scene for Gameplay {
                 reticle_texture,
                 Rectangle::new(0.0, 0.0, WIDTH, WIDTH),
             );
+        }
+        if let (Some(hovered), Some(selected)) = (self.hovered, self.selection.selected_entity()) {
+            if hovered != selected {
+                let hovered_world_pos = self.world.get::<&WorldPosition>(hovered).unwrap().pos;
+
+                let relative_pos = hovered_world_pos - self.camera_3d.world_pos;
+                let screen_pos = self
+                    .world_to_screen(relative_pos, app)
+                    .expect("we're hovering over it so it should exist");
+
+                let reticle_texture = app.renderer.get_texture_id_from_name("reticle").unwrap();
+                const WIDTH: f32 = 16.0;
+                app.renderer.copy_texture(
+                    Rectangle::new(
+                        screen_pos.x - WIDTH * 0.5,
+                        screen_pos.y - WIDTH * 0.5,
+                        WIDTH,
+                        WIDTH,
+                    ),
+                    reticle_texture,
+                    Rectangle::new(0.0, 0.0, WIDTH, WIDTH),
+                );
+            }
         }
     }
 }
@@ -511,6 +536,8 @@ impl Gameplay {
             ),
 
             selection: SelectionState::new(crafts),
+            hovered: None,
+
             phi: 2.5,
             theta: -PI / 4.0,
             distance: 20.0,
@@ -976,6 +1003,28 @@ impl Gameplay {
         }
     }
 
+    fn mouse_hover_system(&mut self, app: &App) {
+        self.hovered = None;
+
+        let mouse_pos = app.mouse_pos;
+        for (entity, (world_pos, _model)) in self
+            .world
+            .query::<(&WorldPosition, &ModelComponent)>()
+            .iter()
+        {
+            let relative_pos = world_pos.pos - self.camera_3d.world_pos;
+            let screen_pos = self.world_to_screen(relative_pos, app);
+            if screen_pos.is_none() {
+                continue;
+            }
+            let screen_pos = screen_pos.unwrap();
+            let dist = nalgebra_glm::l1_norm(&(screen_pos - mouse_pos));
+            if dist < 8.0 {
+                self.hovered = Some(entity)
+            }
+        }
+    }
+
     fn line_path_system(&mut self, app: &App) {
         // Extract out the world positions
         let mut pos_map = HashMap::new();
@@ -1067,32 +1116,28 @@ impl Gameplay {
         self.camera_3d.sync(offset);
     }
 
-    fn render_dots(&mut self, app: &App) {
-        fn world_to_screen(
-            world_pos: DVec3,
-            view: Mat4,
-            proj: Mat4,
-            window_size: IVec2,
-        ) -> Option<Vec2> {
-            let clip = proj
-                * view
-                * vec4(
-                    world_pos.x as f32,
-                    world_pos.y as f32,
-                    world_pos.z as f32,
-                    1.0,
-                );
-            if clip.w <= 0.0 {
-                return None;
-            } // behind camera
-            let ndc = clip.xyz() / clip.w;
-            Some(vec2(
-                ((ndc.x + 1.0) / 2.0) as f32 * window_size.x as f32,
-                ((1.0 - ndc.y) / 2.0) as f32 * window_size.y as f32,
-            ))
-        }
-
+    fn world_to_screen(&self, relative_pos: DVec3, app: &App) -> Option<Vec2> {
+        let window_size = app.window_size;
         let (view, proj) = self.camera_3d.inner.view_proj_matrices();
+        let clip = proj
+            * view
+            * vec4(
+                relative_pos.x as f32,
+                relative_pos.y as f32,
+                relative_pos.z as f32,
+                1.0,
+            );
+        if clip.w <= 0.0 {
+            return None;
+        } // behind camera
+        let ndc = clip.xyz() / clip.w;
+        Some(vec2(
+            ((ndc.x + 1.0) / 2.0) as f32 * window_size.x as f32,
+            ((1.0 - ndc.y) / 2.0) as f32 * window_size.y as f32,
+        ))
+    }
+
+    fn render_dots(&mut self, app: &App) {
         app.renderer.set_color(vec4(1.0, 1.0, 1.0, 1.0));
 
         for (_entity, (world_pos, _model)) in self
@@ -1101,7 +1146,7 @@ impl Gameplay {
             .iter()
         {
             let relative_pos = world_pos.pos - self.camera_3d.world_pos;
-            if let Some(screen) = world_to_screen(relative_pos, view, proj, app.window_size) {
+            if let Some(screen) = self.world_to_screen(relative_pos, app) {
                 let rect = Rectangle {
                     pos: screen,
                     size: vec2(1.0, 1.0),
