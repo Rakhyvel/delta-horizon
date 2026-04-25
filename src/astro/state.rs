@@ -156,7 +156,7 @@ impl State {
         if let Some(period) = self.period(mu) {
             let mut et = self.t;
 
-            for i in 0..=segments {
+            for _ in 0..=segments {
                 let new_state = self.propagate(et, mu);
 
                 vertices.push(new_state.r.x as f32);
@@ -271,11 +271,6 @@ impl State {
         }
 
         Some(2.0 * PI * (a.powi(3) / mu).sqrt())
-    }
-
-    pub fn mean_motion(&self, mu: f64) -> f64 {
-        let a = self.semi_major_axis(mu);
-        (mu / (a.powi(3))).sqrt()
     }
 }
 

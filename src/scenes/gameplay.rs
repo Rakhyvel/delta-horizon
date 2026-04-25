@@ -1144,10 +1144,16 @@ impl Gameplay {
                     .get::<&State>(*assoc_entity)
                     .expect("the associated entity's gotta have state");
                 let mu = *mu_map.get(entity).unwrap();
-                let mean_anomaly_0 = assoc_state.mean_anomaly(mu); // M at assoc_state.t = vertex 0
-                let state_now = assoc_state.propagate(self.current_et, mu);
-                let mean_anomaly = state_now.mean_anomaly(mu);
-                mean_anomaly_map.insert(entity, mean_anomaly - mean_anomaly_0);
+
+                // hyperbolic orbits don't have a meaningful mean anomaly, use 0
+                if assoc_state.ecc(mu) >= 1.0 {
+                    mean_anomaly_map.insert(entity, 0.0);
+                } else {
+                    let mean_anomaly_0 = assoc_state.mean_anomaly(mu); // M at assoc_state.t = vertex 0
+                    let state_now = assoc_state.propagate(self.current_et, mu);
+                    let mean_anomaly = state_now.mean_anomaly(mu);
+                    mean_anomaly_map.insert(entity, mean_anomaly - mean_anomaly_0);
+                }
             }
         }
 
