@@ -188,8 +188,6 @@ pub fn plan_transfer(
     let peri_state = find_periapsis(&flyby_state, target_mu);
     let circ_state = circularization(&peri_state, target_mu);
 
-    println!("peri: {}", peri_state.r.norm());
-
     TransferInfo {
         transfer_state,
         flyby_state,

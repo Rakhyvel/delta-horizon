@@ -681,11 +681,11 @@ impl Gameplay {
         selected: Entity,
         font: &Font,
     ) -> Vec<Box<dyn Widget<Message>>> {
-        let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
-        let mut widgets: Vec<Box<dyn Widget<Message>>> =
-            vec![Box::new(Label::new(scene_object.name.clone(), font))];
+        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![];
 
         if self.world.get::<&Craft>(selected).is_ok() {
+            widgets.extend(self.build_craft_info(selected, font));
+
             if let Some(status) = self.build_orbit_widgets(selected, font) {
                 widgets.extend(status);
             }
@@ -694,6 +694,18 @@ impl Gameplay {
             }
         }
 
+        widgets
+    }
+
+    fn build_craft_info(&self, selected: Entity, font: &Font) -> Vec<Box<dyn Widget<Message>>> {
+        let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
+        let widgets: Vec<Box<dyn Widget<Message>>> = vec![
+            Box::new(Label::new(
+                format!("Name: {}", scene_object.name.clone()),
+                font,
+            )),
+            Box::new(Label::new(format!("Delta V: {} km/s", 10.0), font)),
+        ];
         widgets
     }
 
@@ -830,7 +842,7 @@ impl Gameplay {
                             craft: entity,
                             new_parent: to,
                             flyby_orbit: transfer.flyby_state,
-                            soi_radius: transfer.soi_radius * 1.6,
+                            soi_radius: transfer.soi_radius * 3.0,
                         },
                     );
 
@@ -1078,6 +1090,7 @@ impl Gameplay {
                     self.selection.set_selected(entity, app.seconds as f64);
                     self.gui = self.rebuild_gui(app);
                 }
+                break;
             }
         }
     }

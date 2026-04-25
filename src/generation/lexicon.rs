@@ -190,7 +190,7 @@ impl Lexicon {
                 };
 
                 // Choose edge weighted by frequency
-                let temperature = 1.0;
+                let temperature = 0.1;
                 let mut chosen = None;
                 let total: f64 = node
                     .edges

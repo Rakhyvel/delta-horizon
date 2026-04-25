@@ -167,15 +167,19 @@ impl State {
             }
         } else {
             let soi_radius = soi_radius.expect("must specify a SOI radius for hyperbolic orbits");
-            for i in 0..=segments {
-                let t = i as f64 / segments as f64;
-                let sample_time = self.t + EphemerisTime::from_years(2.0 * t / 365.0);
-
-                let pos = self.propagate(sample_time, mu).r;
+            let mut closest_dist = f64::INFINITY;
+            let mut et = self.t;
+            loop {
+                let pos = self.propagate(et, mu).r;
                 let distance = pos.norm();
 
-                if distance >= soi_radius {
-                    break;
+                if distance > closest_dist {
+                    if distance >= soi_radius {
+                        println!("{distance} >= {soi_radius}");
+                        break;
+                    }
+                } else {
+                    closest_dist = distance;
                 }
 
                 assert!(pos.x.is_finite());
@@ -185,6 +189,8 @@ impl State {
                 vertices.push(pos.x as f32);
                 vertices.push(pos.y as f32);
                 vertices.push(pos.z as f32);
+
+                et += EphemerisTime::from_years(2.0 / 365.0);
             }
         }
 
