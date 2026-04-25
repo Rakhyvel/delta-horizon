@@ -25,7 +25,7 @@ use crate::{
     },
     components::craft::{replace_line_path, AssociatedEntity, Command},
     container,
-    generation::solar_system_gen::SUN_MU,
+    generation::{lexicon::Lexicon, solar_system_gen::SUN_MU},
     scenes::events::{Event, EventQueue},
     ui::{label::Label, text_button::TextButton},
 };
@@ -294,6 +294,7 @@ impl Scene for Gameplay {
         if let (Some(hovered), Some(selected)) = (self.hovered, self.selection.selected_entity()) {
             if hovered != selected {
                 let hovered_world_pos = self.world.get::<&WorldPosition>(hovered).unwrap().pos;
+                let scene_obj = self.world.get::<&SceneObject>(hovered).unwrap();
 
                 let relative_pos = hovered_world_pos - self.camera_3d.world_pos;
                 let screen_pos = self
@@ -313,6 +314,8 @@ impl Scene for Gameplay {
                     reticle_texture,
                     Rectangle::new(0.0, 0.0, 16.0, 16.0),
                 );
+                app.renderer
+                    .draw_text(screen_pos + vec2(8.0, 8.0), &scene_obj.name);
             }
         }
 
@@ -428,7 +431,7 @@ impl Gameplay {
             State::circular(0.1, EphemerisTime::new(rand::random()), 1.0),
             SceneObject {
                 bvh_node_id: None,
-                name: String::from("Sun"),
+                name: String::from("The Sun"),
             },
             None,
             &mut world,
@@ -439,18 +442,23 @@ impl Gameplay {
         let mut bodies = vec![sun_entity];
         let mut crafts = vec![];
 
+        let (_lexicon, _node_count) = Lexicon::create("res/names.txt", "res/names.lex");
+        let lexicon = Lexicon::read("res/names.lex");
+
         let mut habitable_planet = 0;
         let mut habitable_planet_mu = 0.0;
         let mut habitable_planet_radius = 0.0;
         let planets = solar_system_gen::generate();
         for system in planets {
             let planet_habitable = system.planet.0.habitable();
+            let name = lexicon.generate_word(7);
+            println!("Planet: {}", name);
             let planet_entity = spawn_body(
                 system.planet.0,
                 system.planet.1,
                 SceneObject {
                     bvh_node_id: None,
-                    name: String::from("planet name"),
+                    name,
                 },
                 Some(Parent { id: sun_entity }),
                 &mut world,
@@ -463,16 +471,17 @@ impl Gameplay {
                 habitable_planet_radius = system.planet.0.body_radius;
             }
 
-            println!("{}", system.planet.1.semi_major_axis(SUN_MU));
             bodies.push(planet_entity);
 
             for moon in system.moons {
+                let name = lexicon.generate_word(10);
+                println!("Moon: {}", name);
                 let moon_entity = spawn_body(
                     moon.0,
                     moon.1,
                     SceneObject {
                         bvh_node_id: None,
-                        name: String::from("moon name"),
+                        name,
                     },
                     Some(Parent { id: planet_entity }),
                     &mut world,
@@ -1063,7 +1072,7 @@ impl Gameplay {
             }
             let screen_pos = screen_pos.unwrap();
             let dist = nalgebra_glm::l1_norm(&(screen_pos - mouse_pos));
-            if dist < 8.0 {
+            if dist < 16.0 {
                 self.hovered = Some(entity);
                 if app.mouse_left_clicked {
                     self.selection.set_selected(entity, app.seconds as f64);
