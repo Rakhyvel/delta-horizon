@@ -102,7 +102,9 @@ pub fn plan_transfer(
 
     // Sweep through the orbit, find cheapest dv transfer
     let craft_period = init_state.period(mu).unwrap();
-    let target_period = target_body_state.period(mu).unwrap();
+    let target_period = target_body_state
+        .period(mu)
+        .expect("planets typically arent in hyperbolic orbits");
     let full_period = craft_period.min(target_period);
 
     const DEPART_STEPS: usize = 100;

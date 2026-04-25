@@ -21,7 +21,7 @@ use crate::{
     astro::{
         epoch::EphemerisTime,
         state::State,
-        transfer::{plan_transfer, TransferObjective},
+        transfer::{plan_transfer, sphere_of_influence, TransferObjective},
     },
     components::craft::{replace_line_path, AssociatedEntity, Command},
     container,
@@ -1089,6 +1089,31 @@ impl Gameplay {
             pos_map.insert(entity, world_pos.pos);
         }
 
+        // Find which body the camera is closest to, and how close
+        let mut closest_body: Option<Entity> = None;
+        let mut closest_dist = f64::INFINITY;
+        for (entity, (world_pos, _body)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
+            let dist = (world_pos.pos - self.camera_3d.world_pos).norm();
+            if dist < closest_dist {
+                closest_dist = dist;
+                closest_body = Some(entity);
+            }
+        }
+        let closest_body = self
+            .get_ancestor(closest_body.unwrap())
+            .unwrap_or(self.selection.bodies[0]);
+        let closest_planet = self.get_ancestor(closest_body).unwrap_or(closest_body);
+        let closest_planet_soi = {
+            let closest_planet_body = self.world.get::<&Body>(closest_planet).unwrap();
+            let closest_planet_orb = self.world.get::<&State>(closest_planet).unwrap();
+            let sun_body = self.world.get::<&Body>(self.selection.bodies[0]).unwrap();
+            sphere_of_influence(
+                closest_planet_orb.semi_major_axis(SUN_MU),
+                closest_planet_body.mass(),
+                sun_body.mass(),
+            )
+        };
+
         // Get the associated craft, if it exists
         let mut assoc_entity_map = HashMap::new();
         for (entity, _line) in self.world.query::<&LinePathComponent>().iter() {
@@ -1126,6 +1151,31 @@ impl Gameplay {
             }
         }
 
+        let mut proximity_alphas = HashMap::new();
+        for (entity, (_line, _parent)) in self.world.query::<(&LinePathComponent, &Parent)>().iter()
+        {
+            let assoc_entity = *assoc_entity_map.get(&entity).unwrap();
+            let assoc_planet = self
+                .get_ancestor(assoc_entity)
+                .unwrap_or(self.selection.bodies[0]);
+
+            let camera_dist =
+                (pos_map.get(&closest_body).unwrap() - self.camera_3d.world_pos).norm();
+
+            // fade if:
+            let fade_orbit = if assoc_entity == assoc_planet {
+                // I'm a planet, and camera is close to me
+                camera_dist < closest_planet_soi
+            } else {
+                // I'm a moon/craft, and camera is close to a planet thats not mine
+                closest_planet != assoc_planet && closest_dist < closest_planet_soi
+            };
+
+            let proximity_alpha = if fade_orbit { 0.0 } else { 1.0 };
+
+            proximity_alphas.insert(entity, proximity_alpha);
+        }
+
         // Set the origins of the line paths wrt the parent world positions
         for (entity, (line, world_pos, parent)) in
             self.world
@@ -1151,10 +1201,24 @@ impl Gameplay {
                 line.width = 1.0;
             }
 
+            line.color.w *= proximity_alphas.get(&entity).unwrap();
+
             let mean_anomaly = mean_anomaly_map.get(&entity).unwrap();
             line.seam = (mean_anomaly / (2.0 * PI)).rem_euclid(1.0) as f32;
 
             world_pos.pos = *parent_pos;
+        }
+    }
+
+    fn get_ancestor(&self, entity: Entity) -> Option<Entity> {
+        let mut child = entity;
+        loop {
+            let parent = self.world.get::<&Parent>(child).ok()?; // if sun, this will return None (sun has no parent)
+            let parent_body = self.world.get::<&Body>(parent.id).ok()?;
+            if parent_body.mu == SUN_MU {
+                return Some(child);
+            }
+            child = parent.id;
         }
     }
 
