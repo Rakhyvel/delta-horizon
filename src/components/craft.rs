@@ -7,7 +7,7 @@ use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
 use crate::{
-    astro::{landing::LandingPlan, state::State},
+    astro::{landing::LandingPlan, launch::LaunchPlan, state::State},
     components::body::{Body, Parent, SceneObject},
 };
 
@@ -23,7 +23,7 @@ pub struct AssociatedEntity {
 
 #[derive(Clone)]
 pub enum Command {
-    Orbit,
+    Launch { plan: LaunchPlan },
     Transfer { to: Entity },
     Capture,
     Land { plan: LandingPlan },

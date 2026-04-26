@@ -21,6 +21,7 @@ use crate::{
     astro::{
         epoch::EphemerisTime,
         landing::plan_landing,
+        launch::plan_launch,
         maneuver::sphere_of_influence,
         state::State,
         transfer::{plan_transfer, TransferObjective},
@@ -900,25 +901,34 @@ impl Gameplay {
         selected: Entity,
         font: &Font,
     ) -> Option<Vec<Box<dyn Widget<Message>>>> {
-        let _landed = self.world.get::<&Landed>(selected).ok()?;
+        let landed = self.world.get::<&Landed>(selected).ok()?;
         let parent = self.world.get::<&Parent>(selected).ok()?;
         let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
+        let parent_body = self.world.get::<&Body>(parent.id).unwrap();
 
-        Some(vec![
-            Box::new(Label::new(
-                format!("Status: Landed on {}", parent_scene_object.name),
-                font,
-            )),
-            Box::new(
+        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![Box::new(Label::new(
+            format!("Status: Landed on {}", parent_scene_object.name),
+            font,
+        ))];
+
+        if let Ok(plan) = plan_launch(
+            landed.offset,
+            parent_body.body_radius,
+            self.current_et,
+            parent_body.mu,
+        ) {
+            widgets.push(Box::new(
                 TextButton::<Message>::new(
                     Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                    "Orbit",
+                    format!("Launch ({:.0} m/s)", plan.launch_dv + plan.circ_dv),
                     vec4(0.02, 0.07, 0.11, 1.0),
                     vec4(1.0, 1.0, 1.0, 0.5),
                 )
-                .on_click(Message::CraftCommand(Command::Orbit)),
-            ),
-        ])
+                .on_click(Message::CraftCommand(Command::Launch { plan })),
+            ));
+        }
+
+        Some(widgets)
     }
 
     fn plan_commands(&mut self) {
@@ -980,9 +990,32 @@ impl Gameplay {
                         },
                     );
                 }
-                Command::Orbit => {
+                Command::Launch { plan } => {
+                    let launch_time = plan.launch_burn.t;
+                    let circ_time = plan.circ_burn.t;
+
                     self.event_queue
-                        .push(self.animation_target_et, Event::TakeOff { craft: entity });
+                        .push(launch_time, Event::Launch { craft: entity });
+
+                    self.event_queue.push(
+                        launch_time,
+                        Event::ManeuverReady {
+                            craft: entity,
+                            transfer_orbit: plan.launch_burn,
+                            soi_radius: None,
+                            dv: plan.launch_dv,
+                        },
+                    );
+
+                    self.event_queue.push(
+                        circ_time,
+                        Event::ManeuverReady {
+                            craft: entity,
+                            transfer_orbit: plan.circ_burn,
+                            soi_radius: None,
+                            dv: plan.circ_dv,
+                        },
+                    );
                 }
                 Command::Land { plan } => {
                     let deorbit_time = plan.deorbit_burn.t;
@@ -1055,6 +1088,12 @@ impl Gameplay {
                 soi_radius,
                 dv,
             } => {
+                println!(
+                    "ManeuverReady firing, r={:?} v={:?} at {}",
+                    transfer_orbit.r,
+                    transfer_orbit.v,
+                    self.current_et.as_calendar()
+                );
                 let parent = self.world.get::<&Parent>(craft).unwrap().id;
                 let parent_world_pos = self.world.get::<&WorldPosition>(parent).unwrap().pos;
                 let parent_mu = { self.world.get::<&Body>(parent).unwrap().mu };
@@ -1082,18 +1121,16 @@ impl Gameplay {
                     .insert(craft, (transfer_orbit, Parent { id: parent }))
                     .unwrap();
             }
-            Event::TakeOff { craft } => {
+            Event::Launch { craft } => {
+                println!(
+                    "Launch event firing for {:?} at {}",
+                    craft,
+                    self.current_et.as_calendar()
+                );
                 let parent_id = self.world.get::<&Parent>(craft).unwrap().id;
-                let parent_body_mu = self.world.get::<&Body>(parent_id).unwrap().mu;
                 self.world.remove_one::<Landed>(craft).ok();
                 self.world
-                    .insert(
-                        craft,
-                        (
-                            State::circular(2.0, self.current_et, parent_body_mu),
-                            Parent { id: parent_id },
-                        ),
-                    )
+                    .insert(craft, (Parent { id: parent_id },))
                     .unwrap();
             }
             Event::Land { craft } => {

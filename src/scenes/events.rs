@@ -21,7 +21,7 @@ pub enum Event {
         soi_radius: Option<f64>,
         dv: f64,
     },
-    TakeOff {
+    Launch {
         craft: Entity,
     },
     Land {
