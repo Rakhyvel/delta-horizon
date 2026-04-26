@@ -261,7 +261,8 @@ impl Scene for Gameplay {
             self.camera_3d.inner.set_aspect_ratio(aspect);
         }
 
-        self.directional_light.light_dir = -self.camera_3d.inner.position().normalize();
+        self.directional_light.light_dir =
+            -nalgebra_glm::convert::<DVec3, Vec3>(self.camera_3d.world_pos);
         app.renderer.set_camera(self.camera_3d.inner);
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         app.renderer.set_font(font);

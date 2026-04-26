@@ -16,6 +16,7 @@ out vec3 color;
 out vec3 Normal_cameraspace;
 out vec3 LightDirection_cameraspace;
 out vec4 light_space_pos; // For shadow mapping
+out vec3 frag_pos_cameraspace;
 
 void main()
 {
@@ -27,7 +28,8 @@ void main()
 	Normal_cameraspace = Normal_modelspace;
 
     // Vector from vector to eye in camera space
-	LightDirection_cameraspace = u_sun_dir;
+    LightDirection_cameraspace = u_sun_dir - vec3(u_model_matrix * vec4(Position, 1.0));
+    frag_pos_cameraspace = vec3(u_view_matrix * u_model_matrix * vec4(Position, 1.0));
 
     gl_Position = uv;
     texCoord = texture_coord;

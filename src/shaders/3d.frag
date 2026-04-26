@@ -5,6 +5,7 @@ in vec3 color;
 in vec3 Normal_cameraspace;
 in vec3 LightDirection_cameraspace;
 in vec4 light_space_pos; // For shadow mapping
+in vec3 frag_pos_cameraspace;
 
 out vec4 Color;
 
@@ -45,6 +46,12 @@ float calc_shadow_factor()
     return visibility;
 }
 
+float calc_point_light(vec3 frag_pos_cameraspace, vec3 normal) {
+    vec3 light_dir = normalize(LightDirection_cameraspace - frag_pos_cameraspace);    
+    float diffuse = clamp(dot(normal, light_dir), 0.0, 1.0);
+    return diffuse;
+}
+
 vec3 tint(vec3 material, vec3 tint, float strength) {
     float luminance = dot(material, vec3(0.299, 0.587, 0.114));
     return mix(
@@ -71,9 +78,11 @@ void main()
 
     float shadow_factor = calc_shadow_factor(); // TODO: Fix
 
-    vec3 shadow = 0.1 * material_color * vec3(0.1, 0.1, 0.1);
+    float point_contribution = calc_point_light(frag_pos_cameraspace, n);
 
-    vec3 color = mix(shadow, material_color, 1.0);
+    vec3 shadow = 0.1 * material_color;
+
+    vec3 color = mix(shadow, material_color, point_contribution);
 
     Color = vec4(color, texture_alpha);
 }
