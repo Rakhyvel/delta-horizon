@@ -2,7 +2,10 @@ use std::f64::consts::PI;
 
 use nalgebra_glm::{quat_angle_axis, quat_rotate_vec3, vec3, DVec3};
 
-use crate::astro::epoch::EphemerisTime;
+use crate::astro::{
+    epoch::{EphemerisTime, ET_PER_SECOND},
+    units::SECONDS_PER_YEAR,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct State {
@@ -55,7 +58,7 @@ impl State {
     }
 
     /// Returns the ephemeris at some `t` given some mu
-    pub fn propagate(&self, t: EphemerisTime, mu: f64) -> State {
+    pub fn propagate(&self, t: EphemerisTime, mu: f64) -> Result<State, String> {
         let dt = (t - self.t).as_years();
 
         assert!(mu > 0.0); // mu must be positive
@@ -83,15 +86,9 @@ impl State {
         for _ in 0..MAX_ITER {
             let chi2 = chi * chi;
             let z = alpha * chi2;
-            assert!(z.is_finite());
 
             let c = stumpff_c(z);
-            if !c.is_finite() {
-                println!("{c} {z} {alpha} {chi2}");
-            }
-            assert!(c.is_finite());
             let s = stumpff_s(z);
-            assert!(s.is_finite());
 
             let r0_vr0_over_sqrtmu = r0_mag * vr0 / mu.sqrt();
 
@@ -99,7 +96,10 @@ impl State {
                 + (1.0 - alpha * r0_mag) * chi2 * chi * s
                 + r0_mag * chi
                 - (mu.sqrt() * dt);
-            assert!(f.is_finite());
+
+            if !f.is_finite() {
+                return Err(String::from("universal kepler equation diverged"));
+            }
 
             if f.abs() < TOL {
                 break;
@@ -139,7 +139,7 @@ impl State {
 
         let v = self.r * fdot + self.v * gdot;
 
-        State { r, v, t }
+        Ok(State { r, v, t })
     }
 
     pub fn generate_orbit_vertices(
@@ -147,7 +147,7 @@ impl State {
         segments: i32,
         mu: f64,
         soi_radius: Option<f64>,
-    ) -> Vec<f32> {
+    ) -> Result<Vec<f32>, String> {
         // Find period, if periodic, do the loop
         // If not periodic, clip to SOI
 
@@ -157,20 +157,28 @@ impl State {
             let mut et = self.t;
 
             for _ in 0..=segments {
-                let new_state = self.propagate(et, mu);
+                let new_state = self.propagate(et, mu)?;
 
                 vertices.push(new_state.r.x as f32);
                 vertices.push(new_state.r.y as f32);
                 vertices.push(new_state.r.z as f32);
 
-                et += EphemerisTime::from_years(period / (segments as f64)); // TODO: It's possible to overflow here?!
+                let step_secs = period * SECONDS_PER_YEAR / (segments as f64);
+                if step_secs > i64::MAX as f64 / ET_PER_SECOND {
+                    eprintln!(
+                        "WARNING: orbit period too large to render: {} years",
+                        period
+                    );
+                    break;
+                }
+                et += EphemerisTime::from_secs(step_secs); // TODO: It's possible to overflow here?!
             }
         } else {
             let soi_radius = soi_radius.expect("must specify a SOI radius for hyperbolic orbits");
             let mut closest_dist = f64::INFINITY;
             let mut et = self.t;
             loop {
-                let pos = self.propagate(et, mu).r;
+                let pos = self.propagate(et, mu)?.r;
                 let distance = pos.norm();
 
                 if distance > closest_dist {
@@ -190,11 +198,11 @@ impl State {
                 vertices.push(pos.y as f32);
                 vertices.push(pos.z as f32);
 
-                et += EphemerisTime::from_years(2.0 / 365.0);
+                et += EphemerisTime::from_secs(3600.0);
             }
         }
 
-        vertices
+        Ok(vertices)
     }
 
     pub fn semi_major_axis(&self, mu: f64) -> f64 {
@@ -276,7 +284,15 @@ impl State {
             return None;
         }
 
-        Some(2.0 * PI * (a.powi(3) / mu).sqrt())
+        let period = 2.0 * PI * (a.powi(3) / mu).sqrt();
+
+        // Treat near-parabolic orbits as hyperbolic to avoid overflow
+        // 1000 years is already unrenderable
+        if period > 1000.0 {
+            return None;
+        }
+
+        Some(period)
     }
 }
 

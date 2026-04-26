@@ -5,14 +5,22 @@ use nalgebra_glm::{TMat, TVec};
 /// - `N_CONTROLS`: The number of optimization variables
 /// - `N_RESIDUALS`: The number of residual constraints, to be targetted to 0
 pub trait NLProblem<const N_CONTROLS: usize, const N_RESIDUALS: usize> {
+    type Error;
+
     /// Computes the residual vector for some control variables.
-    fn resid(&self, controls: &TVec<f64, N_CONTROLS>) -> TVec<f64, N_RESIDUALS>;
+    fn resid(
+        &self,
+        controls: &TVec<f64, N_CONTROLS>,
+    ) -> Result<TVec<f64, N_RESIDUALS>, Self::Error>;
 
     /// Get the jacobian of the problem at an input `controls`
     ///
     /// Falls back to two-point finite differencing if not implemented analytically.
-    fn jacobian(&self, controls: &TVec<f64, N_CONTROLS>) -> TMat<f64, N_RESIDUALS, N_CONTROLS> {
-        let f0 = self.resid(controls);
+    fn jacobian(
+        &self,
+        controls: &TVec<f64, N_CONTROLS>,
+    ) -> Result<TMat<f64, N_RESIDUALS, N_CONTROLS>, Self::Error> {
+        let f0 = self.resid(controls)?;
         let mut j = TMat::<f64, N_RESIDUALS, N_CONTROLS>::zeros();
 
         for i in 0..N_CONTROLS {
@@ -20,10 +28,10 @@ pub trait NLProblem<const N_CONTROLS: usize, const N_RESIDUALS: usize> {
             let h = self.fd_step(i);
             perturbed[i] += h;
 
-            let f1 = self.resid(&perturbed);
+            let f1 = self.resid(&perturbed)?;
             j.set_column(i, &((f1 - f0) / h));
         }
-        j
+        Ok(j)
     }
 
     /// Finite-difference step size used for Jacobian approximation.
@@ -34,24 +42,24 @@ pub trait NLProblem<const N_CONTROLS: usize, const N_RESIDUALS: usize> {
 
 /// Solves a non-linear problem using a damped Newton method.
 /// Returns the control vector `x` such that problem.resid(x) = 0
-pub fn newton_target<const NC: usize, const NR: usize, P: NLProblem<NC, NR>>(
+pub fn newton_target<const NC: usize, const NR: usize, P: NLProblem<NC, NR, Error = String>>(
     problem: &P,
     initial_guess: TVec<f64, NC>,
     max_iter: usize,
     tol: f64,
     damping: f64,
-) -> Result<TVec<f64, NC>, String> {
+) -> Result<TVec<f64, NC>, P::Error> {
     let mut controls = initial_guess;
 
     for _ in 0..max_iter {
-        let residual = problem.resid(&controls);
+        let residual = problem.resid(&controls)?;
         let norm = residual.norm();
 
         if norm < tol {
             return Ok(controls);
         }
 
-        let j = problem.jacobian(&controls);
+        let j = problem.jacobian(&controls)?;
 
         // Least-squares solve: (JᵀJ) dx = Jᵀ r
         let jtj = j.transpose() * j;
@@ -81,12 +89,13 @@ mod tests {
     }
 
     impl NLProblem<2, 2> for LinearProblem {
-        fn resid(&self, controls: &TVec<f64, 2>) -> TVec<f64, 2> {
-            self.a * controls - self.b
+        type Error = String;
+        fn resid(&self, controls: &TVec<f64, 2>) -> Result<TVec<f64, 2>, String> {
+            Ok(self.a * controls - self.b)
         }
 
-        fn jacobian(&self, _controls: &TVec<f64, 2>) -> TMat<f64, 2, 2> {
-            self.a // analytic — exact
+        fn jacobian(&self, _controls: &TVec<f64, 2>) -> Result<TMat<f64, 2, 2>, String> {
+            Ok(self.a) // exact analytic jacobian
         }
     }
 
@@ -114,8 +123,10 @@ mod tests {
         }
 
         impl NLProblem<2, 2> for LinearProblemFD {
-            fn resid(&self, controls: &TVec<f64, 2>) -> TVec<f64, 2> {
-                self.a * controls - self.b
+            type Error = String;
+
+            fn resid(&self, controls: &TVec<f64, 2>) -> Result<TVec<f64, 2>, String> {
+                Ok(self.a * controls - self.b)
             }
             // no jacobian override, uses FD
         }
@@ -142,18 +153,20 @@ mod tests {
         let controls = TVec::<f64, 2>::new(1.0, 2.0);
 
         // Compute both jacobians
-        let j_analytic = problem.jacobian(&controls);
+        let j_analytic = problem.jacobian(&controls).unwrap();
         let j_fd = {
             // Call the default FD impl by going through a wrapper that doesn't override jacobian
             struct FDWrapper<'a>(&'a LinearProblem);
             impl NLProblem<2, 2> for FDWrapper<'_> {
-                fn resid(&self, c: &TVec<f64, 2>) -> TVec<f64, 2> {
+                type Error = String;
+                fn resid(&self, c: &TVec<f64, 2>) -> Result<TVec<f64, 2>, String> {
                     self.0.resid(c)
                 }
                 // no jacobian override
             }
             FDWrapper(&problem).jacobian(&controls)
-        };
+        }
+        .unwrap();
 
         let diff = (j_analytic - j_fd).abs();
         assert!(
@@ -168,8 +181,12 @@ mod tests {
     struct CircleLineProblem;
 
     impl NLProblem<2, 2> for CircleLineProblem {
-        fn resid(&self, c: &TVec<f64, 2>) -> TVec<f64, 2> {
-            TVec::<f64, 2>::new(c[0] * c[0] + c[1] * c[1] - 1.0, c[0] - c[1])
+        type Error = String;
+        fn resid(&self, c: &TVec<f64, 2>) -> Result<TVec<f64, 2>, String> {
+            Ok(TVec::<f64, 2>::new(
+                c[0] * c[0] + c[1] * c[1] - 1.0,
+                c[0] - c[1],
+            ))
         }
         // FD jacobian
     }
@@ -185,7 +202,7 @@ mod tests {
         assert!((sol[1] - expected).abs() < 1e-8, "y wrong: {}", sol[1]);
 
         // Verify residual is actually zero
-        let resid = problem.resid(&sol);
+        let resid = problem.resid(&sol).unwrap();
         assert!(resid.norm() < 1e-8, "residual not zero: {resid}");
     }
 
@@ -194,8 +211,9 @@ mod tests {
         // Unsolvable: x^2 + y^2 = -1
         struct ImpossibleProblem;
         impl NLProblem<2, 2> for ImpossibleProblem {
-            fn resid(&self, c: &TVec<f64, 2>) -> TVec<f64, 2> {
-                TVec::<f64, 2>::new(c[0] * c[0] + c[1] * c[1] + 1.0, 0.0)
+            type Error = String;
+            fn resid(&self, c: &TVec<f64, 2>) -> Result<TVec<f64, 2>, String> {
+                Ok(TVec::<f64, 2>::new(c[0] * c[0] + c[1] * c[1] + 1.0, 0.0))
             }
         }
 

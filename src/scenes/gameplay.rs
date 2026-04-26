@@ -476,7 +476,6 @@ impl Gameplay {
         let mut habitable_planet_radius = 0.0;
         let planets = solar_system_gen::generate();
         for system in planets {
-            let planet_habitable = system.planet.0.habitable();
             let name = lexicon.generate_word(7);
             println!("Planet: {}", name);
             let planet_entity = spawn_body(
@@ -714,14 +713,16 @@ impl Gameplay {
     ) -> Vec<Box<dyn Widget<Message>>> {
         let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![];
 
-        if self.world.get::<&Craft>(selected).is_ok() {
+        if let Ok(craft) = self.world.get::<&Craft>(selected) {
             widgets.extend(self.build_craft_info(selected, font));
 
-            if let Some(status) = self.build_orbit_widgets(selected, font) {
-                widgets.extend(status);
-            }
-            if let Some(status) = self.build_landed_widgets(selected, font) {
-                widgets.extend(status);
+            if craft.command.is_none() {
+                if let Some(status) = self.build_orbit_widgets(selected, font) {
+                    widgets.extend(status);
+                }
+                if let Some(status) = self.build_landed_widgets(selected, font) {
+                    widgets.extend(status);
+                }
             }
         } else if self.world.get::<&Body>(selected).is_ok() {
             widgets.extend(self.build_body_info(selected, font));
@@ -847,6 +848,9 @@ impl Gameplay {
             let parent_body = self.world.get::<&Body>(parent.id).unwrap();
             let grandparent_body = self.world.get::<&Body>(grandparent.id).unwrap();
             let grandparent_scene_object = self.world.get::<&SceneObject>(grandparent.id).unwrap();
+
+            println!("grandparent mass: {} earth masses", grandparent_body.mass());
+
             if let Ok(plan) = plan_escape(
                 &craft_state,
                 &parent_state,
@@ -927,6 +931,10 @@ impl Gameplay {
         let parent = self.world.get::<&Parent>(selected).ok()?;
         let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
         let parent_body = self.world.get::<&Body>(parent.id).unwrap();
+        let grandparent = self.world.get::<&Parent>(parent.id).unwrap();
+
+        let parent_state = self.world.get::<&State>(parent.id).unwrap();
+        let grandparent_body = self.world.get::<&Body>(grandparent.id).unwrap();
 
         let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![Box::new(Label::new(
             format!("Status: Landed on {}", parent_scene_object.name),
@@ -935,9 +943,11 @@ impl Gameplay {
 
         if let Ok(plan) = plan_launch(
             landed.offset,
+            &parent_state,
             parent_body.body_radius,
             self.current_et,
-            parent_body.mu,
+            grandparent_body.mass(),
+            parent_body.mass(),
         ) {
             widgets.push(Box::new(
                 TextButton::<Message>::new(
@@ -968,11 +978,18 @@ impl Gameplay {
                     let arrival_time = plan.flyby_state.t;
                     let circ_time = plan.circ_state.t;
 
+                    println!("departure_time: {}", departure_time.as_calendar());
+                    println!("arrival_time.t: {}", arrival_time.as_calendar());
+                    println!("circ_time.t: {}", circ_time.as_calendar());
+
+                    assert!(departure_time < arrival_time);
+                    assert!(arrival_time < circ_time);
+
                     self.event_queue.push(
                         departure_time,
-                        Event::ManeuverReady {
+                        Event::Burn {
                             craft: entity,
-                            transfer_orbit: plan.transfer_state,
+                            new_orbit: plan.transfer_state,
                             soi_radius: Some(plan.soi_radius * 1.1),
                             dv: plan.transfer_dv,
                         },
@@ -983,16 +1000,16 @@ impl Gameplay {
                         Event::SoiChange {
                             craft: entity,
                             new_parent: to,
-                            flyby_orbit: plan.flyby_state,
-                            soi_radius: plan.soi_radius * 3.0,
+                            new_craft_orbit: plan.flyby_state,
+                            new_soi_radius: plan.soi_radius * 3.0,
                         },
                     );
 
                     self.event_queue.push(
                         circ_time,
-                        Event::ManeuverReady {
+                        Event::Burn {
                             craft: entity,
-                            transfer_orbit: plan.circ_state,
+                            new_orbit: plan.circ_state,
                             soi_radius: Some(plan.soi_radius * 1.1),
                             dv: plan.circ_dv,
                         },
@@ -1002,11 +1019,16 @@ impl Gameplay {
                     let departure_time = plan.escape_burn.t;
                     let arrival_time = plan.grandparent_orbit.t;
 
+                    println!("departure_time: {}", departure_time.as_calendar());
+                    println!("arrival_time.t: {}", arrival_time.as_calendar());
+
+                    assert!(departure_time < arrival_time);
+
                     self.event_queue.push(
                         departure_time,
-                        Event::ManeuverReady {
+                        Event::Burn {
                             craft: entity,
-                            transfer_orbit: plan.escape_burn,
+                            new_orbit: plan.escape_burn,
                             soi_radius: Some(plan.soi_radius * 1.1),
                             dv: plan.escape_dv,
                         },
@@ -1017,8 +1039,8 @@ impl Gameplay {
                         Event::SoiChange {
                             craft: entity,
                             new_parent: to,
-                            flyby_orbit: plan.grandparent_orbit,
-                            soi_radius: plan.soi_radius * 3.0,
+                            new_craft_orbit: plan.grandparent_orbit,
+                            new_soi_radius: plan.soi_radius * 3.0,
                         },
                     );
                 }
@@ -1026,14 +1048,19 @@ impl Gameplay {
                     let launch_time = plan.launch_burn.t;
                     let circ_time = plan.circ_burn.t;
 
+                    println!("launch_time: {}", launch_time.as_calendar());
+                    println!("circ_time.t: {}", circ_time.as_calendar());
+
+                    assert!(launch_time < circ_time);
+
                     self.event_queue
                         .push(launch_time, Event::Launch { craft: entity });
 
                     self.event_queue.push(
                         launch_time,
-                        Event::ManeuverReady {
+                        Event::Burn {
                             craft: entity,
-                            transfer_orbit: plan.launch_burn,
+                            new_orbit: plan.launch_burn,
                             soi_radius: None,
                             dv: plan.launch_dv,
                         },
@@ -1041,9 +1068,9 @@ impl Gameplay {
 
                     self.event_queue.push(
                         circ_time,
-                        Event::ManeuverReady {
+                        Event::Burn {
                             craft: entity,
-                            transfer_orbit: plan.circ_burn,
+                            new_orbit: plan.circ_burn,
                             soi_radius: None,
                             dv: plan.circ_dv,
                         },
@@ -1052,14 +1079,17 @@ impl Gameplay {
                 Command::Land { plan } => {
                     let deorbit_time = plan.deorbit_burn.t;
                     let land_time = plan.landing_burn.t;
-                    println!("deobit: {}", deorbit_time.as_calendar());
-                    println!("land: {}", land_time.as_calendar());
+
+                    println!("deorbit_time: {}", deorbit_time.as_calendar());
+                    println!("land_time.t: {}", land_time.as_calendar());
+
+                    assert!(deorbit_time < land_time);
 
                     self.event_queue.push(
                         deorbit_time,
-                        Event::ManeuverReady {
+                        Event::Burn {
                             craft: entity,
-                            transfer_orbit: plan.deorbit_burn,
+                            new_orbit: plan.deorbit_burn,
                             soi_radius: None,
                             dv: plan.deorbit_dv,
                         },
@@ -1067,9 +1097,9 @@ impl Gameplay {
 
                     self.event_queue.push(
                         land_time,
-                        Event::ManeuverReady {
+                        Event::Burn {
                             craft: entity,
-                            transfer_orbit: plan.landing_burn,
+                            new_orbit: plan.landing_burn,
                             soi_radius: None,
                             dv: plan.landing_dv,
                         },
@@ -1077,7 +1107,6 @@ impl Gameplay {
                     self.event_queue
                         .push(land_time, Event::Land { craft: entity });
                 }
-                _ => {}
             }
         }
     }
@@ -1087,43 +1116,45 @@ impl Gameplay {
             Event::SoiChange {
                 craft,
                 new_parent,
-                flyby_orbit,
-                soi_radius,
+                new_craft_orbit,
+                new_soi_radius,
             } => {
-                let parent_world_pos = self.world.get::<&WorldPosition>(new_parent).unwrap().pos;
-                let parent_mu = { self.world.get::<&Body>(new_parent).unwrap().mu };
+                let new_parent_world_pos =
+                    self.world.get::<&WorldPosition>(new_parent).unwrap().pos;
+                let new_parent_mu = self.world.get::<&Body>(new_parent).unwrap().mu;
+
                 replace_line_path(
                     &mut self.world,
                     &app.renderer,
                     craft,
                     Some((
                         WorldPosition {
-                            pos: parent_world_pos,
+                            pos: new_parent_world_pos, // center the orbit line path about the new parent
                         },
                         Parent { id: new_parent },
-                        LinePathComponent::new(flyby_orbit.generate_orbit_vertices(
-                            8192,
-                            parent_mu,
-                            Some(soi_radius),
-                        )),
+                        LinePathComponent::new(
+                            new_craft_orbit
+                                .generate_orbit_vertices(8192, new_parent_mu, Some(new_soi_radius))
+                                .unwrap(),
+                        ),
                         AssociatedEntity { associate: craft },
                     )),
                 );
                 self.world.remove_one::<State>(craft).ok();
                 self.world
-                    .insert(craft, (flyby_orbit, Parent { id: new_parent }))
+                    .insert(craft, (new_craft_orbit, Parent { id: new_parent }))
                     .unwrap();
             }
-            Event::ManeuverReady {
+            Event::Burn {
                 craft,
-                transfer_orbit,
+                new_orbit,
                 soi_radius,
                 dv,
             } => {
                 println!(
-                    "ManeuverReady firing, r={:?} v={:?} at {}",
-                    transfer_orbit.r,
-                    transfer_orbit.v,
+                    "Burn firing, r={:?} v={:?} at {}",
+                    new_orbit.r,
+                    new_orbit.v,
                     self.current_et.as_calendar()
                 );
                 let parent = self.world.get::<&Parent>(craft).unwrap().id;
@@ -1139,7 +1170,9 @@ impl Gameplay {
                         },
                         Parent { id: parent },
                         LinePathComponent::new(
-                            transfer_orbit.generate_orbit_vertices(8192, parent_mu, soi_radius),
+                            new_orbit
+                                .generate_orbit_vertices(8192, parent_mu, soi_radius)
+                                .unwrap(),
                         ),
                         AssociatedEntity { associate: craft },
                     )),
@@ -1150,7 +1183,7 @@ impl Gameplay {
                 }
                 self.world.remove_one::<State>(craft).ok();
                 self.world
-                    .insert(craft, (transfer_orbit, Parent { id: parent }))
+                    .insert(craft, (new_orbit, Parent { id: parent }))
                     .unwrap();
             }
             Event::Launch { craft } => {
@@ -1170,14 +1203,16 @@ impl Gameplay {
                     let craft_state = self.world.get::<&State>(craft).unwrap();
                     let parent_id = self.world.get::<&Parent>(craft).unwrap().id;
                     let parent_body_mu = self.world.get::<&Body>(parent_id).unwrap().mu;
-                    craft_state.propagate(self.current_et, parent_body_mu).r
+                    craft_state
+                        .propagate(self.current_et, parent_body_mu)
+                        .unwrap()
+                        .r
                 };
 
                 self.world.remove_one::<State>(craft).ok();
                 replace_line_path(&mut self.world, &app.renderer, craft, None);
                 self.world.insert_one(craft, Landed { offset }).unwrap();
             }
-            _ => {}
         }
     }
 
@@ -1230,7 +1265,7 @@ impl Gameplay {
 
         // Compute local offset if Orbit exists
         let local_offset = if let Ok(orbit) = self.world.get::<&State>(entity) {
-            orbit.propagate(t, parent_mu).r
+            orbit.propagate(t, parent_mu).unwrap().r
         } else {
             vec3(0.0, 0.0, 0.0)
         };
@@ -1262,7 +1297,7 @@ impl Gameplay {
     fn landed_system(&mut self, app: &App) {
         // Extract out positions
         let mut pos_map = HashMap::new();
-        for (entity, (world_pos, body)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
+        for (entity, (world_pos, _body)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
             pos_map.insert(entity, world_pos.pos);
         }
 
@@ -1289,7 +1324,7 @@ impl Gameplay {
 
     fn select_system(&mut self) {
         if let Some(selected_entity) = self.selection.selected_entity() {
-            for (entity, world_pos) in self.world.query_mut::<(&mut WorldPosition)>() {
+            for (entity, world_pos) in self.world.query_mut::<&mut WorldPosition>() {
                 if entity == selected_entity {
                     self.selection.selected_pos = world_pos.pos;
                 }
@@ -1392,7 +1427,7 @@ impl Gameplay {
                     mean_anomaly_map.insert(entity, 0.0);
                 } else {
                     let mean_anomaly_0 = assoc_state.mean_anomaly(mu); // M at assoc_state.t = vertex 0
-                    let state_now = assoc_state.propagate(self.current_et, mu);
+                    let state_now = assoc_state.propagate(self.current_et, mu).unwrap();
                     let mean_anomaly = state_now.mean_anomaly(mu);
                     mean_anomaly_map.insert(entity, mean_anomaly - mean_anomaly_0);
                 }

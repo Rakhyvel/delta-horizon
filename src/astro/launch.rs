@@ -1,13 +1,10 @@
 use nalgebra_glm::{vec3, zero, DVec3};
 
-use crate::{
-    astro::{
-        epoch::EphemerisTime,
-        maneuver::{circularization, find_apoapsis, find_periapsis},
-        state::State,
-        units::METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
-    },
-    components::body,
+use crate::astro::{
+    epoch::EphemerisTime,
+    maneuver::{circularization, find_apoapsis, find_periapsis, sphere_of_influence},
+    state::State,
+    units::{G, METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR},
 };
 
 #[derive(Clone, Copy)]
@@ -20,16 +17,28 @@ pub struct LaunchPlan {
 
 pub fn plan_launch(
     craft_pos: DVec3,
-    body_radius: f64,
+    parent_state: &State,
+    parent_body_radius: f64,
     current_et: EphemerisTime,
-    mu: f64,
+    grandparent_mass: f64, // in earth masses
+    parent_mass: f64,      // in earth masses
 ) -> Result<LaunchPlan, String> {
-    let target_apoapsis = body_radius + 2.0; // hardcoded to be 2 earth radii
+    let grandparent_mu = G * grandparent_mass;
+    let mu = G * parent_mass;
+
+    let parent_orbital_radius = parent_state.semi_major_axis(grandparent_mu);
+    let parent_soi = sphere_of_influence(parent_orbital_radius, parent_mass, grandparent_mass);
+    let target_apoapsis = (parent_body_radius + 2.0).min(parent_soi * 0.5);
 
     // First burn is with eastward, to get a good apoapsis
     let launch_offset = current_et + EphemerisTime::from_secs(5.0); // so our event planner doesn't freak
-    let (launch_burn, launch_dv) =
-        launch_burn(craft_pos, body_radius, target_apoapsis, launch_offset, mu);
+    let (launch_burn, launch_dv) = launch_burn(
+        craft_pos,
+        parent_body_radius,
+        target_apoapsis,
+        launch_offset,
+        mu,
+    );
 
     // Second burn circularizes
     let apoapsis = find_apoapsis(

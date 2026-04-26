@@ -7,29 +7,30 @@ pub fn sphere_of_influence(orbital_radius: f64, body_mass: f64, parent_mass: f64
 }
 
 pub fn find_apoapsis(orbit: &State, current_et: EphemerisTime, mu: f64) -> Result<State, String> {
-    let rdotv_at_t = |et: EphemerisTime| -> f64 {
-        let state = orbit.propagate(et, mu);
-        state.r.dot(&state.v)
+    let rdotv_at_t = |et: EphemerisTime| -> Result<f64, String> {
+        let state = orbit.propagate(et, mu)?;
+        Ok(state.r.dot(&state.v))
     };
 
     let period = orbit
         .period(mu)
         .ok_or("only periodic orbits have apoapsides")?;
 
-    let dt = EphemerisTime::from_secs(60.0);
-    let mut lo = current_et;
-    let mut hi = current_et;
-    let max_et = current_et + EphemerisTime::from_years(period);
+    let dt = EphemerisTime::from_years(period / 100.0); // 100 steps per orbit
 
     const TOL: f64 = 1e-6;
     if orbit.ecc(mu) < TOL {
         // orbit is circular, apoapsis isn't defined. Just pick this point
-        return Ok(orbit.propagate(current_et + dt, mu));
+        return orbit.propagate(current_et + dt, mu);
     }
+
+    let mut lo = current_et;
+    let mut hi = current_et;
+    let max_et = current_et + EphemerisTime::from_years(period);
 
     // If already past apoapsis (rdotv < 0), march lo forward until rdotv > 0
     // so lo is guaranteed to be on the positive side
-    while rdotv_at_t(lo) < 0.0 {
+    while rdotv_at_t(lo)? < 0.0 {
         lo += dt;
         hi = lo;
         if lo > max_et {
@@ -38,7 +39,7 @@ pub fn find_apoapsis(orbit: &State, current_et: EphemerisTime, mu: f64) -> Resul
     }
 
     // now march hi forward until rdotv goes negative
-    while rdotv_at_t(hi) > 0.0 {
+    while rdotv_at_t(hi)? > 0.0 {
         hi += dt;
         if hi > max_et {
             return Err(String::from("apoapsis not found within one period"));
@@ -49,20 +50,20 @@ pub fn find_apoapsis(orbit: &State, current_et: EphemerisTime, mu: f64) -> Resul
     const ITERATIONS: usize = 50;
     for _ in 0..ITERATIONS {
         let mid = lo + (hi - lo) / 2;
-        if rdotv_at_t(mid) > 0.0 {
+        if rdotv_at_t(mid)? > 0.0 {
             lo = mid;
         } else {
             hi = mid;
         }
     }
 
-    Ok(orbit.propagate(hi, mu))
+    orbit.propagate(hi, mu)
 }
 
-pub fn find_periapsis(orbit: &State, current_et: EphemerisTime, mu: f64) -> State {
-    let rdotv_at_t = |et: EphemerisTime| -> f64 {
-        let state = orbit.propagate(et, mu);
-        state.r.dot(&state.v)
+pub fn find_periapsis(orbit: &State, current_et: EphemerisTime, mu: f64) -> Result<State, String> {
+    let rdotv_at_t = |et: EphemerisTime| -> Result<f64, String> {
+        let state = orbit.propagate(et, mu)?;
+        Ok(state.r.dot(&state.v))
     };
 
     const TOL: f64 = 1e-6;
@@ -71,7 +72,7 @@ pub fn find_periapsis(orbit: &State, current_et: EphemerisTime, mu: f64) -> Stat
         return orbit.propagate(current_et + EphemerisTime::from_secs(60.0), mu);
     }
 
-    if orbit.ecc(mu) >= 1.0 && rdotv_at_t(current_et) > 0.0 {
+    if orbit.ecc(mu) >= 1.0 && rdotv_at_t(current_et)? > 0.0 {
         // hyperbolic orbit and we're already past the periapsis
         return orbit.propagate(current_et + EphemerisTime::from_secs(60.0), mu);
     }
@@ -81,30 +82,38 @@ pub fn find_periapsis(orbit: &State, current_et: EphemerisTime, mu: f64) -> Stat
         EphemerisTime::from_years(period / 100.0) // 100 steps per orbit
     } else {
         // Hyperbolic - use time to travel one radius at current speed
-        let r = orbit.propagate(current_et, mu).r.norm();
-        let v = orbit.propagate(current_et, mu).v.norm();
+        let r = orbit.propagate(current_et, mu)?.r.norm();
+        let v = orbit.propagate(current_et, mu)?.v.norm();
         EphemerisTime::from_years(r / v / 10.0)
-    };
+    }
+    .min(EphemerisTime::from_years(100.0));
 
     let mut lo = current_et;
     let mut hi = current_et;
+    let max_et = current_et + EphemerisTime::from_years(orbit.period(mu).unwrap_or(10.0));
 
     // If already past periapsis (rdotv > 0), march lo forward until rdotv < 0
-    while rdotv_at_t(lo) > 0.0 {
+    while rdotv_at_t(lo)? > 0.0 {
         lo += dt;
         hi = lo;
+        if lo > max_et {
+            return orbit.propagate(current_et, mu);
+        }
     }
 
     // Now march hi forward until rdotv goes positive
-    while rdotv_at_t(hi) < 0.0 {
+    while rdotv_at_t(hi)? < 0.0 {
         hi += dt;
+        if hi > max_et {
+            return orbit.propagate(current_et, mu);
+        }
     }
 
     // Binary search for the zero crossing
     const ITERATIONS: usize = 50;
     for _ in 0..ITERATIONS {
         let mid = lo + (hi - lo) / 2;
-        if rdotv_at_t(mid) < 0.0 {
+        if rdotv_at_t(mid)? < 0.0 {
             lo = mid;
         } else {
             hi = mid;

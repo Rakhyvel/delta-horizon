@@ -96,8 +96,8 @@ fn test_lambert_recovers_velocity() {
     let arrival_et = EphemerisTime::from_years(period / 4.0);
     let tof = (arrival_et - departure_et).as_years();
 
-    let depart_state = init_state.propagate(departure_et, mu);
-    let arrival_state = init_state.propagate(arrival_et, mu);
+    let depart_state = init_state.propagate(departure_et, mu).unwrap();
+    let arrival_state = init_state.propagate(arrival_et, mu).unwrap();
 
     let v_lambert = lambert(depart_state.r, arrival_state.r, tof, mu);
 

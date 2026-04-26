@@ -26,7 +26,11 @@ pub fn plan_landing(
     let (deorbit_burn, deorbit_dv) = deorbit_burn(&craft_apoapsis, body_radius, mu);
 
     // Second cancels all surface-relative velocity at periapsis
-    let peri_state = find_periapsis(&deorbit_burn, deorbit_burn.t, mu);
+    let peri_state = find_periapsis(
+        &deorbit_burn,
+        deorbit_burn.t + EphemerisTime::from_secs(60.0),
+        mu,
+    )?;
     let (landing_burn, landing_dv) = landing_burn(&peri_state);
 
     Ok(LandingPlan {

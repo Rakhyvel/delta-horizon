@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use nalgebra_glm::{DVec1, TVec};
+use nalgebra_glm::{DVec1, DVec3, TVec};
 
 use crate::astro::{
     epoch::EphemerisTime,
@@ -22,7 +22,8 @@ pub struct BurnTargeter {
 }
 
 impl NLProblem<1, 1> for BurnTargeter {
-    fn resid(&self, controls: &TVec<f64, 1>) -> TVec<f64, 1> {
+    type Error = String;
+    fn resid(&self, controls: &TVec<f64, 1>) -> Result<TVec<f64, 1>, String> {
         let mut transfer_state = self.transfer_state;
         transfer_state.v *= controls.x;
 
@@ -32,19 +33,19 @@ impl NLProblem<1, 1> for BurnTargeter {
             self.soi_radius,
             self.tof,
             self.parent_mu,
-        );
+        )?;
         let flyby_state = get_flyby_state(
             &transfer_state,
             &self.target_state,
             arrival_et,
             self.parent_mu,
-        );
+        )?;
 
-        let peri_state = find_periapsis(&flyby_state, arrival_et, self.target_mu);
+        let peri_state = find_periapsis(&flyby_state, arrival_et, self.target_mu)?;
 
         let peri = peri_state.r.norm();
 
-        TVec::<f64, 1>::new(peri - self.target_peri)
+        Ok(TVec::<f64, 1>::new(peri - self.target_peri))
     }
 }
 
@@ -126,25 +127,30 @@ pub fn plan_transfer(
         .map(|(i, tof)| {
             let et = current_et + step * i as i64;
 
-            let new_craft_state = craft_state.propagate(et, mu);
+            let new_craft_state = craft_state.propagate(et, mu)?;
 
             // Lag the target position by our desired flyby periapsis
             // little hack that lets us easily get reasonable prograde flyby periapsis without too much complexity
             const DESIRED_TARGET_PE: f64 = 2.0;
             let target_arrival_et = et + EphemerisTime::from_years(tof);
-            let target_future = target_body_state.propagate(target_arrival_et, mu);
+            let target_future = target_body_state.propagate(target_arrival_et, mu)?;
             let delta_t = DESIRED_TARGET_PE / target_future.v.norm();
             let lagged_et = target_arrival_et - EphemerisTime::from_years(delta_t);
-            let new_target_state = target_future.propagate(lagged_et, mu);
+            let new_target_state = target_future.propagate(lagged_et, mu)?;
 
             let departure_velocity = lambert(new_craft_state.r, new_target_state.r, tof, mu);
             let dv = departure_velocity - new_craft_state.v;
-            (dv, et, tof)
+            Ok((dv, et, tof))
         })
-        .filter_map(|(dv, et, tof)| {
-            let cost = objective.cost(dv.norm(), tof)?;
-            Some((dv, et, tof, cost))
-        })
+        .filter_map(
+            |res: Result<(DVec3, EphemerisTime, f64), String>| match res {
+                Ok((dv, et, tof)) => {
+                    let cost = objective.cost(dv.norm(), tof)?;
+                    Some((dv, et, tof, cost))
+                }
+                _ => None,
+            },
+        )
         .min_by(|(_, _, _, cost_a), (_, _, _, cost_b)| cost_a.partial_cmp(cost_b).unwrap())
         .expect("no feasible transfer found");
 
@@ -153,7 +159,7 @@ pub fn plan_transfer(
     let depart_et = best_et;
     let dv = best_dv;
 
-    let mut transfer_state = craft_state.propagate(depart_et, mu);
+    let mut transfer_state = craft_state.propagate(depart_et, mu)?;
     transfer_state.v += dv;
 
     let soi_radius = sphere_of_influence(
@@ -162,27 +168,31 @@ pub fn plan_transfer(
         parent_mass,
     );
 
-    let prob = BurnTargeter {
-        transfer_state,
-        target_state: *target_body_state,
-        parent_mu: mu,
+    // let prob = BurnTargeter {
+    //     transfer_state,
+    //     target_state: *target_body_state,
+    //     parent_mu: mu,
+    //     target_mu,
+    //     soi_radius,
+    //     tof: best_tof,
+    //     target_peri: 10.0,
+    // };
+
+    // let res = newton_target(&prob, DVec1::new(1.0), 100, 0.5, 1.0);
+    // if let Ok(refined_v) = res {
+    //     transfer_state.v *= refined_v;
+    // } else {
+    //     println!("WARNING: couldn't refine the periapsis")
+    // }
+
+    let arrival_et = find_soi_entry(&transfer_state, target_body_state, soi_radius, best_tof, mu)?;
+    let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu)?;
+
+    let peri_state = find_periapsis(
+        &flyby_state,
+        arrival_et + EphemerisTime::from_secs(60.0),
         target_mu,
-        soi_radius,
-        tof: best_tof,
-        target_peri: 2.0,
-    };
-
-    let res = newton_target(&prob, DVec1::new(1.0), 100, 0.5, 1.0);
-    if let Ok(refined_v) = res {
-        transfer_state.v *= refined_v;
-    } else {
-        println!("WARNING: couldn't refine the periapsis")
-    }
-
-    let arrival_et = find_soi_entry(&transfer_state, target_body_state, soi_radius, best_tof, mu);
-    let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu);
-
-    let peri_state = find_periapsis(&flyby_state, arrival_et, target_mu);
+    )?;
     let (circ_state, circ_dv) = circularization(&peri_state, target_mu);
 
     Ok(TransferPlan {
@@ -201,12 +211,12 @@ fn find_soi_entry(
     target_soi: f64,
     tof: f64,
     mu: f64,
-) -> EphemerisTime {
-    let distance_at_t = |t: f64| -> f64 {
+) -> Result<EphemerisTime, String> {
+    let distance_at_t = |t: f64| -> Result<f64, String> {
         let sample_time = transfer_orbit.t + EphemerisTime::from_years(t * tof);
-        let craft_pos = transfer_orbit.propagate(sample_time, mu).r;
-        let target_pos = target_orbit.propagate(sample_time, mu).r;
-        (craft_pos - target_pos).norm()
+        let craft_pos = transfer_orbit.propagate(sample_time, mu)?.r;
+        let target_pos = target_orbit.propagate(sample_time, mu)?.r;
+        Ok((craft_pos - target_pos).norm())
     };
 
     // Binary search between 0 and 1 (normalized departure and periapsis)
@@ -216,14 +226,14 @@ fn find_soi_entry(
     const ITERATIONS: usize = 50;
     for _ in 0..ITERATIONS {
         let mid = (lo + hi) / 2.0;
-        if distance_at_t(mid) < target_soi {
+        if distance_at_t(mid)? < target_soi {
             hi = mid; // inside SOI, search earlier
         } else {
             lo = mid; // outside SOI, search later
         }
     }
 
-    transfer_orbit.t + EphemerisTime::from_years(hi * tof)
+    Ok(transfer_orbit.t + EphemerisTime::from_years(hi * tof))
 }
 
 fn get_flyby_state(
@@ -231,16 +241,16 @@ fn get_flyby_state(
     target_orbit: &State,
     arrival_et: EphemerisTime,
     mu: f64, // of the common parent
-) -> State {
-    let craft_state_at_soi = transfer_orbit.propagate(arrival_et, mu);
-    let target_state_at_soi = target_orbit.propagate(arrival_et, mu);
+) -> Result<State, String> {
+    let craft_state_at_soi = transfer_orbit.propagate(arrival_et, mu)?;
+    let target_state_at_soi = target_orbit.propagate(arrival_et, mu)?;
 
     let r_rel = craft_state_at_soi.r - target_state_at_soi.r; // TODO: Maybe you should be able to subtract states?
     let v_rel = craft_state_at_soi.v - target_state_at_soi.v;
 
-    State {
+    Ok(State {
         r: r_rel,
         v: v_rel,
         t: arrival_et,
-    }
+    })
 }

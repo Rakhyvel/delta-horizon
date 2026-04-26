@@ -9,7 +9,7 @@ use crate::astro::units::SECONDS_PER_YEAR;
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
 pub struct EphemerisTime(i64);
 
-const ET_PER_SECOND: f64 = 1_000_000.0;
+pub const ET_PER_SECOND: f64 = 1_000_000.0;
 const ET_PER_YEAR: f64 = SECONDS_PER_YEAR * ET_PER_SECOND;
 
 impl EphemerisTime {

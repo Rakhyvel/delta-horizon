@@ -32,12 +32,6 @@ pub enum Command {
     Land { plan: LandingPlan },
 }
 
-pub struct Transfer {
-    pub from: Entity,
-    pub to: Entity,
-    pub progress: f64,
-}
-
 pub struct Landed {
     pub offset: DVec3,
 }
@@ -75,7 +69,11 @@ pub fn spawn_craft(
                 pos: parent_world_pos,
             },
             parent,
-            LinePathComponent::new(init_state.generate_orbit_vertices(8192, parent_mu, None)),
+            LinePathComponent::new(
+                init_state
+                    .generate_orbit_vertices(8192, parent_mu, None)
+                    .unwrap(),
+            ),
             AssociatedEntity {
                 associate: craft_entity,
             },
