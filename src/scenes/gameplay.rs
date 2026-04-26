@@ -545,9 +545,9 @@ impl Gameplay {
                 bvh_node_id: None,
                 name: String::from("landed craft"),
             },
-            Some(Parent {
+            Parent {
                 id: bodies[habitable_planet],
-            }),
+            },
             &mut world,
             &app.renderer,
             &mut bvh,
@@ -1097,9 +1097,16 @@ impl Gameplay {
                     .unwrap();
             }
             Event::Land { craft } => {
+                let offset = {
+                    let craft_state = self.world.get::<&State>(craft).unwrap();
+                    let parent_id = self.world.get::<&Parent>(craft).unwrap().id;
+                    let parent_body_mu = self.world.get::<&Body>(parent_id).unwrap().mu;
+                    craft_state.propagate(self.current_et, parent_body_mu).r
+                };
+
                 self.world.remove_one::<State>(craft).ok();
                 replace_line_path(&mut self.world, &app.renderer, craft, None);
-                self.world.insert_one(craft, Landed {}).unwrap();
+                self.world.insert_one(craft, Landed { offset }).unwrap();
             }
             _ => {}
         }
@@ -1187,19 +1194,19 @@ impl Gameplay {
         // Extract out positions
         let mut pos_map = HashMap::new();
         for (entity, (world_pos, body)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
-            pos_map.insert(entity, (world_pos.pos, body.body_radius));
+            pos_map.insert(entity, world_pos.pos);
         }
 
-        for (_entity, (world_pos, parent, _landed, scene_obj, model)) in self.world.query_mut::<(
+        for (_entity, (world_pos, parent, landed, scene_obj, model)) in self.world.query_mut::<(
             &mut WorldPosition,
             &Parent,
             &Landed,
             &SceneObject,
             &mut ModelComponent,
         )>() {
-            let (parent_pos, parent_radius) = pos_map.get(&parent.id).unwrap();
+            let parent_pos = pos_map.get(&parent.id).unwrap();
 
-            let new_world = parent_pos + vec3(0.0, *parent_radius, 0.0);
+            let new_world = parent_pos + landed.offset;
             let vel = new_world - world_pos.pos;
             world_pos.pos = new_world;
             model.set_position(nalgebra_glm::convert(new_world - self.camera_3d.world_pos));

@@ -35,7 +35,9 @@ pub struct Transfer {
     pub progress: f64,
 }
 
-pub struct Landed {}
+pub struct Landed {
+    pub offset: DVec3,
+}
 
 pub fn spawn_craft(
     init_state: State,
@@ -111,7 +113,7 @@ pub fn spawn_craft(
 
 pub fn spawn_landed_craft(
     mut scene_obj: SceneObject,
-    parent: Option<Parent>,
+    parent: Parent,
     world: &mut World,
     renderer: &RenderContext,
     bvh: &mut BVH<Entity>,
@@ -123,6 +125,8 @@ pub fn spawn_landed_craft(
 
     let texture_id = renderer.get_texture_id_from_name("europa").unwrap();
 
+    let parent_radius = { world.get::<&Body>(parent.id).unwrap().body_radius };
+
     let craft_entity = world.spawn((
         WorldPosition { pos: position },
         ModelComponent::new(
@@ -132,10 +136,6 @@ pub fn spawn_landed_craft(
             nalgebra_glm::convert(scale_vec),
         ),
     ));
-
-    if let Some(parent) = parent {
-        world.insert(craft_entity, (parent,)).unwrap();
-    }
 
     let bvh_node_id = bvh.insert(
         craft_entity,
@@ -152,7 +152,10 @@ pub fn spawn_landed_craft(
             craft_entity,
             (
                 scene_obj,
-                Landed {},
+                parent,
+                Landed {
+                    offset: vec3(0.0, parent_radius, 0.0),
+                },
                 Craft {
                     command: None,
                     line_path_entity: None,
