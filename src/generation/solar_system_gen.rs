@@ -119,11 +119,13 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
     while orbital_radius_au < 35.0 {
         let orbital_radius_earth_radii = orbital_radius_au * EARTH_RADII_PER_AU;
         let planet = generate_planet(rng, orbital_radius_au, PLANET_MASS_CATEGORIES);
+        let planet_inclination = (4.0_f64.to_radians()) * rng.gen::<f64>().powf(2.0);
+        let planet_raan = rng.gen_range(0.0..0.2 * PI);
         let initial_state = State::from_kepler(
             orbital_radius_earth_radii,
             rng.gen_range(0.0..0.25),
-            (10.0_f64.to_radians()) * rng.gen::<f64>().powf(2.0),
-            rng.gen_range(0.0..0.5 * PI),
+            planet_inclination,
+            planet_raan,
             rng.gen_range(0.0..2.0 * PI),
             rng.gen_range(0.0..2.0 * PI),
             EphemerisTime::new(0),
@@ -145,8 +147,8 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
             let moon_initial_state = State::from_kepler(
                 moon_orbital_radius,
                 rng.gen_range(0.0..0.25),
-                0.0,
-                rng.gen_range(0.0..2.0 * PI),
+                (4.0_f64.to_radians()) * rng.gen::<f64>().powf(2.0) + planet_inclination,
+                planet_raan,
                 rng.gen_range(0.0..2.0 * PI),
                 rng.gen_range(0.0..2.0 * PI),
                 EphemerisTime::new(0),

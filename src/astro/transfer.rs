@@ -87,7 +87,8 @@ pub struct TransferInfo {
     pub flyby_state: State,
     pub circ_state: State,
     pub soi_radius: f64,
-    pub total_dv: f64,
+    pub transfer_dv: f64,
+    pub circ_dv: f64,
 }
 
 pub fn plan_transfer(
@@ -190,7 +191,8 @@ pub fn plan_transfer(
         flyby_state,
         circ_state,
         soi_radius,
-        total_dv: (xfer_dv + circ_dv) * EARTH_RADIUS_M / YEAR_S,
+        transfer_dv: xfer_dv * EARTH_RADIUS_M / YEAR_S,
+        circ_dv: circ_dv * EARTH_RADIUS_M / YEAR_S,
     }
 }
 

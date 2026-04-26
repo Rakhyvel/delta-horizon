@@ -100,7 +100,7 @@ pub fn spawn_craft(
                 Craft {
                     command: None,
                     line_path_entity,
-                    delta_v: 10.0,
+                    delta_v: 10_000.0,
                 },
             ),
         )

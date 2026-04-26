@@ -20,6 +20,7 @@ pub enum Event {
         to: Entity,
         transfer_orbit: State,
         soi_radius: Option<f64>,
+        dv: f64,
     },
     TakeOff {
         craft: Entity,

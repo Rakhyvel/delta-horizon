@@ -1,5 +1,7 @@
 use std::ops::{Add, AddAssign, Div, Mul, Sub};
 
+use chrono::{Datelike, Timelike};
+
 /// Microseconds after the save start epoch
 /// Should allow for ~292,000 years future and past
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
@@ -34,6 +36,31 @@ impl EphemerisTime {
         let start = self.0;
         let end = other.0;
         Self(start + ((end - start) as f64 * t) as i64)
+    }
+
+    pub fn as_calendar(&self) -> String {
+        let secs = self.0 / 1_000_000;
+        let micros = self.0.rem_euclid(1_000_000) * 1000; // always positive
+
+        let dt = chrono::DateTime::from_timestamp(secs, micros as u32).unwrap();
+
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            dt.year(),
+            dt.month(),
+            dt.day(),
+            dt.hour(),
+            dt.minute(),
+            dt.second()
+        )
+    }
+
+    pub fn epoch() -> Self {
+        let dt = chrono::NaiveDate::from_ymd_opt(1998, 12, 3)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        Self(dt.and_utc().timestamp() * 1_000_000)
     }
 }
 

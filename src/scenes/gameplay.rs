@@ -614,9 +614,9 @@ impl Gameplay {
 
             gui,
 
-            current_et: EphemerisTime::from_years(-200.0),
-            animation_start_et: EphemerisTime::from_years(-200.0),
-            animation_target_et: EphemerisTime::from_years(-200.0),
+            current_et: EphemerisTime::epoch(),
+            animation_start_et: EphemerisTime::epoch(),
+            animation_target_et: EphemerisTime::epoch(),
             animation_start_real: 0.0,
             event_queue: EventQueue::new(),
 
@@ -690,7 +690,10 @@ impl Gameplay {
                 )
                 .on_click(Message::NextTurn),
             ),
-            Box::new(Label::new(format!("ET: {:?} us", self.current_et), font)),
+            Box::new(Label::new(
+                format!("ET: {}", self.current_et.as_calendar()),
+                font,
+            )),
         ]
     }
 
@@ -719,12 +722,16 @@ impl Gameplay {
 
     fn build_craft_info(&self, selected: Entity, font: &Font) -> Vec<Box<dyn Widget<Message>>> {
         let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
+        let craft = self.world.get::<&Craft>(selected).unwrap();
         let widgets: Vec<Box<dyn Widget<Message>>> = vec![
             Box::new(Label::new(
                 format!("Name: {}", scene_object.name.clone()),
                 font,
             )),
-            Box::new(Label::new(format!("Delta V: {} m/s", 10_000.0), font)),
+            Box::new(Label::new(
+                format!("Delta V: {:.0} m/s", craft.delta_v),
+                font,
+            )),
         ];
         widgets
     }
@@ -849,7 +856,8 @@ impl Gameplay {
                         Rectangle::new(100.0, 120.0, 360.0, 40.0),
                         format!(
                             "Transfer to {} ({:.0} m/s)",
-                            scene_obj.name, transfer.total_dv
+                            scene_obj.name,
+                            transfer.transfer_dv + transfer.circ_dv
                         ),
                         vec4(0.02, 0.07, 0.11, 1.0),
                         vec4(1.0, 1.0, 1.0, 0.5),
@@ -924,6 +932,7 @@ impl Gameplay {
                             to,
                             transfer_orbit: transfer.transfer_state,
                             soi_radius: Some(transfer.soi_radius * 1.1),
+                            dv: transfer.transfer_dv,
                         },
                     );
 
@@ -944,6 +953,7 @@ impl Gameplay {
                             to,
                             transfer_orbit: transfer.circ_state,
                             soi_radius: Some(transfer.soi_radius * 1.1),
+                            dv: transfer.circ_dv,
                         },
                     );
                 }
@@ -997,6 +1007,7 @@ impl Gameplay {
                 to,
                 transfer_orbit,
                 soi_radius,
+                dv,
             } => {
                 let parent = self.world.get::<&Parent>(craft).unwrap().id;
                 let parent_world_pos = self.world.get::<&WorldPosition>(parent).unwrap().pos;
@@ -1016,6 +1027,10 @@ impl Gameplay {
                         AssociatedEntity { associate: craft },
                     )),
                 );
+                {
+                    let mut craft = self.world.get::<&mut Craft>(craft).unwrap();
+                    craft.delta_v -= dv;
+                }
                 self.world.remove_one::<State>(craft).ok();
                 self.world
                     .insert(craft, (transfer_orbit, Parent { id: parent }))
