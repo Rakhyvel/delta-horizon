@@ -256,6 +256,11 @@ impl Scene for Gameplay {
     /// Render the scene to the screen when time allows
     fn render(&mut self, app: &App) {
         // Set everything up
+        let aspect = app.window_size.x as f32 / app.window_size.y as f32;
+        if (self.camera_3d.inner.aspect_ratio() - aspect).abs() > 1e-6 {
+            self.camera_3d.inner.set_aspect_ratio(aspect);
+        }
+
         self.directional_light.light_dir = -self.camera_3d.inner.position().normalize();
         app.renderer.set_camera(self.camera_3d.inner);
         let font = app.renderer.get_font_id_from_name("font").unwrap();
@@ -582,6 +587,7 @@ impl Gameplay {
                         fov: 0.65,
                         far: 10000000.0,
                     },
+                    4.0 / 3.0,
                 ),
             },
             bvh,
@@ -599,6 +605,7 @@ impl Gameplay {
                         near: 0.0,
                         far: 0.0,
                     },
+                    4.0 / 3.0,
                 ),
                 vec3(-1.0, 0.0, 0.0),
                 1024,
