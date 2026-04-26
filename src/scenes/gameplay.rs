@@ -20,6 +20,7 @@ use sdl2::keyboard::Scancode;
 use crate::{
     astro::{
         epoch::EphemerisTime,
+        escape::plan_escape,
         landing::plan_landing,
         launch::plan_launch,
         maneuver::sphere_of_influence,
@@ -490,7 +491,7 @@ impl Gameplay {
                 &app.renderer,
                 &mut bvh,
             );
-            if !system.moons.is_empty() {
+            if bodies.len() == 1 {
                 habitable_planet = bodies.len();
                 habitable_planet_mu = system.planet.0.mu;
                 habitable_planet_radius = system.planet.0.body_radius;
@@ -533,9 +534,7 @@ impl Gameplay {
                 bvh_node_id: None,
                 name: String::from("craft"),
             },
-            Some(Parent {
-                id: bodies[habitable_planet],
-            }),
+            Some(Parent { id: bodies[1] }),
             &mut world,
             &app.renderer,
             &mut bvh,
@@ -843,18 +842,34 @@ impl Gameplay {
 
         // Escape transfer to grandparent body
         if let Ok(grandparent) = self.world.get::<&Parent>(parent.id) {
+            let craft_state = self.world.get::<&State>(selected).unwrap();
+            let parent_state = self.world.get::<&State>(parent.id).unwrap();
+            let parent_body = self.world.get::<&Body>(parent.id).unwrap();
+            let grandparent_body = self.world.get::<&Body>(grandparent.id).unwrap();
             let grandparent_scene_object = self.world.get::<&SceneObject>(grandparent.id).unwrap();
-            widgets.push(Box::new(
-                TextButton::<Message>::new(
-                    Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                    format!("Transfer to {}", grandparent_scene_object.name),
-                    vec4(0.02, 0.07, 0.11, 1.0),
-                    vec4(1.0, 1.0, 1.0, 0.5),
-                )
-                .on_click(Message::CraftCommand(Command::Transfer {
-                    to: grandparent.id,
-                })),
-            ));
+            if let Ok(plan) = plan_escape(
+                &craft_state,
+                &parent_state,
+                self.current_et,
+                grandparent_body.mass(),
+                parent_body.mass(),
+            ) {
+                widgets.push(Box::new(
+                    TextButton::<Message>::new(
+                        Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                        format!(
+                            "Transfer to {} ({:.0} m/s)",
+                            grandparent_scene_object.name, plan.escape_dv
+                        ),
+                        vec4(0.02, 0.07, 0.11, 1.0),
+                        vec4(1.0, 1.0, 1.0, 0.5),
+                    )
+                    .on_click(Message::CraftCommand(Command::Escape {
+                        to: grandparent.id,
+                        plan,
+                    })),
+                ));
+            }
         }
 
         // Transfers to sibling bodies
@@ -868,28 +883,35 @@ impl Gameplay {
                 let target_body = self.world.get::<&Body>(to).unwrap();
                 let parent = self.world.get::<&Parent>(selected).unwrap().id;
                 let parent_body = self.world.get::<&Body>(parent).unwrap();
-                let transfer = plan_transfer(
+                if let Ok(plan) = plan_transfer(
                     &init_state,
                     &target_state,
                     self.current_et,
                     parent_body.mass(),
                     target_body.mass(),
                     TransferObjective::MinFuel,
-                );
-
-                Box::new(
-                    TextButton::<Message>::new(
+                ) {
+                    Box::new(
+                        TextButton::<Message>::new(
+                            Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                            format!(
+                                "Transfer to {} ({:.0} m/s)",
+                                scene_obj.name,
+                                plan.transfer_dv + plan.circ_dv
+                            ),
+                            vec4(0.02, 0.07, 0.11, 1.0),
+                            vec4(1.0, 1.0, 1.0, 0.5),
+                        )
+                        .on_click(Message::CraftCommand(Command::Transfer { to, plan })),
+                    ) as Box<dyn Widget<Message>>
+                } else {
+                    Box::new(TextButton::<Message>::new(
                         Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                        format!(
-                            "Transfer to {} ({:.0} m/s)",
-                            scene_obj.name,
-                            transfer.transfer_dv + transfer.circ_dv
-                        ),
+                        format!("Transfer to {} (infeasible)", scene_obj.name,),
                         vec4(0.02, 0.07, 0.11, 1.0),
                         vec4(1.0, 1.0, 1.0, 0.5),
-                    )
-                    .on_click(Message::CraftCommand(Command::Transfer { to })),
-                ) as Box<dyn Widget<Message>>
+                    )) as Box<dyn Widget<Message>>
+                }
             });
 
         widgets.extend(transfers);
@@ -941,32 +963,18 @@ impl Gameplay {
 
         for (entity, command) in crafts_with_commands {
             match command {
-                Command::Transfer { to } => {
-                    let init_state = self.world.get::<&State>(entity).unwrap();
-                    let target_state = self.world.get::<&State>(to).unwrap();
-                    let target_body = self.world.get::<&Body>(to).unwrap();
-                    let parent = self.world.get::<&Parent>(entity).unwrap().id;
-                    let parent_body = self.world.get::<&Body>(parent).unwrap();
-                    let transfer = plan_transfer(
-                        &init_state,
-                        &target_state,
-                        self.current_et,
-                        parent_body.mass(),
-                        target_body.mass(),
-                        TransferObjective::MinFuel,
-                    );
-
-                    let departure_time = transfer.transfer_state.t;
-                    let arrival_time = transfer.flyby_state.t;
-                    let circ_time = transfer.circ_state.t;
+                Command::Transfer { to, plan } => {
+                    let departure_time = plan.transfer_state.t;
+                    let arrival_time = plan.flyby_state.t;
+                    let circ_time = plan.circ_state.t;
 
                     self.event_queue.push(
                         departure_time,
                         Event::ManeuverReady {
                             craft: entity,
-                            transfer_orbit: transfer.transfer_state,
-                            soi_radius: Some(transfer.soi_radius * 1.1),
-                            dv: transfer.transfer_dv,
+                            transfer_orbit: plan.transfer_state,
+                            soi_radius: Some(plan.soi_radius * 1.1),
+                            dv: plan.transfer_dv,
                         },
                     );
 
@@ -975,8 +983,8 @@ impl Gameplay {
                         Event::SoiChange {
                             craft: entity,
                             new_parent: to,
-                            flyby_orbit: transfer.flyby_state,
-                            soi_radius: transfer.soi_radius * 3.0,
+                            flyby_orbit: plan.flyby_state,
+                            soi_radius: plan.soi_radius * 3.0,
                         },
                     );
 
@@ -984,9 +992,33 @@ impl Gameplay {
                         circ_time,
                         Event::ManeuverReady {
                             craft: entity,
-                            transfer_orbit: transfer.circ_state,
-                            soi_radius: Some(transfer.soi_radius * 1.1),
-                            dv: transfer.circ_dv,
+                            transfer_orbit: plan.circ_state,
+                            soi_radius: Some(plan.soi_radius * 1.1),
+                            dv: plan.circ_dv,
+                        },
+                    );
+                }
+                Command::Escape { to, plan } => {
+                    let departure_time = plan.escape_burn.t;
+                    let arrival_time = plan.grandparent_orbit.t;
+
+                    self.event_queue.push(
+                        departure_time,
+                        Event::ManeuverReady {
+                            craft: entity,
+                            transfer_orbit: plan.escape_burn,
+                            soi_radius: Some(plan.soi_radius * 1.1),
+                            dv: plan.escape_dv,
+                        },
+                    );
+
+                    self.event_queue.push(
+                        arrival_time,
+                        Event::SoiChange {
+                            craft: entity,
+                            new_parent: to,
+                            flyby_orbit: plan.grandparent_orbit,
+                            soi_radius: plan.soi_radius * 3.0,
                         },
                     );
                 }

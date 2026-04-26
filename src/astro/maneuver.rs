@@ -65,17 +65,29 @@ pub fn find_periapsis(orbit: &State, current_et: EphemerisTime, mu: f64) -> Stat
         state.r.dot(&state.v)
     };
 
-    // Find a bracket where rdotv changes sign (negative -> positive)
-    // Periapsis is where rdotv = 0
-    let dt = EphemerisTime::from_secs(60.0);
-    let mut lo = current_et;
-    let mut hi = current_et;
-
     const TOL: f64 = 1e-6;
     if orbit.ecc(mu) < TOL {
         // orbit is circular, periapsis isn't defined. Just pick this point
-        return orbit.propagate(current_et + dt, mu);
+        return orbit.propagate(current_et + EphemerisTime::from_secs(60.0), mu);
     }
+
+    if orbit.ecc(mu) >= 1.0 && rdotv_at_t(current_et) > 0.0 {
+        // hyperbolic orbit and we're already past the periapsis
+        return orbit.propagate(current_et + EphemerisTime::from_secs(60.0), mu);
+    }
+
+    // Use period-based step for elliptical, or r/v based step for hyperbolic
+    let dt = if let Some(period) = orbit.period(mu) {
+        EphemerisTime::from_years(period / 100.0) // 100 steps per orbit
+    } else {
+        // Hyperbolic - use time to travel one radius at current speed
+        let r = orbit.propagate(current_et, mu).r.norm();
+        let v = orbit.propagate(current_et, mu).v.norm();
+        EphemerisTime::from_years(r / v / 10.0)
+    };
+
+    let mut lo = current_et;
+    let mut hi = current_et;
 
     // If already past periapsis (rdotv > 0), march lo forward until rdotv < 0
     while rdotv_at_t(lo) > 0.0 {

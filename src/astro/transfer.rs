@@ -77,7 +77,8 @@ impl TransferObjective {
     }
 }
 
-pub struct TransferInfo {
+#[derive(Clone, Copy)]
+pub struct TransferPlan {
     pub transfer_state: State,
     pub flyby_state: State,
     pub circ_state: State,
@@ -93,7 +94,7 @@ pub fn plan_transfer(
     parent_mass: f64, // in earth masses
     target_mass: f64, // in earth masses
     objective: TransferObjective,
-) -> TransferInfo {
+) -> Result<TransferPlan, String> {
     let mu = G * parent_mass;
     let target_mu = G * target_mass;
 
@@ -103,10 +104,12 @@ pub fn plan_transfer(
     let tof_guess = PI * (transfer_a.powi(3) / mu).sqrt();
 
     // Sweep through the orbit, find cheapest dv transfer
-    let craft_period = craft_state.period(mu).unwrap();
+    let craft_period = craft_state
+        .period(mu)
+        .ok_or("can't transfer while on a hyperbolic trajectory")?;
     let target_period = target_body_state
         .period(mu)
-        .expect("planets typically arent in hyperbolic orbits");
+        .ok_or("cant transfer to a hyperbolic target")?;
     let full_period = craft_period.min(target_period);
 
     const DEPART_STEPS: usize = 100;
@@ -168,8 +171,8 @@ pub fn plan_transfer(
         tof: best_tof,
         target_peri: 2.0,
     };
-    let res = newton_target(&prob, DVec1::new(1.0), 100, 0.5, 1.0);
 
+    let res = newton_target(&prob, DVec1::new(1.0), 100, 0.5, 1.0);
     if let Ok(refined_v) = res {
         transfer_state.v *= refined_v;
     } else {
@@ -182,14 +185,14 @@ pub fn plan_transfer(
     let peri_state = find_periapsis(&flyby_state, arrival_et, target_mu);
     let (circ_state, circ_dv) = circularization(&peri_state, target_mu);
 
-    TransferInfo {
+    Ok(TransferPlan {
         transfer_state,
         flyby_state,
         circ_state,
         soi_radius,
         transfer_dv: xfer_dv * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
         circ_dv: circ_dv * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
-    }
+    })
 }
 
 fn find_soi_entry(
