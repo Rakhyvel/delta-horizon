@@ -1,6 +1,7 @@
 use std::f64::consts::PI;
 
 use nalgebra_glm::{DVec1, DVec3, TVec};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::astro::{
     epoch::EphemerisTime,
@@ -125,6 +126,8 @@ pub fn plan_transfer(
             let tof = tof_min + (tof_max - tof_min) * j as f64 / TOF_STEPS as f64;
             (1..=DEPART_STEPS).map(move |i| (i, tof))
         })
+        .collect::<Vec<_>>()
+        .into_par_iter()
         .map(|(i, tof)| {
             let et = current_et + step * i as i64;
 
