@@ -890,6 +890,7 @@ impl Gameplay {
                 if let Ok(plan) = plan_transfer(
                     &init_state,
                     &target_state,
+                    target_body.body_radius,
                     self.current_et,
                     parent_body.mass(),
                     target_body.mass(),

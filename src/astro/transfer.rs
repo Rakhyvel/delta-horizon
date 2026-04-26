@@ -93,6 +93,7 @@ pub struct TransferPlan {
 pub fn plan_transfer(
     craft_state: &State,
     target_body_state: &State,
+    target_body_radius: f64,
     current_et: EphemerisTime,
     parent_mass: f64, // in earth masses
     target_mass: f64, // in earth masses
@@ -172,22 +173,22 @@ pub fn plan_transfer(
         parent_mass,
     );
 
-    // let prob = BurnTargeter {
-    //     transfer_state,
-    //     target_state: *target_body_state,
-    //     parent_mu: mu,
-    //     target_mu,
-    //     soi_radius,
-    //     tof: best_tof,
-    //     target_peri: 10.0,
-    // };
+    let prob = BurnTargeter {
+        transfer_state,
+        target_state: *target_body_state,
+        parent_mu: mu,
+        target_mu,
+        soi_radius,
+        tof: best_tof,
+        target_peri: (target_body_radius + 2.0).min(soi_radius * 0.5),
+    };
 
-    // let res = newton_target(&prob, DVec1::new(1.0), 100, 0.5, 1.0);
-    // if let Ok(refined_v) = res {
-    //     transfer_state.v *= refined_v;
-    // } else {
-    //     println!("WARNING: couldn't refine the periapsis")
-    // }
+    let res = newton_target(&prob, DVec1::new(1.0), 100, 0.5, 1.0);
+    if let Ok(refined_v) = res {
+        transfer_state.v *= refined_v;
+    } else {
+        println!("WARNING: couldn't refine the periapsis")
+    }
 
     let arrival_et = find_soi_entry(&transfer_state, target_body_state, soi_radius, best_tof, mu)?;
     let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu)?;
