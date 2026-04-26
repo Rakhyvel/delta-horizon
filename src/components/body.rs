@@ -121,7 +121,7 @@ impl Body {
 
     pub fn mass(&self) -> f64 {
         let earth_density = 5.51;
-        (self.density / earth_density) * self.body_radius.powi(3) / earth_density
+        (self.density / earth_density) * self.body_radius.powi(3)
     }
 
     pub fn habitable(&self) -> bool {

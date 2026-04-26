@@ -119,8 +119,16 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
     while orbital_radius_au < 35.0 {
         let orbital_radius_earth_radii = orbital_radius_au * EARTH_RADII_PER_AU;
         let planet = generate_planet(rng, orbital_radius_au, PLANET_MASS_CATEGORIES);
-        let initial_state =
-            State::circular(orbital_radius_earth_radii, EphemerisTime::new(0), SUN_MU);
+        let initial_state = State::from_kepler(
+            orbital_radius_earth_radii,
+            rng.gen_range(0.0..0.25),
+            (10.0_f64.to_radians()) * rng.gen::<f64>().powf(2.0),
+            rng.gen_range(0.0..0.5 * PI),
+            rng.gen_range(0.0..2.0 * PI),
+            rng.gen_range(0.0..2.0 * PI),
+            EphemerisTime::new(0),
+            SUN_MU,
+        );
 
         let spacing = compute_spacing(rng, orbital_radius_au, planet.body_radius);
         orbital_radius_au += spacing;
@@ -134,8 +142,16 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
         let mut moon_orbital_radius = rng.gen_range(2.5..20.0) * roche_limit;
         while moon_orbital_radius < 0.5 * hill_sphere && moons.len() < max {
             let moon = generate_planet(rng, orbital_radius_au, MOON_MASS_CATEGORIES);
-            let moon_initial_state =
-                State::circular(moon_orbital_radius, EphemerisTime::new(0), planet.mu);
+            let moon_initial_state = State::from_kepler(
+                moon_orbital_radius,
+                rng.gen_range(0.0..0.25),
+                0.0,
+                rng.gen_range(0.0..2.0 * PI),
+                rng.gen_range(0.0..2.0 * PI),
+                rng.gen_range(0.0..2.0 * PI),
+                EphemerisTime::new(0),
+                planet.mu,
+            );
             moons.push((moon, moon_initial_state));
             moon_orbital_radius *= rng.gen_range(1.5..5.0);
         }
@@ -163,7 +179,7 @@ fn generate_planet(rng: &mut impl Rng, dist_from_sun: f64, category_dist: &[Mass
 
     pub fn mass(density: f64, body_radius: f64) -> f64 {
         let earth_density = 5.51;
-        (density / earth_density) * body_radius.powi(3) / earth_density
+        (density / earth_density) * body_radius.powi(3)
     }
     let mu = G * mass(density, body_radius);
 

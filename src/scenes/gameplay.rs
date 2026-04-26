@@ -14,7 +14,8 @@ use apricot::{
     shadow_map::DirectionalLightSource,
 };
 use hecs::{Entity, World};
-use nalgebra_glm::{vec2, vec3, vec4, DMat4, DVec3, IVec2, Mat4, Vec2};
+use nalgebra_glm::{vec2, vec3, vec4, DMat4, DVec3, IVec2, Mat4, Vec2, Vec3};
+use rand::{Rng, SeedableRng as _};
 use sdl2::keyboard::Scancode;
 
 use crate::{
@@ -26,7 +27,10 @@ use crate::{
     components::craft::{replace_line_path, AssociatedEntity, Command},
     container,
     generation::{lexicon::Lexicon, solar_system_gen::SUN_MU},
-    scenes::events::{Event, EventQueue},
+    scenes::{
+        events::{Event, EventQueue},
+        starbox::Starbox,
+    },
     ui::{label::Label, text_button::TextButton},
 };
 
@@ -81,6 +85,9 @@ pub struct Gameplay {
     animation_start_et: EphemerisTime,
     animation_target_et: EphemerisTime,
     animation_start_real: f64,
+
+    // Vec of unit vectors
+    starbox: Starbox,
 }
 
 #[derive(Clone)]
@@ -257,6 +264,7 @@ impl Scene for Gameplay {
         // Draw the 3D stuff
         app.renderer.set_color(vec4(0.01, 0.01, 0.01, 1.0));
         app.renderer.clear();
+        self.starbox.draw(app);
         self.render_dots(app);
         app.renderer.directional_light_system(
             &mut self.directional_light,
@@ -378,6 +386,14 @@ impl Gameplay {
             )
             .unwrap(),
             Some("line"),
+        );
+        app.renderer.add_program(
+            create_program(
+                include_str!("../shaders/starbox.vert"),
+                include_str!("../shaders/starbox.frag"),
+            )
+            .unwrap(),
+            Some("starbox"),
         );
 
         // Setup the mesh manager
@@ -603,6 +619,8 @@ impl Gameplay {
             animation_target_et: EphemerisTime::from_years(-200.0),
             animation_start_real: 0.0,
             event_queue: EventQueue::new(),
+
+            starbox: Starbox::new(9000, vec3(1.0, 2.0, 4.0), 0.5),
         }
     }
 
@@ -1362,7 +1380,7 @@ impl Gameplay {
             if let Some(screen) = self.world_to_screen(relative_pos, app) {
                 let rect = Rectangle {
                     pos: screen,
-                    size: vec2(1.0, 1.0),
+                    size: vec2(2.0, 2.0),
                 };
                 app.renderer.fill_rect(rect);
             }
