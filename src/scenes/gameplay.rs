@@ -14,19 +14,21 @@ use apricot::{
     shadow_map::DirectionalLightSource,
 };
 use hecs::{Entity, World};
-use nalgebra_glm::{vec2, vec3, vec4, DMat4, DVec3, IVec2, Mat4, Vec2, Vec3};
-use rand::{Rng, SeedableRng as _};
+use nalgebra_glm::{vec2, vec3, vec4, DVec3, Vec2, Vec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
     astro::{
         epoch::EphemerisTime,
+        landing::plan_landing,
+        maneuver::sphere_of_influence,
         state::State,
-        transfer::{plan_transfer, sphere_of_influence, TransferObjective, EARTH_RADIUS_KM},
+        transfer::{plan_transfer, TransferObjective},
+        units::SUN_MU,
     },
     components::craft::{replace_line_path, AssociatedEntity, Command},
     container,
-    generation::{lexicon::Lexicon, solar_system_gen::SUN_MU},
+    generation::lexicon::Lexicon,
     scenes::{
         events::{Event, EventQueue},
         starbox::Starbox,
@@ -813,15 +815,30 @@ impl Gameplay {
         ))];
 
         // Land on body
-        widgets.push(Box::new(
-            TextButton::<Message>::new(
-                Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                format!("Land on {}", parent_scene_object.name),
-                vec4(0.02, 0.07, 0.11, 1.0),
-                vec4(1.0, 1.0, 1.0, 0.5),
-            )
-            .on_click(Message::CraftCommand(Command::Land {})),
-        ));
+        {
+            let craft_state = self.world.get::<&State>(selected).unwrap();
+            let target_body = self.world.get::<&Body>(parent.id).unwrap();
+            if let Ok(plan) = plan_landing(
+                &craft_state,
+                target_body.body_radius,
+                self.current_et,
+                target_body.mu,
+            ) {
+                widgets.push(Box::new(
+                    TextButton::<Message>::new(
+                        Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                        format!(
+                            "Land on {} ({:.0} m/s)",
+                            parent_scene_object.name,
+                            plan.deorbit_dv + plan.landing_dv
+                        ),
+                        vec4(0.02, 0.07, 0.11, 1.0),
+                        vec4(1.0, 1.0, 1.0, 0.5),
+                    )
+                    .on_click(Message::CraftCommand(Command::Land { plan })),
+                ));
+            }
+        }
 
         // Escape transfer to grandparent body
         if let Ok(grandparent) = self.world.get::<&Parent>(parent.id) {
@@ -937,7 +954,6 @@ impl Gameplay {
                         departure_time,
                         Event::ManeuverReady {
                             craft: entity,
-                            to,
                             transfer_orbit: transfer.transfer_state,
                             soi_radius: Some(transfer.soi_radius * 1.1),
                             dv: transfer.transfer_dv,
@@ -958,7 +974,6 @@ impl Gameplay {
                         circ_time,
                         Event::ManeuverReady {
                             craft: entity,
-                            to,
                             transfer_orbit: transfer.circ_state,
                             soi_radius: Some(transfer.soi_radius * 1.1),
                             dv: transfer.circ_dv,
@@ -969,9 +984,33 @@ impl Gameplay {
                     self.event_queue
                         .push(self.animation_target_et, Event::TakeOff { craft: entity });
                 }
-                Command::Land => {
+                Command::Land { plan } => {
+                    let deorbit_time = plan.deorbit_burn.t;
+                    let land_time = plan.landing_burn.t;
+                    println!("deobit: {}", deorbit_time.as_calendar());
+                    println!("land: {}", land_time.as_calendar());
+
+                    self.event_queue.push(
+                        deorbit_time,
+                        Event::ManeuverReady {
+                            craft: entity,
+                            transfer_orbit: plan.deorbit_burn,
+                            soi_radius: None,
+                            dv: plan.deorbit_dv,
+                        },
+                    );
+
+                    self.event_queue.push(
+                        land_time,
+                        Event::ManeuverReady {
+                            craft: entity,
+                            transfer_orbit: plan.landing_burn,
+                            soi_radius: None,
+                            dv: plan.landing_dv,
+                        },
+                    );
                     self.event_queue
-                        .push(self.animation_target_et, Event::Land { craft: entity });
+                        .push(land_time, Event::Land { craft: entity });
                 }
                 _ => {}
             }
@@ -1012,7 +1051,6 @@ impl Gameplay {
             }
             Event::ManeuverReady {
                 craft,
-                to,
                 transfer_orbit,
                 soi_radius,
                 dv,
@@ -1060,6 +1098,7 @@ impl Gameplay {
             }
             Event::Land { craft } => {
                 self.world.remove_one::<State>(craft).ok();
+                replace_line_path(&mut self.world, &app.renderer, craft, None);
                 self.world.insert_one(craft, Landed {}).unwrap();
             }
             _ => {}

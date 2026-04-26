@@ -3,18 +3,16 @@ use std::f64::consts::PI;
 use rand::{Rng, SeedableRng};
 
 use crate::{
-    astro::{epoch::EphemerisTime, state::State},
+    astro::{
+        epoch::EphemerisTime,
+        state::State,
+        units::{EARTH_MASSES_PER_SUN_MASS, EARTH_RADII_PER_AU, G, SUN_MU},
+    },
     components::body::{Body, Category},
 };
 
 const DENSITY_IRON_G_CM3: f64 = 12.0;
 const DENSITY_ROCK_G_CM3: f64 = 3.5;
-
-const EARTH_MASSES_PER_SUN_MASS: f64 = 333000.0;
-pub const EARTH_RADII_PER_AU: f64 = 23_455.0;
-pub const G: f64 = 4.0 * PI * PI * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU
-    / EARTH_MASSES_PER_SUN_MASS;
-pub const SUN_MU: f64 = G * EARTH_MASSES_PER_SUN_MASS;
 
 pub struct BodySystem {
     pub(crate) planet: (Body, State),

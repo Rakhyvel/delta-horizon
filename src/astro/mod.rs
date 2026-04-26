@@ -1,5 +1,8 @@
 pub(crate) mod epoch;
 pub(crate) mod lambert;
+pub(crate) mod landing;
+pub(crate) mod maneuver;
 pub(crate) mod newton;
 pub(crate) mod state;
 pub(crate) mod transfer;
+pub(crate) mod units;

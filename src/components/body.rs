@@ -8,11 +8,7 @@ use apricot::{
 use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
-use crate::{
-    astro::{epoch::EphemerisTime, state::State},
-    components::craft::AssociatedEntity,
-    generation::solar_system_gen::EARTH_RADII_PER_AU,
-};
+use crate::{astro::state::State, components::craft::AssociatedEntity};
 
 pub struct SceneObject {
     pub bvh_node_id: Option<BVHNodeId>,

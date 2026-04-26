@@ -2,19 +2,14 @@ use std::f64::consts::PI;
 
 use nalgebra_glm::{DVec1, TVec};
 
-use crate::{
-    astro::{
-        epoch::EphemerisTime,
-        lambert::lambert,
-        newton::{newton_target, NLProblem},
-        state::State,
-    },
-    generation::solar_system_gen::G,
+use crate::astro::{
+    epoch::EphemerisTime,
+    lambert::lambert,
+    maneuver::{circularization, find_periapsis, sphere_of_influence},
+    newton::{newton_target, NLProblem},
+    state::State,
+    units::{G, METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR},
 };
-
-pub const EARTH_RADIUS_KM: f64 = 6371.0;
-pub const EARTH_RADIUS_M: f64 = EARTH_RADIUS_KM * 1000.0;
-pub const YEAR_S: f64 = 31_557_600.0;
 
 pub struct BurnTargeter {
     transfer_state: State,
@@ -45,7 +40,7 @@ impl NLProblem<1, 1> for BurnTargeter {
             self.parent_mu,
         );
 
-        let peri_state = find_periapsis(&flyby_state, self.target_mu);
+        let peri_state = find_periapsis(&flyby_state, arrival_et, self.target_mu);
 
         let peri = peri_state.r.norm();
 
@@ -92,7 +87,7 @@ pub struct TransferInfo {
 }
 
 pub fn plan_transfer(
-    init_state: &State,
+    craft_state: &State,
     target_body_state: &State,
     current_et: EphemerisTime,
     parent_mass: f64, // in earth masses
@@ -103,11 +98,12 @@ pub fn plan_transfer(
     let target_mu = G * target_mass;
 
     // Start off with just a basic hohmann
-    let transfer_a = (init_state.semi_major_axis(mu) + target_body_state.semi_major_axis(mu)) / 2.0;
+    let transfer_a =
+        (craft_state.semi_major_axis(mu) + target_body_state.semi_major_axis(mu)) / 2.0;
     let tof_guess = PI * (transfer_a.powi(3) / mu).sqrt();
 
     // Sweep through the orbit, find cheapest dv transfer
-    let craft_period = init_state.period(mu).unwrap();
+    let craft_period = craft_state.period(mu).unwrap();
     let target_period = target_body_state
         .period(mu)
         .expect("planets typically arent in hyperbolic orbits");
@@ -127,7 +123,7 @@ pub fn plan_transfer(
         .map(|(i, tof)| {
             let et = current_et + step * i as i64;
 
-            let new_craft_state = init_state.propagate(et, mu);
+            let new_craft_state = craft_state.propagate(et, mu);
 
             // Lag the target position by our desired flyby periapsis
             // little hack that lets us easily get reasonable prograde flyby periapsis without too much complexity
@@ -154,7 +150,7 @@ pub fn plan_transfer(
     let depart_et = best_et;
     let dv = best_dv;
 
-    let mut transfer_state = init_state.propagate(depart_et, mu);
+    let mut transfer_state = craft_state.propagate(depart_et, mu);
     transfer_state.v += dv;
 
     let soi_radius = sphere_of_influence(
@@ -183,7 +179,7 @@ pub fn plan_transfer(
     let arrival_et = find_soi_entry(&transfer_state, target_body_state, soi_radius, best_tof, mu);
     let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu);
 
-    let peri_state = find_periapsis(&flyby_state, target_mu);
+    let peri_state = find_periapsis(&flyby_state, arrival_et, target_mu);
     let (circ_state, circ_dv) = circularization(&peri_state, target_mu);
 
     TransferInfo {
@@ -191,8 +187,8 @@ pub fn plan_transfer(
         flyby_state,
         circ_state,
         soi_radius,
-        transfer_dv: xfer_dv * EARTH_RADIUS_M / YEAR_S,
-        circ_dv: circ_dv * EARTH_RADIUS_M / YEAR_S,
+        transfer_dv: xfer_dv * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
+        circ_dv: circ_dv * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
     }
 }
 
@@ -244,67 +240,4 @@ fn get_flyby_state(
         v: v_rel,
         t: arrival_et,
     }
-}
-
-pub fn sphere_of_influence(orbital_radius: f64, body_mass: f64, parent_mass: f64) -> f64 {
-    orbital_radius * (body_mass / parent_mass).powf(2.0 / 5.0)
-}
-
-fn find_periapsis(flyby_orbit: &State, mu: f64) -> State {
-    let rdotv_at_t = |et: EphemerisTime| -> f64 {
-        let state = flyby_orbit.propagate(et, mu);
-        state.r.dot(&state.v)
-    };
-
-    // Find a bracket where rdotv changes sign (negative -> positive)
-    // Periapsis is where rdotv = 0
-    let dt = EphemerisTime::from_secs(60.0);
-    let mut lo = flyby_orbit.t;
-    let mut hi = flyby_orbit.t;
-
-    // March forward until we bracket the zero crossing
-    while rdotv_at_t(hi) < 0.0 {
-        hi += dt;
-    }
-
-    // Binary search for the zero crossing
-    const ITERATIONS: usize = 50;
-    for _ in 0..ITERATIONS {
-        let mid = lo + (hi - lo) / 2;
-        if rdotv_at_t(mid) < 0.0 {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-
-    flyby_orbit.propagate(lo, mu)
-}
-
-fn circularization(peri_state: &State, mu: f64) -> (State, f64) {
-    let r = peri_state.r;
-    let v = peri_state.v;
-
-    let r_mag = r.norm();
-
-    // the velocity if we were in a circular orbit
-    let v_circ_mag = (mu / r_mag).sqrt();
-
-    // convert the scalar velocity to a scalar
-    let r_hat = r.normalize();
-    let h_hat = r.cross(&v).normalize();
-    let t_hat = h_hat.cross(&r_hat);
-
-    let v_circ = t_hat * v_circ_mag;
-
-    // circ dv is just the differnce between v_circ and v
-
-    (
-        State {
-            r: peri_state.r,
-            v: v_circ,
-            t: peri_state.t,
-        },
-        (v_circ - v).norm(),
-    )
 }

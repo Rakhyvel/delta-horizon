@@ -7,7 +7,7 @@ use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
 use crate::{
-    astro::state::State,
+    astro::{landing::LandingPlan, state::State},
     components::body::{Body, Parent, SceneObject},
 };
 
@@ -26,7 +26,7 @@ pub enum Command {
     Orbit,
     Transfer { to: Entity },
     Capture,
-    Land,
+    Land { plan: LandingPlan },
 }
 
 pub struct Transfer {
