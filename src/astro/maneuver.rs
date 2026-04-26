@@ -1,5 +1,3 @@
-use nalgebra_glm::{zero, DVec3};
-
 use crate::astro::{epoch::EphemerisTime, state::State};
 
 pub fn sphere_of_influence(orbital_radius: f64, body_mass: f64, parent_mass: f64) -> f64 {

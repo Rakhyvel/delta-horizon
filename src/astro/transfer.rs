@@ -49,6 +49,7 @@ impl NLProblem<1, 1> for BurnTargeter {
     }
 }
 
+#[allow(unused)]
 pub enum TransferObjective {
     /// minimize total delta-v
     MinFuel,

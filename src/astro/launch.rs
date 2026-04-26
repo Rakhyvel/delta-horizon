@@ -2,7 +2,7 @@ use nalgebra_glm::{vec3, zero, DVec3};
 
 use crate::astro::{
     epoch::EphemerisTime,
-    maneuver::{circularization, find_apoapsis, find_periapsis, sphere_of_influence},
+    maneuver::{circularization, find_apoapsis, sphere_of_influence},
     state::State,
     units::{G, METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR},
 };

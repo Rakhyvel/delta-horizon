@@ -23,6 +23,7 @@ pub struct Body {
     pub category: Category,
     pub body_radius: f64, // In earth radii
     pub rotation_period_hours: f64,
+    #[allow(unused)]
     pub rotation: f64,
     pub atmos_pressure: f64, // In bar
     pub temperature: f64,    // In K

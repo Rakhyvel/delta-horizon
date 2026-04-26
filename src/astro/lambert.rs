@@ -2,6 +2,7 @@ use std::f64::consts::PI;
 
 use nalgebra_glm::DVec3;
 
+#[allow(unused)]
 use crate::astro::{epoch::EphemerisTime, state::State};
 
 const LAMBERT_EPSILON: f64 = 1e-4; // General epsilon

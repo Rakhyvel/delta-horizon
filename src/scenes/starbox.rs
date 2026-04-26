@@ -1,10 +1,8 @@
-use std::f64::consts::PI;
-
 use apricot::{
     app::App,
     opengl::{Buffer, Vao},
 };
-use nalgebra_glm::{Mat4, Vec3};
+use nalgebra_glm::Vec3;
 
 pub struct Starbox {
     vao: Vao,
