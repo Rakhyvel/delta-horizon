@@ -734,11 +734,19 @@ impl Gameplay {
     fn build_craft_info(&self, selected: Entity, font: &Font) -> Vec<Box<dyn Widget<Message>>> {
         let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
         let craft = self.world.get::<&Craft>(selected).unwrap();
+
+        let status_str = if let Some(doing) = &craft.locked {
+            doing.clone()
+        } else {
+            String::from("ready")
+        };
+
         let widgets: Vec<Box<dyn Widget<Message>>> = vec![
             Box::new(Label::new(
                 format!("Name: {}", scene_object.name.clone()),
                 font,
             )),
+            Box::new(Label::new(format!("Status: {status_str}"), font)),
             Box::new(Label::new(
                 format!("Delta V: {:.0} m/s", craft.delta_v),
                 font,
@@ -804,16 +812,13 @@ impl Gameplay {
     fn build_orbit_widgets(
         &self,
         selected: Entity,
-        font: &Font,
+        _font: &Font,
     ) -> Option<Vec<Box<dyn Widget<Message>>>> {
         let _orbit = self.world.get::<&State>(selected).ok()?;
         let parent = self.world.get::<&Parent>(selected).ok()?;
         let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
 
-        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![Box::new(Label::new(
-            format!("Status: Orbiting {}", parent_scene_object.name),
-            font,
-        ))];
+        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![];
 
         // Land on body
         {
@@ -975,6 +980,8 @@ impl Gameplay {
         for (entity, command) in crafts_with_commands {
             match command {
                 Command::Transfer { to, plan } => {
+                    let to_name = { &self.world.get::<&SceneObject>(to).unwrap().name };
+
                     let departure_time = plan.transfer_state.t;
                     let arrival_time = plan.flyby_state.t;
                     let circ_time = plan.circ_state.t;
@@ -997,12 +1004,28 @@ impl Gameplay {
                     );
 
                     self.event_queue.push(
+                        departure_time,
+                        Event::LockCommands {
+                            craft: entity,
+                            doing: format!("transfering to {to_name}"),
+                        },
+                    );
+
+                    self.event_queue.push(
                         arrival_time,
                         Event::SoiChange {
                             craft: entity,
                             new_parent: to,
                             new_craft_orbit: plan.flyby_state,
                             new_soi_radius: plan.soi_radius * 3.0,
+                        },
+                    );
+
+                    self.event_queue.push(
+                        departure_time,
+                        Event::LockCommands {
+                            craft: entity,
+                            doing: format!("coasting to periapsis around {to_name}"),
                         },
                     );
 
@@ -1015,8 +1038,16 @@ impl Gameplay {
                             dv: plan.circ_dv,
                         },
                     );
+
+                    self.event_queue
+                        .push(circ_time, Event::UnlockCommands { craft: entity })
                 }
                 Command::Escape { to, plan } => {
+                    let from_name = {
+                        let old_parent = self.world.get::<&Parent>(entity).unwrap().id;
+                        &self.world.get::<&SceneObject>(old_parent).unwrap().name
+                    };
+
                     let departure_time = plan.escape_burn.t;
                     let arrival_time = plan.grandparent_orbit.t;
 
@@ -1036,6 +1067,14 @@ impl Gameplay {
                     );
 
                     self.event_queue.push(
+                        departure_time,
+                        Event::LockCommands {
+                            craft: entity,
+                            doing: format!("escaping from {from_name}"),
+                        },
+                    );
+
+                    self.event_queue.push(
                         arrival_time,
                         Event::SoiChange {
                             craft: entity,
@@ -1044,8 +1083,16 @@ impl Gameplay {
                             new_soi_radius: plan.soi_radius * 3.0,
                         },
                     );
+
+                    self.event_queue
+                        .push(arrival_time, Event::UnlockCommands { craft: entity })
                 }
                 Command::Launch { plan } => {
+                    let from_name = {
+                        let old_parent = self.world.get::<&Parent>(entity).unwrap().id;
+                        &self.world.get::<&SceneObject>(old_parent).unwrap().name
+                    };
+
                     let launch_time = plan.launch_burn.t;
                     let circ_time = plan.circ_burn.t;
 
@@ -1068,6 +1115,14 @@ impl Gameplay {
                     );
 
                     self.event_queue.push(
+                        launch_time,
+                        Event::LockCommands {
+                            craft: entity,
+                            doing: String::from("coasting to apoapsis"),
+                        },
+                    );
+
+                    self.event_queue.push(
                         circ_time,
                         Event::Burn {
                             craft: entity,
@@ -1076,8 +1131,16 @@ impl Gameplay {
                             dv: plan.circ_dv,
                         },
                     );
+
+                    self.event_queue
+                        .push(circ_time, Event::UnlockCommands { craft: entity })
                 }
                 Command::Land { plan } => {
+                    let from_name = {
+                        let old_parent = self.world.get::<&Parent>(entity).unwrap().id;
+                        &self.world.get::<&SceneObject>(old_parent).unwrap().name
+                    };
+
                     let deorbit_time = plan.deorbit_burn.t;
                     let land_time = plan.landing_burn.t;
 
@@ -1095,7 +1158,13 @@ impl Gameplay {
                             dv: plan.deorbit_dv,
                         },
                     );
-
+                    self.event_queue.push(
+                        deorbit_time,
+                        Event::LockCommands {
+                            craft: entity,
+                            doing: format!("landing on {from_name}"),
+                        },
+                    );
                     self.event_queue.push(
                         land_time,
                         Event::Burn {
@@ -1107,6 +1176,9 @@ impl Gameplay {
                     );
                     self.event_queue
                         .push(land_time, Event::Land { craft: entity });
+
+                    self.event_queue
+                        .push(land_time, Event::UnlockCommands { craft: entity })
                 }
             }
         }
@@ -1213,6 +1285,14 @@ impl Gameplay {
                 self.world.remove_one::<State>(craft).ok();
                 replace_line_path(&mut self.world, &app.renderer, craft, None);
                 self.world.insert_one(craft, Landed { offset }).unwrap();
+            }
+            Event::LockCommands { craft, doing } => {
+                let mut craft = self.world.get::<&mut Craft>(craft).unwrap();
+                craft.locked = Some(doing.clone());
+            }
+            Event::UnlockCommands { craft } => {
+                let mut craft = self.world.get::<&mut Craft>(craft).unwrap();
+                craft.locked = None;
             }
         }
     }

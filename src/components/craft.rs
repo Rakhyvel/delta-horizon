@@ -16,6 +16,7 @@ use crate::{
 
 pub struct Craft {
     pub command: Option<Command>,
+    pub locked: Option<String>,
     pub line_path_entity: Option<Entity>,
     pub delta_v: f64,
 }
@@ -102,6 +103,7 @@ pub fn spawn_craft(
                 init_state,
                 Craft {
                     command: None,
+                    locked: None,
                     line_path_entity,
                     delta_v: 10_000.0,
                 },
@@ -159,6 +161,7 @@ pub fn spawn_landed_craft(
                 },
                 Craft {
                     command: None,
+                    locked: None,
                     line_path_entity: None,
                     delta_v: 10.0,
                 },
