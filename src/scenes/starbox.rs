@@ -49,7 +49,7 @@ impl Starbox {
             gl::BindVertexArray(vao.id);
         }
         vbo.set_data(&data);
-        vao.set_custom(0, 4, 4, 0); // 4 components, stride 4, offset 0
+        vao.set_custom(0, 4, 4, 0);
         vbo.unbind();
 
         Self {
@@ -76,6 +76,15 @@ impl Starbox {
 
             gl::BindVertexArray(self.vao.id);
             self.vbo.bind();
+            gl::EnableVertexAttribArray(0);
+            gl::VertexAttribPointer(
+                0,
+                4,
+                gl::FLOAT,
+                gl::FALSE,
+                (4 * std::mem::size_of::<f32>()) as i32,
+                0 as *const _,
+            );
 
             let u_view = app.renderer.get_program_uniform("view").unwrap();
             let u_proj = app.renderer.get_program_uniform("projection").unwrap();
