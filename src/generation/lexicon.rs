@@ -153,7 +153,7 @@ impl Lexicon {
         Self { nodes }
     }
 
-    /// Generate a random word from the lexicon
+    /// Generate a random word from the phonicon
     pub fn generate_word(&self, max_length: usize) -> String {
         use rand::Rng;
         let mut rng = rand::thread_rng();

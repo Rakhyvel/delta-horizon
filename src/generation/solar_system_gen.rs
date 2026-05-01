@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use rand::{Rng, SeedableRng};
+use rand::{seq::SliceRandom, Rng, SeedableRng};
 
 use crate::{
     astro::{
@@ -110,7 +110,7 @@ pub fn generate() -> Vec<BodySystem> {
     }
 }
 
-fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
+fn generate_system(mut rng: &mut impl Rng) -> Vec<BodySystem> {
     let mut planets: Vec<BodySystem> = vec![];
 
     let mut orbital_radius_au = rng.gen_range(0.2..0.6); // in AU
@@ -140,7 +140,7 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
         let mut moons = vec![];
         let max = max_moons(planet.body_radius);
         let mut moon_orbital_radius = rng.gen_range(2.5..20.0) * roche_limit;
-        while moon_orbital_radius < 0.5 * hill_sphere && moons.len() < max {
+        while moon_orbital_radius < hill_sphere && moons.len() < max {
             let moon = generate_planet(rng, orbital_radius_au, MOON_MASS_CATEGORIES);
             let moon_initial_state = State::from_kepler(
                 moon_orbital_radius,
@@ -153,7 +153,33 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
                 planet.mu,
             );
             moons.push((moon, moon_initial_state));
-            moon_orbital_radius *= rng.gen_range(1.5..5.0);
+            let resonances = [
+                1.36798075734, // 8:5
+                1.40572110884, // 5:3
+                1.45219643339, // 7:4
+                1.4797272446,  // 9:5
+                1.58740105197, // 2:1
+                1.58740105197, // 4:2 (dup)
+                1.58740105197, // 6:3 (dup)
+                1.58740105197, // 8:4 (dup)
+                1.71707136383, // 9:4
+                1.75921069597, // 7:3
+                1.84201574932, // 5:2
+                1.92299942708, // 8:3
+                2.08008382305, // 3:1
+                2.08008382305, // 6:2 (dup)
+                2.08008382305, // 9:3 (dup)
+                2.30521814603, // 7:2
+                2.51984209979, // 4:1
+                2.51984209979, // 8:2 (dup)
+                2.72568088925, // 9:2
+                2.92401773821, // 5:1
+                3.30192724889, // 6:1
+                3.65930571002, // 7:1
+                4.0,           // 8:1
+                4.32674871092, // 9:1
+            ];
+            moon_orbital_radius *= resonances.choose(&mut rng).unwrap();
         }
 
         planets.push(BodySystem {

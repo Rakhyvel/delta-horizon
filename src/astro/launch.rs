@@ -4,7 +4,9 @@ use crate::astro::{
     epoch::EphemerisTime,
     maneuver::{circularization, find_apoapsis, sphere_of_influence},
     state::State,
-    units::{G, METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR},
+    units::{
+        EARTH_RADII_PER_AU, G, KM_PER_EARTH_RADIUS, METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -28,7 +30,7 @@ pub fn plan_launch(
 
     let parent_orbital_radius = parent_state.semi_major_axis(grandparent_mu);
     let parent_soi = sphere_of_influence(parent_orbital_radius, parent_mass, grandparent_mass);
-    let target_apoapsis = (parent_body_radius + 2.0).min(parent_soi * 0.5);
+    let target_apoapsis = (parent_body_radius + 300.0 / KM_PER_EARTH_RADIUS).min(parent_soi * 0.5);
 
     // First burn is with eastward, to get a good apoapsis
     let launch_offset = current_et + EphemerisTime::from_secs(5.0); // so our event planner doesn't freak

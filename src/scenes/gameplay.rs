@@ -28,14 +28,22 @@ use crate::{
         transfer::{plan_transfer, TransferObjective},
         units::SUN_MU,
     },
-    components::craft::{replace_line_path, AssociatedEntity, Command},
+    components::craft::{
+        first_stage, probe, replace_line_path, second_stage, transfer_stage, AssociatedEntity,
+        Command,
+    },
     container,
     generation::lexicon::Lexicon,
     scenes::{
         events::{Event, EventQueue},
         starbox::Starbox,
     },
-    ui::{label::Label, text_button::TextButton},
+    ui::{
+        anchor::{Anchor, AnchorPoint},
+        container::Align,
+        label::Label,
+        text_button::TextButton,
+    },
 };
 
 use crate::{
@@ -81,7 +89,8 @@ pub struct Gameplay {
     /// Used for tab key latch
     prev_tab_state: bool,
 
-    gui: Container<Message>,
+    gui: Anchor<Message>,
+    turn_gui: Anchor<Message>,
 
     // Events and timeline
     event_queue: EventQueue,
@@ -224,6 +233,26 @@ impl Scene for Gameplay {
             }
         }
 
+        for msg in recv_msgs(app, &mut self.turn_gui) {
+            match msg {
+                Message::NextTurn => {
+                    if !self.is_animating() {
+                        self.plan_commands();
+                        if let Some((&next_event_time, _)) = self.event_queue.events.iter().next() {
+                            self.animation_start_et = self.current_et;
+                            self.animation_target_et = next_event_time;
+                            self.animation_start_real = app.seconds as f64;
+                        }
+                    }
+                }
+                Message::CraftCommand(cmd) => {
+                    if let Some(selected) = self.selection.selected_entity() {
+                        self.world.get::<&mut Craft>(selected).unwrap().command = Some(cmd);
+                    }
+                }
+            }
+        }
+
         if self.is_animating() {
             const TURN_TIME: f64 = 1.5;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
@@ -242,6 +271,7 @@ impl Scene for Gameplay {
                     self.handle_event(event, app);
                 }
                 self.gui = self.rebuild_gui(app);
+                self.turn_gui = self.rebuild_turn_gui(app);
             }
         }
 
@@ -339,6 +369,7 @@ impl Scene for Gameplay {
 
         // Draw GUI
         self.gui.render(app);
+        self.turn_gui.render(app);
     }
 }
 
@@ -471,9 +502,15 @@ impl Gameplay {
         let (_lexicon, _node_count) = Lexicon::create("res/names.txt", "res/names.lex");
         let lexicon = Lexicon::read("res/names.lex");
 
+        for _ in 0..10 {
+            let name = lexicon.generate_word(7);
+            println!("{name}")
+        }
+
         let mut habitable_planet = 0;
         let mut habitable_planet_mu = 0.0;
         let mut habitable_planet_radius = 0.0;
+        let mut num_planets = 0;
         let planets = solar_system_gen::generate();
         for system in planets {
             let name = lexicon.generate_word(7);
@@ -490,7 +527,8 @@ impl Gameplay {
                 &app.renderer,
                 &mut bvh,
             );
-            if bodies.len() == 1 {
+            num_planets += 1;
+            if num_planets == 3 {
                 habitable_planet = bodies.len();
                 habitable_planet_mu = system.planet.0.mu;
                 habitable_planet_radius = system.planet.0.body_radius;
@@ -527,19 +565,25 @@ impl Gameplay {
             EphemerisTime::new(0),
             habitable_planet_mu,
         );
+        let (payload, stages) = (probe(), vec![second_stage(), first_stage()]);
         let craft_entity = spawn_craft(
+            payload.clone(),
+            stages.clone(),
             state,
             SceneObject {
                 bvh_node_id: None,
                 name: String::from("craft"),
             },
-            Some(Parent { id: bodies[1] }),
+            Some(Parent {
+                id: bodies[habitable_planet],
+            }),
             &mut world,
             &app.renderer,
             &mut bvh,
         );
-        crafts.push(craft_entity);
         let landed_craft_entity = spawn_landed_craft(
+            payload.clone(),
+            stages.clone(),
             SceneObject {
                 bvh_node_id: None,
                 name: String::from("landed craft"),
@@ -552,30 +596,38 @@ impl Gameplay {
             &mut bvh,
         );
         crafts.push(landed_craft_entity);
+        crafts.push(craft_entity);
 
-        let gui = container![
-            TextureButton::new(
-                Rectangle::new(
-                    app.window_size.x as f32 - 100.0,
-                    app.window_size.y as f32 - 120.0,
-                    90.0,
-                    90.0,
-                ),
-                app.renderer.get_texture_id_from_name("next-turn").unwrap(),
-                app.renderer
-                    .get_texture_id_from_name("next-turn-hover")
-                    .unwrap(),
-            )
-            .on_click(Message::NextTurn),
-            TextButton::new(
-                Rectangle::new(100.0, 120.0, 200.0, 30.0,),
-                "Click me!",
-                vec4(0.02, 0.07, 0.11, 1.0),
-                vec4(1.0, 1.0, 1.0, 0.5),
-            )
-            .on_click(Message::NextTurn),
-        ]
-        .at(vec2(100.0, 100.0));
+        let gui = Anchor::<Message>::new(
+            Box::new(container![].at(vec2(100.0, 100.0))),
+            AnchorPoint::TopRight,
+        );
+
+        let turn_gui = Anchor::<Message>::new(
+            Box::new(container![
+                TextureButton::new(
+                    Rectangle::new(
+                        app.window_size.x as f32 - 100.0,
+                        app.window_size.y as f32 - 120.0,
+                        90.0,
+                        90.0,
+                    ),
+                    app.renderer.get_texture_id_from_name("next-turn").unwrap(),
+                    app.renderer
+                        .get_texture_id_from_name("next-turn-hover")
+                        .unwrap(),
+                )
+                .on_click(Message::NextTurn),
+                TextButton::new(
+                    Rectangle::new(100.0, 120.0, 200.0, 30.0,),
+                    "Click me!",
+                    vec4(0.02, 0.07, 0.11, 1.0),
+                    vec4(1.0, 1.0, 1.0, 0.5),
+                )
+                .on_click(Message::NextTurn),
+            ]),
+            AnchorPoint::BottomRight,
+        );
 
         Self {
             world,
@@ -622,6 +674,7 @@ impl Gameplay {
             prev_tab_state: false,
 
             gui,
+            turn_gui,
 
             current_et: EphemerisTime::epoch(),
             animation_start_et: EphemerisTime::epoch(),
@@ -668,18 +721,31 @@ impl Gameplay {
             .clamp(0.0, MAX_DISTANCE);
     }
 
-    fn rebuild_gui(&self, app: &App) -> Container<Message> {
+    fn rebuild_gui(&self, app: &App) -> Anchor<Message> {
         let font = app.renderer.get_current_font().unwrap();
 
         let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![];
-        widgets.extend(self.build_footer_widgets(app, &font));
-
         let selected = self.selection.selected_entity();
         if let Some(selected) = selected {
             widgets.extend(self.build_selection_widgets(selected, &font));
         }
 
-        Container::new(widgets)
+        Anchor::new(
+            Box::new(Container::new(widgets).cross_align(Align::Start)),
+            AnchorPoint::TopRight,
+        )
+    }
+
+    fn rebuild_turn_gui(&mut self, app: &App) -> Anchor<Message> {
+        let font = app.renderer.get_current_font().unwrap();
+
+        let mut turn_widgets: Vec<Box<dyn Widget<Message>>> = vec![];
+        turn_widgets.extend(self.build_footer_widgets(app, &font));
+
+        Anchor::new(
+            Box::new(Container::new(turn_widgets).cross_align(Align::End)),
+            AnchorPoint::BottomRight,
+        )
     }
 
     fn build_footer_widgets(&self, app: &App, font: &Font) -> Vec<Box<dyn Widget<Message>>> {
@@ -716,7 +782,7 @@ impl Gameplay {
         if let Ok(craft) = self.world.get::<&Craft>(selected) {
             widgets.extend(self.build_craft_info(selected, font));
 
-            if craft.command.is_none() {
+            if craft.command.is_none() && craft.locked.is_none() {
                 if let Some(status) = self.build_orbit_widgets(selected, font) {
                     widgets.extend(status);
                 }
@@ -748,7 +814,7 @@ impl Gameplay {
             )),
             Box::new(Label::new(format!("Status: {status_str}"), font)),
             Box::new(Label::new(
-                format!("Delta V: {:.0} m/s", craft.delta_v),
+                format!("Delta V: {:.3} km/s", craft.total_remaining_dv() / 1000.0),
                 font,
             )),
         ];
@@ -771,7 +837,7 @@ impl Gameplay {
                 font,
             )),
             Box::new(Label::new(
-                format!("EARTH MASSES:\n  {:.1}\n", body.mass()),
+                format!("EARTH MASSES:\n  {:.3}\n", body.mass()),
                 font,
             )),
             Box::new(Label::new(
@@ -814,9 +880,12 @@ impl Gameplay {
         selected: Entity,
         _font: &Font,
     ) -> Option<Vec<Box<dyn Widget<Message>>>> {
+        let craft = self.world.get::<&Craft>(selected).unwrap();
         let _orbit = self.world.get::<&State>(selected).ok()?;
         let parent = self.world.get::<&Parent>(selected).ok()?;
         let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
+
+        let craft_dv = craft.total_remaining_dv();
 
         let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![];
 
@@ -830,19 +899,21 @@ impl Gameplay {
                 self.current_et,
                 target_body.mu,
             ) {
-                widgets.push(Box::new(
-                    TextButton::<Message>::new(
-                        Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                        format!(
-                            "Land on {} ({:.0} m/s)",
-                            parent_scene_object.name,
-                            plan.deorbit_dv + plan.landing_dv
-                        ),
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
-                    )
-                    .on_click(Message::CraftCommand(Command::Land { plan })),
-                ));
+                if plan.deorbit_dv + plan.landing_dv <= craft_dv {
+                    widgets.push(Box::new(
+                        TextButton::<Message>::new(
+                            Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                            format!(
+                                "Land on {} ({:.0} m/s)",
+                                parent_scene_object.name,
+                                plan.deorbit_dv + plan.landing_dv
+                            ),
+                            vec4(0.02, 0.07, 0.11, 1.0),
+                            vec4(1.0, 1.0, 1.0, 0.5),
+                        )
+                        .on_click(Message::CraftCommand(Command::Land { plan })),
+                    ));
+                }
             }
         }
 
@@ -863,21 +934,23 @@ impl Gameplay {
                 grandparent_body.mass(),
                 parent_body.mass(),
             ) {
-                widgets.push(Box::new(
-                    TextButton::<Message>::new(
-                        Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                        format!(
-                            "Transfer to {} ({:.0} m/s)",
-                            grandparent_scene_object.name, plan.escape_dv
-                        ),
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
-                    )
-                    .on_click(Message::CraftCommand(Command::Escape {
-                        to: grandparent.id,
-                        plan,
-                    })),
-                ));
+                if plan.escape_dv <= craft_dv {
+                    widgets.push(Box::new(
+                        TextButton::<Message>::new(
+                            Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                            format!(
+                                "Transfer to {} ({:.0} m/s)",
+                                grandparent_scene_object.name, plan.escape_dv
+                            ),
+                            vec4(0.02, 0.07, 0.11, 1.0),
+                            vec4(1.0, 1.0, 1.0, 0.5),
+                        )
+                        .on_click(Message::CraftCommand(Command::Escape {
+                            to: grandparent.id,
+                            plan,
+                        })),
+                    ));
+                }
             }
         }
 
@@ -886,7 +959,7 @@ impl Gameplay {
         let transfers = binding
             .iter()
             .filter(|(_, (_, _, _, p))| p.id == parent.id)
-            .map(|(to, (_, _, scene_obj, _))| {
+            .filter_map(|(to, (_, _, scene_obj, _))| {
                 let init_state = self.world.get::<&State>(selected).unwrap();
                 let target_state = self.world.get::<&State>(to).unwrap();
                 let target_body = self.world.get::<&Body>(to).unwrap();
@@ -901,26 +974,25 @@ impl Gameplay {
                     target_body.mass(),
                     TransferObjective::MinFuel,
                 ) {
-                    Box::new(
-                        TextButton::<Message>::new(
-                            Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                            format!(
-                                "Transfer to {} ({:.0} m/s)",
-                                scene_obj.name,
-                                plan.transfer_dv + plan.circ_dv
-                            ),
-                            vec4(0.02, 0.07, 0.11, 1.0),
-                            vec4(1.0, 1.0, 1.0, 0.5),
-                        )
-                        .on_click(Message::CraftCommand(Command::Transfer { to, plan })),
-                    ) as Box<dyn Widget<Message>>
+                    if plan.circ_dv + plan.transfer_dv <= craft_dv {
+                        Some(Box::new(
+                            TextButton::<Message>::new(
+                                Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                                format!(
+                                    "Transfer to {} ({:.0} m/s)",
+                                    scene_obj.name,
+                                    plan.transfer_dv + plan.circ_dv
+                                ),
+                                vec4(0.02, 0.07, 0.11, 1.0),
+                                vec4(1.0, 1.0, 1.0, 0.5),
+                            )
+                            .on_click(Message::CraftCommand(Command::Transfer { to, plan })),
+                        ) as Box<dyn Widget<Message>>)
+                    } else {
+                        None
+                    }
                 } else {
-                    Box::new(TextButton::<Message>::new(
-                        Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                        format!("Transfer to {} (infeasible)", scene_obj.name,),
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
-                    )) as Box<dyn Widget<Message>>
+                    None
                 }
             });
 
@@ -939,6 +1011,9 @@ impl Gameplay {
         let parent_body = self.world.get::<&Body>(parent.id).unwrap();
         let grandparent = self.world.get::<&Parent>(parent.id).unwrap();
 
+        let craft = self.world.get::<&Craft>(selected).unwrap();
+        let craft_dv = craft.total_remaining_dv();
+
         let parent_state = self.world.get::<&State>(parent.id).unwrap();
         let grandparent_body = self.world.get::<&Body>(grandparent.id).unwrap();
 
@@ -955,15 +1030,17 @@ impl Gameplay {
             grandparent_body.mass(),
             parent_body.mass(),
         ) {
-            widgets.push(Box::new(
-                TextButton::<Message>::new(
-                    Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                    format!("Launch ({:.0} m/s)", plan.launch_dv + plan.circ_dv),
-                    vec4(0.02, 0.07, 0.11, 1.0),
-                    vec4(1.0, 1.0, 1.0, 0.5),
-                )
-                .on_click(Message::CraftCommand(Command::Launch { plan })),
-            ));
+            if plan.launch_dv + plan.circ_dv <= craft_dv {
+                widgets.push(Box::new(
+                    TextButton::<Message>::new(
+                        Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                        format!("Launch ({:.0} m/s)", plan.launch_dv + plan.circ_dv),
+                        vec4(0.02, 0.07, 0.11, 1.0),
+                        vec4(1.0, 1.0, 1.0, 0.5),
+                    )
+                    .on_click(Message::CraftCommand(Command::Launch { plan })),
+                ));
+            }
         }
 
         Some(widgets)
@@ -1251,8 +1328,8 @@ impl Gameplay {
                     )),
                 );
                 {
-                    let mut craft = self.world.get::<&mut Craft>(craft).unwrap();
-                    craft.delta_v -= dv;
+                    let mut craft_component = self.world.get::<&mut Craft>(craft).unwrap();
+                    craft_component.burn(dv);
                 }
                 self.world.remove_one::<State>(craft).ok();
                 self.world

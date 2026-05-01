@@ -1,3 +1,4 @@
+pub(crate) mod anchor;
 pub(crate) mod container;
 pub(crate) mod label;
 pub(crate) mod msg;

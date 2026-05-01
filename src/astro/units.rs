@@ -12,3 +12,5 @@ pub const EARTH_RADII_PER_AU: f64 = 23_455.0;
 pub const G: f64 = 4.0 * PI * PI * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU
     / EARTH_MASSES_PER_SUN_MASS;
 pub const SUN_MU: f64 = G * EARTH_MASSES_PER_SUN_MASS;
+
+pub const LITTLE_G: f64 = 9.80665; // [m/s]
