@@ -32,15 +32,17 @@ impl<Msg: Clone + 'static> Modal<Msg> {
 
 impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
-        let w = app.window_size.x as f32;
-        let h = app.window_size.y as f32;
-        let size = self.child.size();
+        if self.shown {
+            let w = app.window_size.x as f32;
+            let h = app.window_size.y as f32;
+            let size = self.child.size();
 
-        let pos = vec2((w - size.x) / 2.0, (h - size.y) / 2.0);
+            let pos = vec2((w - size.x) / 2.0, (h - size.y) / 2.0);
 
-        self.rect.pos = pos;
-        self.child.layout(pos);
-        self.child.as_mut().update(app, msgq);
+            self.rect.pos = pos;
+            self.child.layout(pos);
+            self.child.as_mut().update(app, msgq);
+        }
     }
 
     fn render(&self, app: &App) {

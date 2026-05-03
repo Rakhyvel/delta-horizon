@@ -31,7 +31,7 @@ use crate::{
     components::{
         craft::{
             first_stage, probe, replace_line_path, second_stage, transfer_stage, AssociatedEntity,
-            Command, Payload, Stage,
+            Command,
         },
         factory::{spawn_factory, Factory},
         inventory::PartInventory,
@@ -281,7 +281,39 @@ impl Scene for Gameplay {
             }
         }
 
-        self.vab_ui.update(app);
+        if self.vab_ui.update(app) {
+            if let Some(selected) = self.selection.selected_entity() {
+                let parent = self.world.get::<&Parent>(selected).unwrap().id;
+
+                let payload = {
+                    self.parts
+                        .get(&self.vab_ui.payload.clone().unwrap().id)
+                        .unwrap()
+                        .instantiate_payload()
+                };
+
+                let stages = self
+                    .vab_ui
+                    .stages
+                    .iter()
+                    .map(|stage_def| self.parts.get(&stage_def.id).unwrap().instantiate_stage())
+                    .collect();
+
+                let landed_craft_entity = spawn_landed_craft(
+                    payload,
+                    stages,
+                    SceneObject {
+                        bvh_node_id: None,
+                        name: String::from("landed craft"),
+                    },
+                    Parent { id: parent },
+                    &mut self.world,
+                    &app.renderer,
+                    &mut self.bvh,
+                );
+                self.selection.crafts.push(landed_craft_entity);
+            }
+        }
 
         if self.is_animating() {
             const TURN_TIME: f64 = 1.5;
@@ -1017,7 +1049,7 @@ impl Gameplay {
         _selected: Entity,
         _font: &Font,
     ) -> Vec<Box<dyn Widget<CommandMessages>>> {
-        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![Box::new(
+        let widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![Box::new(
             TextButton::<CommandMessages>::new(
                 Rectangle::new(100.0, 120.0, 240.0, 40.0),
                 "Stack New Vechicle",

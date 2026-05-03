@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::components::craft::{Payload, Stage};
+
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct PartDef {
     pub id: String,
@@ -12,7 +14,7 @@ pub struct PartDef {
     pub fuel: Option<FuelSpec>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
 pub struct FuelSpec {
     pub max_fuel_mass_kg: f64,
     pub isp: f64,
@@ -37,11 +39,18 @@ struct PartFile {
     parts: Vec<PartDef>,
 }
 
+#[derive(Clone)]
 pub struct PartRegistry {
     parts: HashMap<String, PartDef>,
 }
 
 impl PartRegistry {
+    pub fn new() -> Self {
+        Self {
+            parts: HashMap::new(),
+        }
+    }
+
     pub fn load_from_dir(path: &str) -> Self {
         let mut parts = HashMap::new();
 
@@ -65,5 +74,24 @@ impl PartRegistry {
 
     pub fn all(&self) -> impl Iterator<Item = &PartDef> {
         self.parts.values()
+    }
+}
+
+impl PartDef {
+    pub fn instantiate_stage(&self) -> Stage {
+        Stage {
+            name: self.name.clone(),
+            dry_mass: self.dry_mass_kg,
+            fuel_mass: self.fuel.unwrap().max_fuel_mass_kg, // starts full
+            max_fuel_mass: self.fuel.unwrap().max_fuel_mass_kg,
+            isp: self.fuel.unwrap().isp,
+        }
+    }
+
+    pub fn instantiate_payload(&self) -> Payload {
+        Payload {
+            name: self.name.clone(),
+            dry_mass: self.dry_mass_kg,
+        }
     }
 }
