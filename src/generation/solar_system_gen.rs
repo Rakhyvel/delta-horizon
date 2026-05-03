@@ -11,7 +11,7 @@ use crate::{
     components::body::{Body, Category},
 };
 
-const DENSITY_IRON_G_CM3: f64 = 12.0;
+const DENSITY_IRON_G_CM3: f64 = 7.8;
 const DENSITY_ROCK_G_CM3: f64 = 3.5;
 
 pub struct BodySystem {
@@ -88,21 +88,21 @@ pub fn generate() -> Vec<BodySystem> {
     loop {
         let planets = generate_system(&mut rng);
 
-        // if !has_habitable(&planets) {
-        //     continue;
-        // }
+        if !has_habitable(&planets) {
+            continue;
+        }
         if !all_moons_small(&planets) {
             continue;
         }
-        // if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 1) {
-        //     continue;
-        // }
+        if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 1) {
+            continue;
+        }
         if !has_planet(&planets, &[Category::MiniNeptune, Category::GasGiant], 3) {
             continue;
         }
-        // if !no_stripped(&planets) {
-        //     continue;
-        // }
+        if !no_stripped(&planets) {
+            continue;
+        }
         if planets.len() < 7 {
             continue;
         }
@@ -116,7 +116,25 @@ fn generate_system(mut rng: &mut impl Rng) -> Vec<BodySystem> {
     let mut orbital_radius_au = rng.gen_range(0.2..0.6); // in AU
     while orbital_radius_au < 35.0 {
         let orbital_radius_earth_radii = orbital_radius_au * EARTH_RADII_PER_AU;
-        let planet = generate_planet(rng, orbital_radius_au, PLANET_MASS_CATEGORIES);
+        let planet = if (0.75..1.7).contains(&orbital_radius_au) {
+            generate_habitable_planet(rng, orbital_radius_au).unwrap_or(generate_planet(
+                rng,
+                orbital_radius_au,
+                PLANET_MASS_CATEGORIES,
+                Some(1.0),
+                Some(0.33),
+                Some(24.0),
+            ))
+        } else {
+            generate_planet(
+                rng,
+                orbital_radius_au,
+                PLANET_MASS_CATEGORIES,
+                None,
+                None,
+                None,
+            )
+        };
         let planet_inclination = (4.0_f64.to_radians()) * rng.gen::<f64>().powf(2.0);
         let planet_raan = rng.gen_range(0.0..0.2 * PI);
         let initial_state = State::from_kepler(
@@ -141,7 +159,14 @@ fn generate_system(mut rng: &mut impl Rng) -> Vec<BodySystem> {
         let max = max_moons(planet.body_radius);
         let mut moon_orbital_radius = rng.gen_range(2.5..20.0) * roche_limit;
         while moon_orbital_radius < hill_sphere && moons.len() < max {
-            let moon = generate_planet(rng, orbital_radius_au, MOON_MASS_CATEGORIES);
+            let moon = generate_planet(
+                rng,
+                orbital_radius_au,
+                MOON_MASS_CATEGORIES,
+                None,
+                None,
+                None,
+            );
             let moon_initial_state = State::from_kepler(
                 moon_orbital_radius,
                 rng.gen_range(0.0..0.25),
@@ -171,11 +196,20 @@ fn generate_system(mut rng: &mut impl Rng) -> Vec<BodySystem> {
     planets
 }
 
-fn generate_planet(rng: &mut impl Rng, dist_from_sun: f64, category_dist: &[MassCategory]) -> Body {
-    let body_radius = sample_radius_with_au(rng, category_dist);
-    let core_mass_fraction = sample_core_mass_fraction(rng, body_radius, dist_from_sun);
+fn generate_planet(
+    rng: &mut impl Rng,
+    dist_from_sun: f64,
+    category_dist: &[MassCategory],
+    body_radius: Option<f64>,
+    core_mass_fraction: Option<f64>,
+    rotation_period_hours: Option<f64>,
+) -> Body {
+    let body_radius = body_radius.unwrap_or(sample_radius_with_au(rng, category_dist));
+    let core_mass_fraction =
+        core_mass_fraction.unwrap_or(sample_core_mass_fraction(rng, body_radius, dist_from_sun));
     let density = estimate_density(core_mass_fraction, body_radius);
-    let rotation_period_hours = sample_rotation_period_hours(rng, body_radius);
+    let rotation_period_hours =
+        rotation_period_hours.unwrap_or(sample_rotation_period_hours(rng, body_radius));
     let category = categorize_planet(body_radius);
     let magnetic_field: bool =
         has_magnetic_field(body_radius, core_mass_fraction, rotation_period_hours);
@@ -201,6 +235,28 @@ fn generate_planet(rng: &mut impl Rng, dist_from_sun: f64, category_dist: &[Mass
         density,
         mu,
     }
+}
+
+fn generate_habitable_planet(rng: &mut impl Rng, dist_from_sun: f64) -> Option<Body> {
+    let category_dist = &[MassCategory {
+        category: Category::EarthLike,
+        range: (0.8, 1.5),
+        weight: 1.0,
+    }];
+    for _ in 0..100 {
+        let planet = generate_planet(
+            rng,
+            dist_from_sun,
+            category_dist,
+            Some(1.0),
+            Some(0.33),
+            Some(24.0),
+        );
+        if planet.habitable() {
+            return Some(planet);
+        }
+    }
+    None
 }
 
 fn max_moons(body_radius: f64) -> usize {
@@ -266,17 +322,24 @@ fn sample_core_mass_fraction(rng: &mut impl Rng, body_radius: f64, orbital_radiu
 }
 
 fn estimate_density(core_mass_fraction: f64, body_radius: f64) -> f64 {
-    // mix core + mantle
-    let base_density =
+    let category = categorize_planet(body_radius);
+
+    let base =
         core_mass_fraction * DENSITY_IRON_G_CM3 + (1.0 - core_mass_fraction) * DENSITY_ROCK_G_CM3;
 
-    let compression = if body_radius < 1.0 {
-        1.0
-    } else {
-        1.0 / body_radius + 0.6 / DENSITY_ROCK_G_CM3 // gas giants get puffy as their radius increases
-    };
-
-    base_density * compression
+    match category {
+        Category::Dwarf => {
+            let porosity = 0.2;
+            base * (1.0 - porosity)
+        }
+        Category::EarthLike | Category::SubEarth | Category::SuperEarth => {
+            let compression = 1.0 + 0.18 * body_radius.powi(2);
+            base * compression
+        }
+        Category::MiniNeptune => 0.2 + 0.15 * body_radius,
+        Category::GasGiant => 0.7 + 0.05 * (body_radius - 4.0),
+        Category::SuperGasGiant | Category::Star => 1.0 + 0.1 * (body_radius - 15.0),
+    }
 }
 
 fn has_magnetic_field(

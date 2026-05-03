@@ -10,12 +10,12 @@ impl PartInventory {
         *self.parts.entry(part_id.to_string()).or_insert(0) += count;
     }
 
-    pub fn take(&mut self, part_id: &str, count: u32) -> Result<(), String> {
+    pub fn take(&mut self, part_id: &str) -> Result<(), String> {
         let current = self.parts.get(part_id).copied().unwrap_or(0);
-        if current < count {
+        if current == 0 {
             return Err(format!("not enough {}", part_id));
         }
-        *self.parts.entry(part_id.to_string()).or_insert(0) -= count;
+        *self.parts.entry(part_id.to_string()).or_insert(0) -= 1;
         Ok(())
     }
 }

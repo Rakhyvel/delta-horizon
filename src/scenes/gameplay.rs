@@ -29,10 +29,7 @@ use crate::{
         units::SUN_MU,
     },
     components::{
-        craft::{
-            first_stage, probe, replace_line_path, second_stage, transfer_stage, AssociatedEntity,
-            Command,
-        },
+        craft::{replace_line_path, AssociatedEntity, Command},
         factory::{spawn_factory, Factory},
         inventory::PartInventory,
         parts::PartRegistry,
@@ -47,9 +44,8 @@ use crate::{
     },
     ui::{
         anchor::{Anchor, AnchorPoint},
-        container::{Align, Flow},
+        container::Align,
         label::Label,
-        modal::Modal,
         text_button::TextButton,
     },
 };
@@ -298,6 +294,16 @@ impl Scene for Gameplay {
                     .iter()
                     .map(|stage_def| self.parts.get(&stage_def.id).unwrap().instantiate_stage())
                     .collect();
+
+                {
+                    let mut inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
+                    inventory
+                        .take(&self.vab_ui.payload.clone().unwrap().id)
+                        .unwrap();
+                    for stage in &self.vab_ui.stages {
+                        inventory.take(&stage.id).unwrap()
+                    }
+                }
 
                 let landed_craft_entity = spawn_landed_craft(
                     payload,
@@ -569,8 +575,6 @@ impl Gameplay {
         let parts = PartRegistry::load_from_dir("res/parts");
 
         let mut habitable_planet = 0;
-        let mut habitable_planet_mu = 0.0;
-        let mut habitable_planet_radius = 0.0;
         let mut num_planets = 0;
         let planets = solar_system_gen::generate();
         for system in planets {
@@ -591,8 +595,6 @@ impl Gameplay {
             num_planets += 1;
             if num_planets == 3 {
                 habitable_planet = bodies.len();
-                habitable_planet_mu = system.planet.0.mu;
-                habitable_planet_radius = system.planet.0.body_radius;
             }
 
             bodies.push(planet_entity);
@@ -615,48 +617,6 @@ impl Gameplay {
                 bodies.push(moon_entity);
             }
         }
-
-        let state = State::from_kepler(
-            habitable_planet_radius * 10.0,
-            0.3,
-            PI * 90.6 / 180.0,
-            0.0,
-            PI / 3.0,
-            0.0,
-            EphemerisTime::new(0),
-            habitable_planet_mu,
-        );
-        let craft_entity = spawn_craft(
-            probe(),
-            vec![transfer_stage(), second_stage(), first_stage()],
-            state,
-            SceneObject {
-                bvh_node_id: None,
-                name: String::from("craft"),
-            },
-            Some(Parent {
-                id: bodies[habitable_planet],
-            }),
-            &mut world,
-            &app.renderer,
-            &mut bvh,
-        );
-        let landed_craft_entity = spawn_landed_craft(
-            probe(),
-            vec![transfer_stage()],
-            SceneObject {
-                bvh_node_id: None,
-                name: String::from("landed craft"),
-            },
-            Parent {
-                id: bodies[habitable_planet],
-            },
-            &mut world,
-            &app.renderer,
-            &mut bvh,
-        );
-        crafts.push(landed_craft_entity);
-        crafts.push(craft_entity);
 
         let factory = spawn_factory(
             SceneObject {
