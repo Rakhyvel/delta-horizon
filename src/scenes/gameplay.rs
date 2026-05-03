@@ -25,12 +25,17 @@ use crate::{
         launch::plan_launch,
         maneuver::sphere_of_influence,
         state::State,
-        transfer::{plan_transfer, TransferObjective},
+        transfer::{plan_flyby, plan_transfer, TransferObjective},
         units::SUN_MU,
     },
-    components::craft::{
-        first_stage, probe, replace_line_path, second_stage, transfer_stage, AssociatedEntity,
-        Command,
+    components::{
+        craft::{
+            first_stage, probe, replace_line_path, second_stage, transfer_stage, AssociatedEntity,
+            Command,
+        },
+        factory::{spawn_factory, Factory, FactoryJob},
+        inventory::PartInventory,
+        parts::PartRegistry,
     },
     container,
     generation::lexicon::Lexicon,
@@ -64,6 +69,7 @@ pub const QUAD_XY_DATA: &[u8] = include_bytes!("../../res/quad-xy.obj");
 pub const ICO_DATA: &[u8] = include_bytes!("../../res/ico-sphere.obj");
 pub const UV_DATA: &[u8] = include_bytes!("../../res/uv-sphere.obj");
 pub const CONE_DATA: &[u8] = include_bytes!("../../res/cone.obj");
+pub const CUBE_DATA: &[u8] = include_bytes!("../../res/cube.obj");
 
 /// Struct that contains info about the game state
 pub struct Gameplay {
@@ -79,6 +85,9 @@ pub struct Gameplay {
     selection: SelectionState,
     hovered: Option<Entity>,
 
+    /// All the parts, loaded from the toml
+    parts: PartRegistry,
+
     /// Up-down view angle
     phi: f64,
     /// Side-side view angle
@@ -89,8 +98,8 @@ pub struct Gameplay {
     /// Used for tab key latch
     prev_tab_state: bool,
 
-    gui: Anchor<Message>,
-    turn_gui: Anchor<Message>,
+    turn_gui: Anchor<TurnMessages>,
+    gui: Anchor<CommandMessages>,
 
     // Events and timeline
     event_queue: EventQueue,
@@ -104,9 +113,14 @@ pub struct Gameplay {
 }
 
 #[derive(Clone)]
-enum Message {
+enum TurnMessages {
     NextTurn,
+}
+
+#[derive(Clone)]
+enum CommandMessages {
     CraftCommand(Command),
+    FactoryCommand { part_id: String },
 }
 
 #[derive(Debug)]
@@ -118,6 +132,7 @@ enum SelectionKind {
 struct SelectionState {
     pub crafts: Vec<Entity>,
     pub bodies: Vec<Entity>,
+
     pub selected: Option<usize>,
     pub kind: SelectionKind,
 
@@ -145,6 +160,12 @@ impl SelectionState {
     }
 
     pub fn set_selected(&mut self, entity: Entity, app_seconds: f64) {
+        if let Some(selected) = self.selected_entity() {
+            if selected == entity {
+                return;
+            }
+        }
+
         let found = self
             .crafts
             .iter()
@@ -215,19 +236,19 @@ impl Scene for Gameplay {
         // Handle all the messages from UI
         for msg in recv_msgs(app, &mut self.gui) {
             match msg {
-                Message::NextTurn => {
-                    if !self.is_animating() {
-                        self.plan_commands();
-                        if let Some((&next_event_time, _)) = self.event_queue.events.iter().next() {
-                            self.animation_start_et = self.current_et;
-                            self.animation_target_et = next_event_time;
-                            self.animation_start_real = app.seconds as f64;
-                        }
-                    }
-                }
-                Message::CraftCommand(cmd) => {
+                CommandMessages::CraftCommand(cmd) => {
                     if let Some(selected) = self.selection.selected_entity() {
                         self.world.get::<&mut Craft>(selected).unwrap().command = Some(cmd);
+                    }
+                }
+                CommandMessages::FactoryCommand { part_id } => {
+                    if let Some(selected) = self.selection.selected_entity() {
+                        self.world
+                            .get::<&mut Factory>(selected)
+                            .unwrap()
+                            .start_job(part_id, self.current_et, &self.parts)
+                            .expect("you wouldnt give a fake part would you");
+                        self.gui = self.rebuild_gui(app);
                     }
                 }
             }
@@ -235,19 +256,14 @@ impl Scene for Gameplay {
 
         for msg in recv_msgs(app, &mut self.turn_gui) {
             match msg {
-                Message::NextTurn => {
+                TurnMessages::NextTurn => {
                     if !self.is_animating() {
-                        self.plan_commands();
+                        self.schedule_events();
                         if let Some((&next_event_time, _)) = self.event_queue.events.iter().next() {
                             self.animation_start_et = self.current_et;
                             self.animation_target_et = next_event_time;
                             self.animation_start_real = app.seconds as f64;
                         }
-                    }
-                }
-                Message::CraftCommand(cmd) => {
-                    if let Some(selected) = self.selection.selected_entity() {
-                        self.world.get::<&mut Craft>(selected).unwrap().command = Some(cmd);
                     }
                 }
             }
@@ -443,6 +459,7 @@ impl Gameplay {
         app.renderer.add_mesh_from_obj(UV_DATA, Some("uv"));
         app.renderer.add_mesh_from_obj(ICO_DATA, Some("ico"));
         app.renderer.add_mesh_from_obj(CONE_DATA, Some("cone"));
+        app.renderer.add_mesh_from_obj(CUBE_DATA, Some("cube"));
 
         // Setup the texture manager
         app.renderer
@@ -468,7 +485,7 @@ impl Gameplay {
 
         // Setup the font manager
         app.renderer
-            .add_font("res/Consolas.ttf", "font", 16, sdl2::ttf::FontStyle::NORMAL);
+            .add_font("res/Consolas.ttf", "font", 14, sdl2::ttf::FontStyle::NORMAL);
 
         let mut bvh = BVH::<Entity>::new();
 
@@ -502,10 +519,7 @@ impl Gameplay {
         let (_lexicon, _node_count) = Lexicon::create("res/names.txt", "res/names.lex");
         let lexicon = Lexicon::read("res/names.lex");
 
-        for _ in 0..10 {
-            let name = lexicon.generate_word(7);
-            println!("{name}")
-        }
+        let parts = PartRegistry::load_from_dir("res/parts");
 
         let mut habitable_planet = 0;
         let mut habitable_planet_mu = 0.0;
@@ -565,10 +579,9 @@ impl Gameplay {
             EphemerisTime::new(0),
             habitable_planet_mu,
         );
-        let (payload, stages) = (probe(), vec![second_stage(), first_stage()]);
         let craft_entity = spawn_craft(
-            payload.clone(),
-            stages.clone(),
+            probe(),
+            vec![transfer_stage(), second_stage(), first_stage()],
             state,
             SceneObject {
                 bvh_node_id: None,
@@ -582,8 +595,8 @@ impl Gameplay {
             &mut bvh,
         );
         let landed_craft_entity = spawn_landed_craft(
-            payload.clone(),
-            stages.clone(),
+            probe(),
+            vec![transfer_stage()],
             SceneObject {
                 bvh_node_id: None,
                 name: String::from("landed craft"),
@@ -598,12 +611,26 @@ impl Gameplay {
         crafts.push(landed_craft_entity);
         crafts.push(craft_entity);
 
-        let gui = Anchor::<Message>::new(
+        let factory = spawn_factory(
+            SceneObject {
+                bvh_node_id: None,
+                name: String::from("factory"),
+            },
+            Parent {
+                id: bodies[habitable_planet],
+            },
+            &mut world,
+            &app.renderer,
+            &mut bvh,
+        );
+        crafts.push(factory);
+
+        let gui = Anchor::<CommandMessages>::new(
             Box::new(container![].at(vec2(100.0, 100.0))),
             AnchorPoint::TopRight,
         );
 
-        let turn_gui = Anchor::<Message>::new(
+        let turn_gui = Anchor::<TurnMessages>::new(
             Box::new(container![
                 TextureButton::new(
                     Rectangle::new(
@@ -617,14 +644,14 @@ impl Gameplay {
                         .get_texture_id_from_name("next-turn-hover")
                         .unwrap(),
                 )
-                .on_click(Message::NextTurn),
+                .on_click(TurnMessages::NextTurn),
                 TextButton::new(
                     Rectangle::new(100.0, 120.0, 200.0, 30.0,),
                     "Click me!",
                     vec4(0.02, 0.07, 0.11, 1.0),
                     vec4(1.0, 1.0, 1.0, 0.5),
                 )
-                .on_click(Message::NextTurn),
+                .on_click(TurnMessages::NextTurn),
             ]),
             AnchorPoint::BottomRight,
         );
@@ -668,6 +695,8 @@ impl Gameplay {
             selection: SelectionState::new(crafts, bodies),
             hovered: None,
 
+            parts,
+
             phi: 2.5,
             theta: -PI / 4.0,
             distance: 20.0,
@@ -682,7 +711,7 @@ impl Gameplay {
             animation_start_real: 0.0,
             event_queue: EventQueue::new(),
 
-            starbox: Starbox::new(9000, vec3(1.0, 2.0, 4.0), 0.5),
+            starbox: Starbox::new(9000, vec3(1.0, 2.0, 4.0), 0.4),
         }
     }
 
@@ -721,25 +750,29 @@ impl Gameplay {
             .clamp(0.0, MAX_DISTANCE);
     }
 
-    fn rebuild_gui(&self, app: &App) -> Anchor<Message> {
+    fn rebuild_gui(&self, app: &App) -> Anchor<CommandMessages> {
         let font = app.renderer.get_current_font().unwrap();
 
-        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![];
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
         let selected = self.selection.selected_entity();
         if let Some(selected) = selected {
             widgets.extend(self.build_selection_widgets(selected, &font));
         }
 
         Anchor::new(
-            Box::new(Container::new(widgets).cross_align(Align::Start)),
+            Box::new(
+                Container::new(widgets)
+                    .cross_align(Align::Start)
+                    .background(vec4(91.25, 160.0, 228.75, 51.0) / 255.0),
+            ),
             AnchorPoint::TopRight,
         )
     }
 
-    fn rebuild_turn_gui(&mut self, app: &App) -> Anchor<Message> {
+    fn rebuild_turn_gui(&mut self, app: &App) -> Anchor<TurnMessages> {
         let font = app.renderer.get_current_font().unwrap();
 
-        let mut turn_widgets: Vec<Box<dyn Widget<Message>>> = vec![];
+        let mut turn_widgets: Vec<Box<dyn Widget<TurnMessages>>> = vec![];
         turn_widgets.extend(self.build_footer_widgets(app, &font));
 
         Anchor::new(
@@ -748,7 +781,7 @@ impl Gameplay {
         )
     }
 
-    fn build_footer_widgets(&self, app: &App, font: &Font) -> Vec<Box<dyn Widget<Message>>> {
+    fn build_footer_widgets(&self, app: &App, font: &Font) -> Vec<Box<dyn Widget<TurnMessages>>> {
         vec![
             Box::new(
                 TextureButton::new(
@@ -763,7 +796,7 @@ impl Gameplay {
                         .get_texture_id_from_name("next-turn-hover")
                         .unwrap(),
                 )
-                .on_click(Message::NextTurn),
+                .on_click(TurnMessages::NextTurn),
             ),
             Box::new(Label::new(
                 format!("ET: {}", self.current_et.as_calendar()),
@@ -776,8 +809,8 @@ impl Gameplay {
         &self,
         selected: Entity,
         font: &Font,
-    ) -> Vec<Box<dyn Widget<Message>>> {
-        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![];
+    ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
 
         if let Ok(craft) = self.world.get::<&Craft>(selected) {
             widgets.extend(self.build_craft_info(selected, font));
@@ -792,12 +825,18 @@ impl Gameplay {
             }
         } else if self.world.get::<&Body>(selected).is_ok() {
             widgets.extend(self.build_body_info(selected, font));
+        } else if self.world.get::<&Factory>(selected).is_ok() {
+            widgets.extend(self.build_factory_info(selected, font));
         }
 
         widgets
     }
 
-    fn build_craft_info(&self, selected: Entity, font: &Font) -> Vec<Box<dyn Widget<Message>>> {
+    fn build_craft_info(
+        &self,
+        selected: Entity,
+        font: &Font,
+    ) -> Vec<Box<dyn Widget<CommandMessages>>> {
         let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
         let craft = self.world.get::<&Craft>(selected).unwrap();
 
@@ -807,7 +846,7 @@ impl Gameplay {
             String::from("ready")
         };
 
-        let widgets: Vec<Box<dyn Widget<Message>>> = vec![
+        let widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
             Box::new(Label::new(
                 format!("Name: {}", scene_object.name.clone()),
                 font,
@@ -821,13 +860,17 @@ impl Gameplay {
         widgets
     }
 
-    fn build_body_info(&self, selected: Entity, font: &Font) -> Vec<Box<dyn Widget<Message>>> {
+    fn build_body_info(
+        &self,
+        selected: Entity,
+        font: &Font,
+    ) -> Vec<Box<dyn Widget<CommandMessages>>> {
         let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
         let body = self.world.get::<&Body>(selected).unwrap();
         // let state = self.world.get::<&State>(selected).unwrap();
         // Know: name, radius, mass, density, orbital radius, rotation in hours
         // Have to find: atmos press, temp, core mass fraction, magnetic field
-        let widgets: Vec<Box<dyn Widget<Message>>> = vec![
+        let widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
             Box::new(Label::new(
                 format!("NAME:\n  {}\n", scene_object.name.clone()),
                 font,
@@ -875,11 +918,55 @@ impl Gameplay {
         widgets
     }
 
+    fn build_factory_info(
+        &self,
+        selected: Entity,
+        font: &Font,
+    ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+        let factory = self.world.get::<&Factory>(selected).unwrap();
+
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
+
+        println!("{:?}", &factory.current_job);
+
+        if let Some(job) = &factory.current_job {
+            let part = self
+                .parts
+                .get(&job.part_id)
+                .expect("should be a valid part");
+
+            widgets.extend(vec![
+                Box::new(Label::new(format!("Making: {}", part.name), font))
+                    as Box<dyn Widget<CommandMessages>>,
+                Box::new(Label::new(
+                    format!("Completion: {}", job.completion_et.as_calendar()),
+                    font,
+                )) as Box<dyn Widget<CommandMessages>>,
+            ])
+        } else {
+            widgets.extend(self.parts.all().map(|part| {
+                Box::new(
+                    TextButton::<CommandMessages>::new(
+                        Rectangle::new(100.0, 120.0, 240.0, 40.0),
+                        part.name.clone(),
+                        vec4(0.02, 0.07, 0.11, 1.0),
+                        vec4(1.0, 1.0, 1.0, 0.5),
+                    )
+                    .on_click(CommandMessages::FactoryCommand {
+                        part_id: part.id.clone(),
+                    }),
+                ) as Box<dyn Widget<CommandMessages>>
+            }));
+        }
+
+        widgets
+    }
+
     fn build_orbit_widgets(
         &self,
         selected: Entity,
         _font: &Font,
-    ) -> Option<Vec<Box<dyn Widget<Message>>>> {
+    ) -> Option<Vec<Box<dyn Widget<CommandMessages>>>> {
         let craft = self.world.get::<&Craft>(selected).unwrap();
         let _orbit = self.world.get::<&State>(selected).ok()?;
         let parent = self.world.get::<&Parent>(selected).ok()?;
@@ -887,7 +974,7 @@ impl Gameplay {
 
         let craft_dv = craft.total_remaining_dv();
 
-        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![];
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
 
         // Land on body
         {
@@ -901,17 +988,17 @@ impl Gameplay {
             ) {
                 if plan.deorbit_dv + plan.landing_dv <= craft_dv {
                     widgets.push(Box::new(
-                        TextButton::<Message>::new(
-                            Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                        TextButton::<CommandMessages>::new(
+                            Rectangle::new(100.0, 120.0, 240.0, 40.0),
                             format!(
-                                "Land on {} ({:.0} m/s)",
+                                "Land on {} | {:.0} m/s",
                                 parent_scene_object.name,
                                 plan.deorbit_dv + plan.landing_dv
                             ),
                             vec4(0.02, 0.07, 0.11, 1.0),
                             vec4(1.0, 1.0, 1.0, 0.5),
                         )
-                        .on_click(Message::CraftCommand(Command::Land { plan })),
+                        .on_click(CommandMessages::CraftCommand(Command::Land { plan })),
                     ));
                 }
             }
@@ -936,19 +1023,21 @@ impl Gameplay {
             ) {
                 if plan.escape_dv <= craft_dv {
                     widgets.push(Box::new(
-                        TextButton::<Message>::new(
-                            Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                        TextButton::<CommandMessages>::new(
+                            Rectangle::new(100.0, 120.0, 240.0, 40.0),
                             format!(
-                                "Transfer to {} ({:.0} m/s)",
+                                "{} | {:.0} m/s",
                                 grandparent_scene_object.name, plan.escape_dv
                             ),
                             vec4(0.02, 0.07, 0.11, 1.0),
                             vec4(1.0, 1.0, 1.0, 0.5),
                         )
-                        .on_click(Message::CraftCommand(Command::Escape {
-                            to: grandparent.id,
-                            plan,
-                        })),
+                        .on_click(CommandMessages::CraftCommand(
+                            Command::Escape {
+                                to: grandparent.id,
+                                plan,
+                            },
+                        )),
                     ));
                 }
             }
@@ -965,6 +1054,7 @@ impl Gameplay {
                 let target_body = self.world.get::<&Body>(to).unwrap();
                 let parent = self.world.get::<&Parent>(selected).unwrap().id;
                 let parent_body = self.world.get::<&Body>(parent).unwrap();
+
                 if let Ok(plan) = plan_transfer(
                     &init_state,
                     &target_state,
@@ -976,18 +1066,21 @@ impl Gameplay {
                 ) {
                     if plan.circ_dv + plan.transfer_dv <= craft_dv {
                         Some(Box::new(
-                            TextButton::<Message>::new(
-                                Rectangle::new(100.0, 120.0, 360.0, 40.0),
+                            TextButton::<CommandMessages>::new(
+                                Rectangle::new(100.0, 120.0, 240.0, 40.0),
                                 format!(
-                                    "Transfer to {} ({:.0} m/s)",
+                                    "{} | {:.0} m/s",
                                     scene_obj.name,
                                     plan.transfer_dv + plan.circ_dv
                                 ),
                                 vec4(0.02, 0.07, 0.11, 1.0),
                                 vec4(1.0, 1.0, 1.0, 0.5),
                             )
-                            .on_click(Message::CraftCommand(Command::Transfer { to, plan })),
-                        ) as Box<dyn Widget<Message>>)
+                            .on_click(CommandMessages::CraftCommand(
+                                Command::Transfer { to, plan },
+                            )),
+                        )
+                            as Box<dyn Widget<CommandMessages>>)
                     } else {
                         None
                     }
@@ -995,8 +1088,49 @@ impl Gameplay {
                     None
                 }
             });
-
         widgets.extend(transfers);
+
+        // Transfers to sibling bodies
+        let mut binding = self.world.query::<(&State, &Body, &SceneObject, &Parent)>();
+        let flybys = binding
+            .iter()
+            .filter(|(_, (_, _, _, p))| p.id == parent.id)
+            .filter_map(|(to, (_, _, scene_obj, _))| {
+                let init_state = self.world.get::<&State>(selected).unwrap();
+                let target_state = self.world.get::<&State>(to).unwrap();
+                let target_body = self.world.get::<&Body>(to).unwrap();
+                let parent = self.world.get::<&Parent>(selected).unwrap().id;
+                let parent_body = self.world.get::<&Body>(parent).unwrap();
+
+                if let Ok(plan) = plan_flyby(
+                    &init_state,
+                    &target_state,
+                    target_body.body_radius,
+                    self.current_et,
+                    parent_body.mass(),
+                    target_body.mass(),
+                    TransferObjective::MinFuel,
+                ) {
+                    if plan.transfer_dv <= craft_dv {
+                        Some(Box::new(
+                            TextButton::<CommandMessages>::new(
+                                Rectangle::new(100.0, 120.0, 240.0, 40.0),
+                                format!("Flyby {} | {:.0} m/s", scene_obj.name, plan.transfer_dv),
+                                vec4(0.02, 0.07, 0.11, 1.0),
+                                vec4(1.0, 1.0, 1.0, 0.5),
+                            )
+                            .on_click(CommandMessages::CraftCommand(Command::Flyby { to, plan })),
+                        )
+                            as Box<dyn Widget<CommandMessages>>)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            });
+        widgets.extend(flybys);
+
         Some(widgets)
     }
 
@@ -1004,7 +1138,7 @@ impl Gameplay {
         &self,
         selected: Entity,
         font: &Font,
-    ) -> Option<Vec<Box<dyn Widget<Message>>>> {
+    ) -> Option<Vec<Box<dyn Widget<CommandMessages>>>> {
         let landed = self.world.get::<&Landed>(selected).ok()?;
         let parent = self.world.get::<&Parent>(selected).ok()?;
         let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
@@ -1017,7 +1151,7 @@ impl Gameplay {
         let parent_state = self.world.get::<&State>(parent.id).unwrap();
         let grandparent_body = self.world.get::<&Body>(grandparent.id).unwrap();
 
-        let mut widgets: Vec<Box<dyn Widget<Message>>> = vec![Box::new(Label::new(
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![Box::new(Label::new(
             format!("Status: Landed on {}", parent_scene_object.name),
             font,
         ))];
@@ -1032,13 +1166,13 @@ impl Gameplay {
         ) {
             if plan.launch_dv + plan.circ_dv <= craft_dv {
                 widgets.push(Box::new(
-                    TextButton::<Message>::new(
-                        Rectangle::new(100.0, 120.0, 360.0, 40.0),
-                        format!("Launch ({:.0} m/s)", plan.launch_dv + plan.circ_dv),
+                    TextButton::<CommandMessages>::new(
+                        Rectangle::new(100.0, 120.0, 240.0, 40.0),
+                        format!("Launch | {:.0} m/s", plan.launch_dv + plan.circ_dv),
                         vec4(0.02, 0.07, 0.11, 1.0),
                         vec4(1.0, 1.0, 1.0, 0.5),
                     )
-                    .on_click(Message::CraftCommand(Command::Launch { plan })),
+                    .on_click(CommandMessages::CraftCommand(Command::Launch { plan })),
                 ));
             }
         }
@@ -1046,7 +1180,7 @@ impl Gameplay {
         Some(widgets)
     }
 
-    fn plan_commands(&mut self) {
+    fn schedule_events(&mut self) {
         let crafts_with_commands: Vec<(Entity, Command)> = self
             .world
             .query::<(&mut Craft,)>()
@@ -1118,6 +1252,70 @@ impl Gameplay {
 
                     self.event_queue
                         .push(circ_time, Event::UnlockCommands { craft: entity })
+                }
+                Command::Flyby { to, plan } => {
+                    let old_parent = self.world.get::<&Parent>(entity).unwrap().id;
+                    let to_name = { &self.world.get::<&SceneObject>(to).unwrap().name };
+
+                    let departure_time = plan.transfer_state.t;
+                    let arrival_time = plan.flyby_state.t;
+                    let exit_time = plan.exit_state.t;
+
+                    println!("departure_time: {}", departure_time.as_calendar());
+                    println!("arrival_time.t: {}", arrival_time.as_calendar());
+                    println!("exit_time.t: {}", exit_time.as_calendar());
+
+                    assert!(departure_time < arrival_time);
+                    assert!(arrival_time < exit_time);
+
+                    self.event_queue.push(
+                        departure_time,
+                        Event::Burn {
+                            craft: entity,
+                            new_orbit: plan.transfer_state,
+                            soi_radius: Some(plan.soi_radius),
+                            dv: plan.transfer_dv,
+                        },
+                    );
+
+                    self.event_queue.push(
+                        departure_time,
+                        Event::LockCommands {
+                            craft: entity,
+                            doing: format!("transfering to {to_name}"),
+                        },
+                    );
+
+                    self.event_queue.push(
+                        arrival_time,
+                        Event::SoiChange {
+                            craft: entity,
+                            new_parent: to,
+                            new_craft_orbit: plan.flyby_state,
+                            new_soi_radius: plan.soi_radius,
+                        },
+                    );
+
+                    self.event_queue.push(
+                        departure_time,
+                        Event::LockCommands {
+                            craft: entity,
+                            doing: format!("coasting to periapsis around {to_name}"),
+                        },
+                    );
+
+                    self.event_queue.push(
+                        exit_time,
+                        Event::SoiChange {
+                            craft: entity,
+                            new_parent: old_parent,
+                            new_craft_orbit: plan.exit_state,
+                            new_soi_radius: plan.soi_radius,
+                        },
+                    );
+
+                    self.event_queue
+                        .push(exit_time, Event::UnlockCommands { craft: entity })
                 }
                 Command::Escape { to, plan } => {
                     let from_name = {
@@ -1259,6 +1457,31 @@ impl Gameplay {
                 }
             }
         }
+
+        let factories: Vec<(Entity, String, EphemerisTime)> = self
+            .world
+            .query::<(&mut Factory,)>()
+            .iter()
+            .filter_map(|(entity, (factory,))| {
+                if let Some(job) = &mut factory.current_job {
+                    if !job.scheduled {
+                        job.scheduled = true;
+                        return Some((entity, job.part_id.clone(), job.completion_et));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        for (entity, part_id, completion_et) in factories {
+            self.event_queue.push(
+                completion_et,
+                Event::FactoryComplete {
+                    factory: entity,
+                    part_id,
+                },
+            );
+        }
     }
 
     fn handle_event(&mut self, event: Event, app: &App) {
@@ -1269,6 +1492,8 @@ impl Gameplay {
                 new_craft_orbit,
                 new_soi_radius,
             } => {
+                self.selection.set_selected(craft, app.seconds as f64);
+
                 let new_parent_world_pos =
                     self.world.get::<&WorldPosition>(new_parent).unwrap().pos;
                 let new_parent_mu = self.world.get::<&Body>(new_parent).unwrap().mu;
@@ -1301,6 +1526,8 @@ impl Gameplay {
                 soi_radius,
                 dv,
             } => {
+                self.selection.set_selected(craft, app.seconds as f64);
+
                 println!(
                     "Burn firing, r={:?} v={:?} at {}",
                     new_orbit.r,
@@ -1337,6 +1564,8 @@ impl Gameplay {
                     .unwrap();
             }
             Event::Launch { craft } => {
+                self.selection.set_selected(craft, app.seconds as f64);
+
                 println!(
                     "Launch event firing for {:?} at {}",
                     craft,
@@ -1349,6 +1578,8 @@ impl Gameplay {
                     .unwrap();
             }
             Event::Land { craft } => {
+                self.selection.set_selected(craft, app.seconds as f64);
+
                 let offset = {
                     let craft_state = self.world.get::<&State>(craft).unwrap();
                     let parent_id = self.world.get::<&Parent>(craft).unwrap().id;
@@ -1370,6 +1601,18 @@ impl Gameplay {
             Event::UnlockCommands { craft } => {
                 let mut craft = self.world.get::<&mut Craft>(craft).unwrap();
                 craft.locked = None;
+            }
+            Event::FactoryComplete { factory, part_id } => {
+                self.selection.set_selected(factory, app.seconds as f64);
+
+                let parent = self.world.get::<&Parent>(factory).unwrap().id;
+                let mut part_inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
+                part_inventory.add(part_id.as_str(), 1);
+
+                // clear job so that factory becomes idle
+                if let Ok(mut f) = self.world.get::<&mut Factory>(factory) {
+                    f.current_job = None;
+                }
             }
         }
     }

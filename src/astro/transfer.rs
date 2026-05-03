@@ -6,7 +6,9 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use crate::astro::{
     epoch::EphemerisTime,
     lambert::lambert,
-    maneuver::{circularization, find_periapsis, sphere_of_influence},
+    maneuver::{
+        circularization, find_periapsis, find_soi_entry, get_grandparent_state, sphere_of_influence,
+    },
     newton::{newton_target, NLProblem},
     state::State,
     units::{G, METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR},
@@ -210,35 +212,128 @@ pub fn plan_transfer(
     })
 }
 
-fn find_soi_entry(
-    transfer_orbit: &State,
-    target_orbit: &State,
-    target_soi: f64,
-    tof: f64,
-    mu: f64,
-) -> Result<EphemerisTime, String> {
-    let distance_at_t = |t: f64| -> Result<f64, String> {
-        let sample_time = transfer_orbit.t + EphemerisTime::from_years(t * tof);
-        let craft_pos = transfer_orbit.propagate(sample_time, mu)?.r;
-        let target_pos = target_orbit.propagate(sample_time, mu)?.r;
-        Ok((craft_pos - target_pos).norm())
+#[derive(Clone, Copy)]
+pub struct FlybyPlan {
+    pub transfer_state: State,
+    pub flyby_state: State,
+    pub exit_state: State,
+    pub soi_radius: f64,
+    pub transfer_dv: f64,
+}
+
+pub fn plan_flyby(
+    craft_state: &State,
+    target_body_state: &State,
+    target_body_radius: f64,
+    current_et: EphemerisTime,
+    parent_mass: f64, // in earth masses
+    target_mass: f64, // in earth masses
+    objective: TransferObjective,
+) -> Result<FlybyPlan, String> {
+    let mu = G * parent_mass;
+    let target_mu = G * target_mass;
+
+    // Start off with just a basic hohmann
+    let transfer_a =
+        (craft_state.semi_major_axis(mu) + target_body_state.semi_major_axis(mu)) / 2.0;
+    let tof_guess = PI * (transfer_a.powi(3) / mu).sqrt();
+
+    // Sweep through the orbit, find cheapest dv transfer
+    let craft_period = craft_state
+        .period(mu)
+        .ok_or("can't transfer while on a hyperbolic trajectory")?;
+    let target_period = target_body_state
+        .period(mu)
+        .ok_or("cant transfer to a hyperbolic target")?;
+    let full_period = craft_period.min(target_period);
+
+    const DEPART_STEPS: usize = 100;
+    const TOF_STEPS: usize = 20;
+    let tof_min = tof_guess * 0.5;
+    let tof_max = tof_guess * 2.0;
+    let step = EphemerisTime::from_years(full_period / DEPART_STEPS as f64);
+
+    let (best_dv, best_et, best_tof, _) = (0..TOF_STEPS)
+        .flat_map(|j| {
+            let tof = tof_min + (tof_max - tof_min) * j as f64 / TOF_STEPS as f64;
+            (1..=DEPART_STEPS).map(move |i| (i, tof))
+        })
+        .collect::<Vec<_>>()
+        .into_par_iter()
+        .map(|(i, tof)| {
+            let et = current_et + step * i as i64;
+
+            let new_craft_state = craft_state.propagate(et, mu)?;
+
+            // Lag the target position by our desired flyby periapsis
+            // little hack that lets us easily get reasonable prograde flyby periapsis without too much complexity
+            const DESIRED_TARGET_PE: f64 = 2.0;
+            let target_arrival_et = et + EphemerisTime::from_years(tof);
+            let target_future = target_body_state.propagate(target_arrival_et, mu)?;
+            let delta_t = DESIRED_TARGET_PE / target_future.v.norm();
+            let lagged_et = target_arrival_et - EphemerisTime::from_years(delta_t);
+            let new_target_state = target_future.propagate(lagged_et, mu)?;
+
+            let departure_velocity = lambert(new_craft_state.r, new_target_state.r, tof, mu);
+            let dv = departure_velocity - new_craft_state.v;
+            Ok((dv, et, tof))
+        })
+        .filter_map(
+            |res: Result<(DVec3, EphemerisTime, f64), String>| match res {
+                Ok((dv, et, tof)) => {
+                    let cost = objective.cost(dv.norm(), tof)?;
+                    Some((dv, et, tof, cost))
+                }
+                _ => None,
+            },
+        )
+        .min_by(|(_, _, _, cost_a), (_, _, _, cost_b)| cost_a.partial_cmp(cost_b).unwrap())
+        .expect("no feasible transfer found");
+
+    let xfer_dv = best_dv.norm();
+
+    let depart_et = best_et;
+    let dv = best_dv;
+
+    let mut transfer_state = craft_state.propagate(depart_et, mu)?;
+    transfer_state.v += dv;
+
+    let soi_radius = sphere_of_influence(
+        target_body_state.semi_major_axis(mu),
+        target_mass,
+        parent_mass,
+    );
+
+    let prob = BurnTargeter {
+        transfer_state,
+        target_state: *target_body_state,
+        parent_mu: mu,
+        target_mu,
+        soi_radius,
+        tof: best_tof,
+        target_peri: (target_body_radius + 2.0).min(soi_radius * 0.5),
     };
 
-    // Binary search between 0 and 1 (normalized departure and periapsis)
-    let mut lo = 0.0_f64;
-    let mut hi = 1.0_f64;
-
-    const ITERATIONS: usize = 50;
-    for _ in 0..ITERATIONS {
-        let mid = (lo + hi) / 2.0;
-        if distance_at_t(mid)? < target_soi {
-            hi = mid; // inside SOI, search earlier
-        } else {
-            lo = mid; // outside SOI, search later
-        }
+    let res = newton_target(&prob, DVec1::new(1.0), 100, 0.5, 1.0);
+    if let Ok(refined_v) = res {
+        transfer_state.v *= refined_v;
+    } else {
+        println!("WARNING: couldn't refine the periapsis")
     }
 
-    Ok(transfer_orbit.t + EphemerisTime::from_years(hi * tof))
+    let arrival_et = find_soi_entry(&transfer_state, target_body_state, soi_radius, best_tof, mu)?;
+    let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu)?;
+
+    let exit_state =
+        get_grandparent_state(&flyby_state, target_body_state, soi_radius, mu, target_mu);
+
+    Ok(FlybyPlan {
+        transfer_state,
+        flyby_state,
+        exit_state,
+        soi_radius,
+        transfer_dv: xfer_dv * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
+    })
 }
 
 fn get_flyby_state(

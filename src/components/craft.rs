@@ -8,8 +8,12 @@ use nalgebra_glm::{vec3, DVec3};
 
 use crate::{
     astro::{
-        escape::EscapePlan, landing::LandingPlan, launch::LaunchPlan, state::State,
-        transfer::TransferPlan, units::LITTLE_G,
+        escape::EscapePlan,
+        landing::LandingPlan,
+        launch::LaunchPlan,
+        state::State,
+        transfer::{FlybyPlan, TransferPlan},
+        units::LITTLE_G,
     },
     components::body::{Body, Parent, SceneObject},
 };
@@ -51,6 +55,7 @@ pub struct AssociatedEntity {
 pub enum Command {
     Launch { plan: LaunchPlan },
     Transfer { to: Entity, plan: TransferPlan },
+    Flyby { to: Entity, plan: FlybyPlan },
     Escape { to: Entity, plan: EscapePlan },
     Land { plan: LandingPlan },
 }
@@ -253,14 +258,14 @@ pub fn transfer_stage() -> Stage {
         dry_mass: 2_000.0,
         fuel_mass: 5_000.0,
         max_fuel_mass: 5_000.0,
-        isp: 10_000.0,
+        isp: 2500.0,
     }
 }
 
 pub fn probe() -> Payload {
     Payload {
         name: String::from("Proboscus"),
-        dry_mass: 1217.7,
+        dry_mass: 3000.7,
     }
 }
 

@@ -51,6 +51,11 @@ pub enum Event {
         /// The craft that this event applies to
         craft: Entity,
     },
+
+    FactoryComplete {
+        factory: Entity,
+        part_id: String,
+    },
 }
 
 pub struct EventQueue {

@@ -1,0 +1,21 @@
+[[parts]]
+id = "payload_exploration_probe"
+name = "Exploration Probe"
+dry_mass_kg = 1200.0
+build_time_days = 30.0
+
+[parts.cost]
+silicon = 100.0
+copper = 50.0
+aluminum = 20.0
+
+[[parts]]
+id = "payload_capsule"
+name = "Capsule"
+dry_mass_kg = 3000.0
+build_time_days = 120.0
+
+[parts.cost]
+iron = 500.0
+aluminum = 300.0
+silicon = 50.0

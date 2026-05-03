@@ -88,7 +88,7 @@ impl Lexicon {
         let mut prev_particle: Option<Particle> = None;
 
         for i in 0..=(chars.len() - PARTICLE_SIZE).min(80000) {
-            let particle: Particle = [chars[i], chars[i + 1]]; // TODO: Update with particle size
+            let particle: Particle = chars[i..i + PARTICLE_SIZE].try_into().unwrap();
 
             if let std::collections::hash_map::Entry::Vacant(e) = nodes.entry(particle) {
                 e.insert(LexiconNode::new(particle));
@@ -180,7 +180,7 @@ impl Lexicon {
             let mut current = start;
 
             loop {
-                if out.len() > max_length + 1 {
+                if out.len() > max_length + 16 {
                     break;
                 }
 
@@ -190,7 +190,7 @@ impl Lexicon {
                 };
 
                 // Choose edge weighted by frequency
-                let temperature = 2.0;
+                let temperature = 1.5;
                 let mut chosen = None;
                 let total: f64 = node
                     .edges
@@ -247,5 +247,5 @@ impl Lexicon {
 fn str_to_particle(s: &str) -> Particle {
     let chars: Vec<char> = s.chars().collect();
     assert!(chars.len() >= PARTICLE_SIZE, "particle too short: {:?}", s);
-    [chars[0], chars[1]] // TODO: Update with particle size
+    chars[0..PARTICLE_SIZE].try_into().unwrap()
 }

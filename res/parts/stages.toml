@@ -1,0 +1,29 @@
+[[parts]]
+id = 'atlas_first_stage'
+name = 'Atlas First Stage'
+dry_mass_kg = 25_000.0
+build_time_days = 90.0
+
+[parts.fuel]
+max_fuel_mass_kg = 300_000.0
+isp = 265.0
+
+[parts.cost]
+iron = 800.0
+aluminum = 200.0
+copper = 50.0
+
+[[parts]]
+id = 'centaur_upper_stage'
+name = 'Centaur Upper Stage'
+dry_mass_kg = 2_200.0
+build_time_days = 60.0
+
+[parts.fuel]
+max_fuel_mass_kg = 20_000.0
+isp = 450.0
+
+[parts.cost]
+iron = 400.0
+aluminum = 150.0
+copper = 30.0

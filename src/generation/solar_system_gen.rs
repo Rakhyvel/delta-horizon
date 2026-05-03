@@ -153,33 +153,13 @@ fn generate_system(mut rng: &mut impl Rng) -> Vec<BodySystem> {
                 planet.mu,
             );
             moons.push((moon, moon_initial_state));
-            let resonances = [
-                1.36798075734, // 8:5
-                1.40572110884, // 5:3
-                1.45219643339, // 7:4
-                1.4797272446,  // 9:5
-                1.58740105197, // 2:1
-                1.58740105197, // 4:2 (dup)
-                1.58740105197, // 6:3 (dup)
-                1.58740105197, // 8:4 (dup)
-                1.71707136383, // 9:4
-                1.75921069597, // 7:3
-                1.84201574932, // 5:2
-                1.92299942708, // 8:3
-                2.08008382305, // 3:1
-                2.08008382305, // 6:2 (dup)
-                2.08008382305, // 9:3 (dup)
-                2.30521814603, // 7:2
-                2.51984209979, // 4:1
-                2.51984209979, // 8:2 (dup)
-                2.72568088925, // 9:2
-                2.92401773821, // 5:1
-                3.30192724889, // 6:1
-                3.65930571002, // 7:1
-                4.0,           // 8:1
-                4.32674871092, // 9:1
-            ];
-            moon_orbital_radius *= resonances.choose(&mut rng).unwrap();
+            let resonances: Vec<f64> = (2..100)
+                .flat_map(|p| (2..100).map(move |q| (p, q)))
+                .map(|(p, q)| (p as f64 / q as f64).powf(2.0 / 3.0))
+                .filter(|ratio| (1.5..4.0).contains(ratio))
+                .collect();
+            let choice = resonances.choose(&mut rng).unwrap();
+            moon_orbital_radius *= choice;
         }
 
         planets.push(BodySystem {
@@ -293,7 +273,7 @@ fn estimate_density(core_mass_fraction: f64, body_radius: f64) -> f64 {
     let compression = if body_radius < 1.0 {
         1.0
     } else {
-        1.0 / body_radius // gas giants get puffy as their radius increases
+        1.0 / body_radius + 0.6 / DENSITY_ROCK_G_CM3 // gas giants get puffy as their radius increases
     };
 
     base_density * compression

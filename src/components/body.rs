@@ -1,5 +1,7 @@
 //! This module is responsible for defining the body component
 
+use std::collections::HashMap;
+
 use apricot::{
     bvh::{BVHNodeId, BVH},
     high_precision::WorldPosition,
@@ -10,7 +12,7 @@ use nalgebra_glm::{vec3, DVec3};
 
 use crate::{
     astro::{state::State, units::G},
-    components::craft::AssociatedEntity,
+    components::{craft::AssociatedEntity, inventory::PartInventory},
 };
 
 pub struct SceneObject {
@@ -112,7 +114,17 @@ pub fn spawn_body(
     scene_obj.bvh_node_id = Some(bvh_node_id);
 
     world
-        .insert(body_entity, (scene_obj, init_state, body))
+        .insert(
+            body_entity,
+            (
+                scene_obj,
+                init_state,
+                body,
+                PartInventory {
+                    parts: HashMap::new(),
+                },
+            ),
+        )
         .unwrap();
 
     body_entity
