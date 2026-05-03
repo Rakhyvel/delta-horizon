@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 pub struct PartInventory {
-    pub parts: HashMap<String, u32>, // part_id -> count
+    /// Maps part IDs to how many of them there are
+    pub parts: HashMap<String, u32>,
 }
 
 impl PartInventory {

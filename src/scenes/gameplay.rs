@@ -31,22 +31,25 @@ use crate::{
     components::{
         craft::{
             first_stage, probe, replace_line_path, second_stage, transfer_stage, AssociatedEntity,
-            Command,
+            Command, Payload, Stage,
         },
-        factory::{spawn_factory, Factory, FactoryJob},
+        factory::{spawn_factory, Factory},
         inventory::PartInventory,
         parts::PartRegistry,
+        vab::{spawn_vab, Vab},
     },
     container,
     generation::lexicon::Lexicon,
     scenes::{
         events::{Event, EventQueue},
         starbox::Starbox,
+        vab::VabUi,
     },
     ui::{
         anchor::{Anchor, AnchorPoint},
-        container::Align,
+        container::{Align, Flow},
         label::Label,
+        modal::Modal,
         text_button::TextButton,
     },
 };
@@ -100,6 +103,7 @@ pub struct Gameplay {
 
     turn_gui: Anchor<TurnMessages>,
     gui: Anchor<CommandMessages>,
+    vab_ui: VabUi,
 
     // Events and timeline
     event_queue: EventQueue,
@@ -121,6 +125,7 @@ enum TurnMessages {
 enum CommandMessages {
     CraftCommand(Command),
     FactoryCommand { part_id: String },
+    OpenVab,
 }
 
 #[derive(Debug)]
@@ -251,6 +256,13 @@ impl Scene for Gameplay {
                         self.gui = self.rebuild_gui(app);
                     }
                 }
+                CommandMessages::OpenVab => {
+                    if let Some(selected) = self.selection.selected_entity() {
+                        let parent = self.world.get::<&Parent>(selected).unwrap().id;
+                        let inventory = self.world.get::<&PartInventory>(parent).unwrap();
+                        self.vab_ui.show(&inventory, &self.parts, app);
+                    }
+                }
             }
         }
 
@@ -268,6 +280,8 @@ impl Scene for Gameplay {
                 }
             }
         }
+
+        self.vab_ui.update(app);
 
         if self.is_animating() {
             const TURN_TIME: f64 = 1.5;
@@ -386,6 +400,7 @@ impl Scene for Gameplay {
         // Draw GUI
         self.gui.render(app);
         self.turn_gui.render(app);
+        self.vab_ui.render(app);
     }
 }
 
@@ -625,6 +640,20 @@ impl Gameplay {
         );
         crafts.push(factory);
 
+        let vab = spawn_vab(
+            SceneObject {
+                bvh_node_id: None,
+                name: String::from("vehicle assembly building"),
+            },
+            Parent {
+                id: bodies[habitable_planet],
+            },
+            &mut world,
+            &app.renderer,
+            &mut bvh,
+        );
+        crafts.push(vab);
+
         let gui = Anchor::<CommandMessages>::new(
             Box::new(container![].at(vec2(100.0, 100.0))),
             AnchorPoint::TopRight,
@@ -655,6 +684,9 @@ impl Gameplay {
             ]),
             AnchorPoint::BottomRight,
         );
+
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+        app.renderer.set_font(font);
 
         Self {
             world,
@@ -704,6 +736,7 @@ impl Gameplay {
 
             gui,
             turn_gui,
+            vab_ui: VabUi::new(),
 
             current_et: EphemerisTime::epoch(),
             animation_start_et: EphemerisTime::epoch(),
@@ -827,6 +860,8 @@ impl Gameplay {
             widgets.extend(self.build_body_info(selected, font));
         } else if self.world.get::<&Factory>(selected).is_ok() {
             widgets.extend(self.build_factory_info(selected, font));
+        } else if self.world.get::<&Vab>(selected).is_ok() {
+            widgets.extend(self.build_vab_info(selected, font));
         }
 
         widgets
@@ -867,10 +902,12 @@ impl Gameplay {
     ) -> Vec<Box<dyn Widget<CommandMessages>>> {
         let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
         let body = self.world.get::<&Body>(selected).unwrap();
+        let inventory = self.world.get::<&PartInventory>(selected).unwrap();
+
         // let state = self.world.get::<&State>(selected).unwrap();
         // Know: name, radius, mass, density, orbital radius, rotation in hours
         // Have to find: atmos press, temp, core mass fraction, magnetic field
-        let widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
             Box::new(Label::new(
                 format!("NAME:\n  {}\n", scene_object.name.clone()),
                 font,
@@ -915,6 +952,19 @@ impl Gameplay {
                 font,
             )),
         ];
+
+        // Extend with inventory info
+        widgets.extend(inventory.parts.iter().filter_map(|(part_id, quantity)| {
+            if *quantity > 0 {
+                Some(
+                    Box::new(Label::new(format!("{}: {}", part_id, quantity), font))
+                        as Box<dyn Widget<CommandMessages>>,
+                )
+            } else {
+                None
+            }
+        }));
+
         widgets
     }
 
@@ -958,6 +1008,24 @@ impl Gameplay {
                 ) as Box<dyn Widget<CommandMessages>>
             }));
         }
+
+        widgets
+    }
+
+    fn build_vab_info(
+        &self,
+        _selected: Entity,
+        _font: &Font,
+    ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![Box::new(
+            TextButton::<CommandMessages>::new(
+                Rectangle::new(100.0, 120.0, 240.0, 40.0),
+                "Stack New Vechicle",
+                vec4(0.02, 0.07, 0.11, 1.0),
+                vec4(1.0, 1.0, 1.0, 0.5),
+            )
+            .on_click(CommandMessages::OpenVab),
+        )];
 
         widgets
     }
@@ -1363,11 +1431,6 @@ impl Gameplay {
                         .push(arrival_time, Event::UnlockCommands { craft: entity })
                 }
                 Command::Launch { plan } => {
-                    let from_name = {
-                        let old_parent = self.world.get::<&Parent>(entity).unwrap().id;
-                        &self.world.get::<&SceneObject>(old_parent).unwrap().name
-                    };
-
                     let launch_time = plan.launch_burn.t;
                     let circ_time = plan.circ_burn.t;
 

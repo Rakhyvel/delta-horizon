@@ -39,7 +39,7 @@ impl<Msg: Clone + 'static> Container<Msg> {
             cross_align: Align::Start,
             fixed_width: false,
             fixed_height: false,
-            padding: vec2(20.0, 20.0),
+            padding: vec2(8.0, 8.0),
             background: None,
             border: None,
         };

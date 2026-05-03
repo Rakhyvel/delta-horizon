@@ -83,7 +83,7 @@ impl Starbox {
                 gl::FLOAT,
                 gl::FALSE,
                 (4 * std::mem::size_of::<f32>()) as i32,
-                0 as *const _,
+                std::ptr::null(),
             );
 
             let u_view = app.renderer.get_program_uniform("view").unwrap();
