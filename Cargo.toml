@@ -10,7 +10,7 @@ apricot = { git = "https://github.com/Rakhyvel/apricot.git" }
 sdl2 = { version = "0.34.5", features = ["bundled", "ttf", "mixer"], default-features = false }
 gl = "*"
 nalgebra-glm = "*"
-hecs = "0.10.5"
+hecs = "0.10.5" # do not use 0.11.0
 
 # For reading in textures
 image = "0.25.1"
@@ -28,3 +28,5 @@ rayon = "*"
 
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+
+lazy_static = "*"

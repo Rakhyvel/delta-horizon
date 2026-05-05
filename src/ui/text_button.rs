@@ -1,6 +1,6 @@
 use crate::ui::{msg::MsgQueue, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
-use nalgebra_glm::{Vec2, Vec4};
+use nalgebra_glm::{vec2, vec4, Vec2, Vec4};
 
 /// A button with text
 pub struct TextButton<Msg> {
@@ -9,33 +9,52 @@ pub struct TextButton<Msg> {
     /// The text to be drawn for the button
     label: String,
     /// The background color of the button
-    color: Vec4,
+    background_color: Vec4,
     /// The background color of the button when hovered
     hovered_color: Vec4,
+    border: Option<(nalgebra_glm::Vec4, f32)>, // color, width
     /// The message to send when the button is clicked (no message if None)
     on_click: Option<Msg>,
+    /// Whether or not the button is active or nah
+    active: bool,
 }
 
 impl<Msg> TextButton<Msg> {
     /// Creates a textu button
-    pub fn new(
-        rect: Rectangle,
-        label: impl Into<String>,
-        color: Vec4,
-        hovered_color: Vec4,
-    ) -> Self {
+    pub fn new(rect: Rectangle, label: impl Into<String>) -> Self {
         Self {
             rect,
             label: label.into(),
-            color,
-            hovered_color,
+            background_color: vec4(1.0, 0.0, 1.0, 255.0),
+            hovered_color: vec4(1.0, 0.0, 1.0, 255.0),
+            border: None,
             on_click: None,
+            active: true,
         }
+    }
+
+    pub fn background_color(mut self, background_color: Vec4) -> Self {
+        self.background_color = background_color;
+        self
+    }
+
+    pub fn hovered_color(mut self, hovered_color: Vec4) -> Self {
+        self.hovered_color = hovered_color;
+        self
+    }
+
+    pub fn border(mut self, color: nalgebra_glm::Vec4, width: f32) -> Self {
+        self.border = Some((color, width));
+        self
     }
 
     pub fn on_click(mut self, msg: Msg) -> Self {
         self.on_click = Some(msg);
         self
+    }
+
+    pub fn set_active(&mut self, active: bool) {
+        self.active = active
     }
 }
 
@@ -49,17 +68,46 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
     }
 
     fn render(&self, app: &App) {
-        let color = if self.rect.contains_point(&app.mouse_pos) {
-            self.hovered_color
-        } else {
-            self.color
-        };
-        app.renderer.set_color(color);
+        // Measure text size
         let text_size = {
             let current_font = app.renderer.get_current_font().unwrap();
             current_font.measure(&self.label)
         };
+
+        // Draw background
+        let color = if self.rect.contains_point(&app.mouse_pos) {
+            self.hovered_color
+        } else {
+            self.background_color
+        };
+        app.renderer.set_color(color);
         app.renderer.fill_rect(self.rect);
+
+        // Draw border
+        if let Some((border_color, _border_size)) = self.border {
+            app.renderer.set_color(border_color);
+            // Left
+            let mut rect = Rectangle {
+                pos: self.rect.pos,
+                size: vec2(1.0, self.rect.size.y),
+            };
+            app.renderer.fill_rect(rect);
+
+            // Right
+            rect.pos.x = self.rect.pos.x + self.rect.size.x;
+            app.renderer.fill_rect(rect);
+
+            // Top
+            rect.pos = self.rect.pos;
+            rect.size = vec2(self.rect.size.x, 1.0);
+            app.renderer.fill_rect(rect);
+
+            // Bottom
+            rect.pos.y = self.rect.pos.y + self.rect.size.y;
+            app.renderer.fill_rect(rect);
+        }
+
+        // Draw text
         app.renderer.draw_text(
             self.rect.pos + (self.rect.size - text_size) * 0.5,
             &self.label,

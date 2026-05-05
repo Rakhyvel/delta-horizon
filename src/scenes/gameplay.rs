@@ -6,7 +6,6 @@ use apricot::{
     app::{App, Scene},
     bvh::BVH,
     camera::{Camera, ProjectionKind},
-    font::Font,
     high_precision::{self, WorldPosition},
     opengl::create_program,
     rectangle::Rectangle,
@@ -45,7 +44,10 @@ use crate::{
     ui::{
         anchor::{Anchor, AnchorPoint},
         container::Align,
+        hrule::HRule,
         label::Label,
+        progress_bar::ProgressBar,
+        style::STYLE,
         text_button::TextButton,
     },
 };
@@ -53,7 +55,7 @@ use crate::{
 use crate::{
     components::{
         body::{spawn_body, Body, Category, Parent, SceneObject},
-        craft::{spawn_craft, spawn_landed_craft, Craft, Landed},
+        craft::{spawn_landed_craft, Craft, Landed},
     },
     generation::solar_system_gen::{self},
     ui::{
@@ -100,6 +102,9 @@ pub struct Gameplay {
     turn_gui: Anchor<TurnMessages>,
     gui: Anchor<CommandMessages>,
     vab_ui: VabUi,
+
+    // Resources
+    money: u32,
 
     // Events and timeline
     event_queue: EventQueue,
@@ -539,6 +544,18 @@ impl Gameplay {
         // Setup the font manager
         app.renderer
             .add_font("res/Consolas.ttf", "font", 14, sdl2::ttf::FontStyle::NORMAL);
+        app.renderer.add_font(
+            "res/Consolas.ttf",
+            "font-small-bold",
+            14,
+            sdl2::ttf::FontStyle::BOLD,
+        );
+        app.renderer.add_font(
+            "res/Consolas.ttf",
+            "font-big",
+            21,
+            sdl2::ttf::FontStyle::BOLD,
+        );
 
         let mut bvh = BVH::<Entity>::new();
 
@@ -648,7 +665,7 @@ impl Gameplay {
 
         let gui = Anchor::<CommandMessages>::new(
             Box::new(container![].at(vec2(100.0, 100.0))),
-            AnchorPoint::TopRight,
+            AnchorPoint::CenterRight,
         );
 
         let turn_gui = Anchor::<TurnMessages>::new(
@@ -666,19 +683,23 @@ impl Gameplay {
                         .unwrap(),
                 )
                 .on_click(TurnMessages::NextTurn),
-                TextButton::new(
-                    Rectangle::new(100.0, 120.0, 200.0, 30.0,),
-                    "Click me!",
-                    vec4(0.02, 0.07, 0.11, 1.0),
-                    vec4(1.0, 1.0, 1.0, 0.5),
-                )
-                .on_click(TurnMessages::NextTurn),
+                TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Click me!")
+                    .background_color(STYLE.bg_primary)
+                    .hovered_color(STYLE.bg_hover)
+                    .border(STYLE.border_primary, 1.0)
+                    .on_click(TurnMessages::NextTurn),
             ]),
             AnchorPoint::BottomRight,
         );
 
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         app.renderer.set_font(font);
+
+        let mut event_queue = EventQueue::new();
+        event_queue.push(
+            EphemerisTime::epoch() + EphemerisTime::from_years(0.25),
+            Event::Payday { revenue: 125_000 },
+        );
 
         Self {
             world,
@@ -730,11 +751,13 @@ impl Gameplay {
             turn_gui,
             vab_ui: VabUi::new(),
 
+            money: 150_000,
+
             current_et: EphemerisTime::epoch(),
             animation_start_et: EphemerisTime::epoch(),
             animation_target_et: EphemerisTime::epoch(),
             animation_start_real: 0.0,
-            event_queue: EventQueue::new(),
+            event_queue,
 
             starbox: Starbox::new(9000, vec3(1.0, 2.0, 4.0), 0.4),
         }
@@ -776,29 +799,28 @@ impl Gameplay {
     }
 
     fn rebuild_gui(&self, app: &App) -> Anchor<CommandMessages> {
-        let font = app.renderer.get_current_font().unwrap();
-
         let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
         let selected = self.selection.selected_entity();
         if let Some(selected) = selected {
-            widgets.extend(self.build_selection_widgets(selected, &font));
+            widgets.extend(self.build_selection_widgets(selected, app));
         }
 
         Anchor::new(
             Box::new(
                 Container::new(widgets)
                     .cross_align(Align::Start)
-                    .background(vec4(91.25, 160.0, 228.75, 51.0) / 255.0),
+                    .background_color(STYLE.bg_primary)
+                    .border(STYLE.border_primary, 1.0)
+                    .padding(vec2(16.0, 16.0)),
             ),
             AnchorPoint::TopRight,
         )
+        .margin(vec2(16.0, 16.0))
     }
 
     fn rebuild_turn_gui(&mut self, app: &App) -> Anchor<TurnMessages> {
-        let font = app.renderer.get_current_font().unwrap();
-
         let mut turn_widgets: Vec<Box<dyn Widget<TurnMessages>>> = vec![];
-        turn_widgets.extend(self.build_footer_widgets(app, &font));
+        turn_widgets.extend(self.build_footer_widgets(app));
 
         Anchor::new(
             Box::new(Container::new(turn_widgets).cross_align(Align::End)),
@@ -806,7 +828,9 @@ impl Gameplay {
         )
     }
 
-    fn build_footer_widgets(&self, app: &App, font: &Font) -> Vec<Box<dyn Widget<TurnMessages>>> {
+    fn build_footer_widgets(&self, app: &App) -> Vec<Box<dyn Widget<TurnMessages>>> {
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+
         vec![
             Box::new(
                 TextureButton::new(
@@ -823,37 +847,35 @@ impl Gameplay {
                 )
                 .on_click(TurnMessages::NextTurn),
             ),
-            Box::new(Label::new(
-                format!("ET: {}", self.current_et.as_calendar()),
-                font,
-            )),
+            Box::new(Label::new(format!("ET: {}", self.current_et.as_calendar())).font(font, app)),
+            Box::new(Label::new(format!("${}", self.money)).font(font, app)),
         ]
     }
 
     fn build_selection_widgets(
         &self,
         selected: Entity,
-        font: &Font,
+        app: &App,
     ) -> Vec<Box<dyn Widget<CommandMessages>>> {
         let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
 
         if let Ok(craft) = self.world.get::<&Craft>(selected) {
-            widgets.extend(self.build_craft_info(selected, font));
+            widgets.extend(self.build_craft_info(selected, app));
 
             if craft.command.is_none() && craft.locked.is_none() {
-                if let Some(status) = self.build_orbit_widgets(selected, font) {
+                if let Some(status) = self.build_orbit_widgets(selected) {
                     widgets.extend(status);
                 }
-                if let Some(status) = self.build_landed_widgets(selected, font) {
+                if let Some(status) = self.build_landed_widgets(selected, app) {
                     widgets.extend(status);
                 }
             }
         } else if self.world.get::<&Body>(selected).is_ok() {
-            widgets.extend(self.build_body_info(selected, font));
+            widgets.extend(self.build_body_info(selected, app));
         } else if self.world.get::<&Factory>(selected).is_ok() {
-            widgets.extend(self.build_factory_info(selected, font));
+            widgets.extend(self.build_factory_info(selected, app));
         } else if self.world.get::<&Vab>(selected).is_ok() {
-            widgets.extend(self.build_vab_info(selected, font));
+            widgets.extend(self.build_vab_info(selected));
         }
 
         widgets
@@ -862,8 +884,9 @@ impl Gameplay {
     fn build_craft_info(
         &self,
         selected: Entity,
-        font: &Font,
+        app: &App,
     ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
         let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
         let craft = self.world.get::<&Craft>(selected).unwrap();
 
@@ -874,15 +897,15 @@ impl Gameplay {
         };
 
         let widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
-            Box::new(Label::new(
-                format!("Name: {}", scene_object.name.clone()),
-                font,
-            )),
-            Box::new(Label::new(format!("Status: {status_str}"), font)),
-            Box::new(Label::new(
-                format!("Delta V: {:.3} km/s", craft.total_remaining_dv() / 1000.0),
-                font,
-            )),
+            Box::new(Label::new(format!("Name: {}", scene_object.name.clone())).font(font, app)),
+            Box::new(Label::new(format!("Status: {status_str}")).font(font, app)),
+            Box::new(
+                Label::new(format!(
+                    "Delta V: {:.3} km/s",
+                    craft.total_remaining_dv() / 1000.0
+                ))
+                .font(font, app),
+            ),
         ];
         widgets
     }
@@ -890,8 +913,9 @@ impl Gameplay {
     fn build_body_info(
         &self,
         selected: Entity,
-        font: &Font,
+        app: &App,
     ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
         let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
         let body = self.world.get::<&Body>(selected).unwrap();
         let inventory = self.world.get::<&PartInventory>(selected).unwrap();
@@ -900,56 +924,59 @@ impl Gameplay {
         // Know: name, radius, mass, density, orbital radius, rotation in hours
         // Have to find: atmos press, temp, core mass fraction, magnetic field
         let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
-            Box::new(Label::new(
-                format!("NAME:\n  {}\n", scene_object.name.clone()),
-                font,
-            )),
-            Box::new(Label::new(
-                format!("EARTH RADII:\n  {:.1}\n", body.body_radius),
-                font,
-            )),
-            Box::new(Label::new(
-                format!("EARTH MASSES:\n  {:.3}\n", body.mass()),
-                font,
-            )),
-            Box::new(Label::new(
-                format!("DENSITY (g/cm^3):\n  {:.1}\n", body.density),
-                font,
-            )),
-            Box::new(Label::new(
-                format!("DAY (hours):\n  {:.1}\n", body.rotation_period_hours),
-                font,
-            )),
-            Box::new(Label::new(
-                format!("SURFACE PRESSURE:\n  {:.1} bar\n", body.atmos_pressure),
-                font,
-            )),
-            Box::new(Label::new(
-                format!("SURFACE TEMPERATURE:\n  {:.0} K\n", body.temperature),
-                font,
-            )),
-            Box::new(Label::new(
-                format!("CMF\n  {:.0}%\n", body.core_mass_fraction * 100.0),
-                font,
-            )),
-            Box::new(Label::new(
-                format!(
+            Box::new(
+                Label::new(format!("NAME:\n  {}\n", scene_object.name.clone())).font(font, app),
+            ),
+            Box::new(
+                Label::new(format!("EARTH RADII:\n  {:.1}\n", body.body_radius)).font(font, app),
+            ),
+            Box::new(Label::new(format!("EARTH MASSES:\n  {:.3}\n", body.mass())).font(font, app)),
+            Box::new(
+                Label::new(format!("DENSITY (g/cm^3):\n  {:.1}\n", body.density)).font(font, app),
+            ),
+            Box::new(
+                Label::new(format!(
+                    "DAY (hours):\n  {:.1}\n",
+                    body.rotation_period_hours
+                ))
+                .font(font, app),
+            ),
+            Box::new(
+                Label::new(format!(
+                    "SURFACE PRESSURE:\n  {:.1} bar\n",
+                    body.atmos_pressure
+                ))
+                .font(font, app),
+            ),
+            Box::new(
+                Label::new(format!(
+                    "SURFACE TEMPERATURE:\n  {:.0} K\n",
+                    body.temperature
+                ))
+                .font(font, app),
+            ),
+            Box::new(
+                Label::new(format!("CMF\n  {:.0}%\n", body.core_mass_fraction * 100.0))
+                    .font(font, app),
+            ),
+            Box::new(
+                Label::new(format!(
                     "MAGNETIC FIELD:\n  {}\n",
                     if body.magnetic_field {
                         "present"
                     } else {
                         "absent"
                     }
-                ),
-                font,
-            )),
+                ))
+                .font(font, app),
+            ),
         ];
 
         // Extend with inventory info
         widgets.extend(inventory.parts.iter().filter_map(|(part_id, quantity)| {
             if *quantity > 0 {
                 Some(
-                    Box::new(Label::new(format!("{}: {}", part_id, quantity), font))
+                    Box::new(Label::new(format!("{}: {}", part_id, quantity)).font(font, app))
                         as Box<dyn Widget<CommandMessages>>,
                 )
             } else {
@@ -963,11 +990,22 @@ impl Gameplay {
     fn build_factory_info(
         &self,
         selected: Entity,
-        font: &Font,
+        app: &App,
     ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+        const WIDTH: f32 = 280.0;
+
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
+        let font_big = app.renderer.get_font_id_from_name("font-big").unwrap();
         let factory = self.world.get::<&Factory>(selected).unwrap();
 
-        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
+            Box::new(Label::new("FACTORY").font(font_big, app)),
+            Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)),
+        ];
 
         println!("{:?}", &factory.current_job);
 
@@ -978,44 +1016,66 @@ impl Gameplay {
                 .expect("should be a valid part");
 
             widgets.extend(vec![
-                Box::new(Label::new(format!("Making: {}", part.name), font))
+                Box::new(Label::new("STATUS").font(font_small_bold, app)),
+                Box::new(Label::new(format!("Building: {}", part.name)).font(font, app))
                     as Box<dyn Widget<CommandMessages>>,
-                Box::new(Label::new(
-                    format!("Completion: {}", job.completion_et.as_calendar()),
-                    font,
-                )) as Box<dyn Widget<CommandMessages>>,
+                Box::new(
+                    ProgressBar::new(vec2(WIDTH, 12.0))
+                        .background_color(STYLE.bg_primary)
+                        .fill_color(STYLE.accent)
+                        .border(STYLE.border_primary, 1.0)
+                        .progress(job.progress(self.current_et) as f32),
+                ) as Box<dyn Widget<CommandMessages>>,
+                Box::new(
+                    Label::new(format!("Completion: {}", job.completion_et.as_calendar()))
+                        .font(font, app),
+                ) as Box<dyn Widget<CommandMessages>>,
             ])
         } else {
-            widgets.extend(self.parts.all().map(|part| {
-                Box::new(
-                    TextButton::<CommandMessages>::new(
-                        Rectangle::new(100.0, 120.0, 240.0, 40.0),
-                        part.name.clone(),
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
-                    )
-                    .on_click(CommandMessages::FactoryCommand {
-                        part_id: part.id.clone(),
-                    }),
-                ) as Box<dyn Widget<CommandMessages>>
-            }));
+            widgets.extend(vec![
+                Box::new(Label::new("STATUS").font(font_small_bold, app)),
+                Box::new(Label::new("No orders").font(font, app))
+                    as Box<dyn Widget<CommandMessages>>,
+                Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH))
+                    as Box<dyn Widget<CommandMessages>>,
+                Box::new(Label::new("BUILD").font(font_small_bold, app))
+                    as Box<dyn Widget<CommandMessages>>,
+            ]);
+            let build_orders: Vec<Box<dyn Widget<CommandMessages>>> = self
+                .parts
+                .all()
+                .map(|part| {
+                    Box::new(
+                        TextButton::<CommandMessages>::new(
+                            Rectangle::new(100.0, 120.0, WIDTH, 40.0),
+                            part.name.clone(),
+                        )
+                        .background_color(STYLE.bg_primary)
+                        .hovered_color(STYLE.bg_hover)
+                        .border(STYLE.border_primary, 1.0)
+                        .on_click(CommandMessages::FactoryCommand {
+                            part_id: part.id.clone(),
+                        }),
+                    ) as Box<dyn Widget<CommandMessages>>
+                })
+                .collect();
+            widgets.push(Box::new(
+                Container::new(build_orders).padding(vec2(0.0, 0.0)),
+            ));
         }
 
         widgets
     }
 
-    fn build_vab_info(
-        &self,
-        _selected: Entity,
-        _font: &Font,
-    ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+    fn build_vab_info(&self, _selected: Entity) -> Vec<Box<dyn Widget<CommandMessages>>> {
         let widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![Box::new(
             TextButton::<CommandMessages>::new(
                 Rectangle::new(100.0, 120.0, 240.0, 40.0),
                 "Stack New Vechicle",
-                vec4(0.02, 0.07, 0.11, 1.0),
-                vec4(1.0, 1.0, 1.0, 0.5),
             )
+            .background_color(STYLE.bg_primary)
+            .hovered_color(STYLE.bg_hover)
+            .border(STYLE.border_primary, 1.0)
             .on_click(CommandMessages::OpenVab),
         )];
 
@@ -1025,7 +1085,6 @@ impl Gameplay {
     fn build_orbit_widgets(
         &self,
         selected: Entity,
-        _font: &Font,
     ) -> Option<Vec<Box<dyn Widget<CommandMessages>>>> {
         let craft = self.world.get::<&Craft>(selected).unwrap();
         let _orbit = self.world.get::<&State>(selected).ok()?;
@@ -1055,9 +1114,10 @@ impl Gameplay {
                                 parent_scene_object.name,
                                 plan.deorbit_dv + plan.landing_dv
                             ),
-                            vec4(0.02, 0.07, 0.11, 1.0),
-                            vec4(1.0, 1.0, 1.0, 0.5),
                         )
+                        .background_color(STYLE.bg_primary)
+                        .hovered_color(STYLE.bg_hover)
+                        .border(STYLE.border_primary, 1.0)
                         .on_click(CommandMessages::CraftCommand(Command::Land { plan })),
                     ));
                 }
@@ -1089,15 +1149,14 @@ impl Gameplay {
                                 "{} | {:.0} m/s",
                                 grandparent_scene_object.name, plan.escape_dv
                             ),
-                            vec4(0.02, 0.07, 0.11, 1.0),
-                            vec4(1.0, 1.0, 1.0, 0.5),
                         )
-                        .on_click(CommandMessages::CraftCommand(
-                            Command::Escape {
-                                to: grandparent.id,
-                                plan,
-                            },
-                        )),
+                        .background_color(STYLE.bg_primary)
+                        .hovered_color(STYLE.bg_hover)
+                        .border(STYLE.border_primary, 1.0)
+                        .on_click(CommandMessages::CraftCommand(Command::Escape {
+                            to: grandparent.id,
+                            plan,
+                        })),
                     ));
                 }
             }
@@ -1133,12 +1192,14 @@ impl Gameplay {
                                     scene_obj.name,
                                     plan.transfer_dv + plan.circ_dv
                                 ),
-                                vec4(0.02, 0.07, 0.11, 1.0),
-                                vec4(1.0, 1.0, 1.0, 0.5),
                             )
-                            .on_click(CommandMessages::CraftCommand(
-                                Command::Transfer { to, plan },
-                            )),
+                            .background_color(STYLE.bg_primary)
+                            .hovered_color(STYLE.bg_hover)
+                            .border(STYLE.border_primary, 1.0)
+                            .on_click(CommandMessages::CraftCommand(Command::Transfer {
+                                to,
+                                plan,
+                            })),
                         )
                             as Box<dyn Widget<CommandMessages>>)
                     } else {
@@ -1176,9 +1237,10 @@ impl Gameplay {
                             TextButton::<CommandMessages>::new(
                                 Rectangle::new(100.0, 120.0, 240.0, 40.0),
                                 format!("Flyby {} | {:.0} m/s", scene_obj.name, plan.transfer_dv),
-                                vec4(0.02, 0.07, 0.11, 1.0),
-                                vec4(1.0, 1.0, 1.0, 0.5),
                             )
+                            .background_color(STYLE.bg_primary)
+                            .hovered_color(STYLE.bg_hover)
+                            .border(STYLE.border_primary, 1.0)
                             .on_click(CommandMessages::CraftCommand(Command::Flyby { to, plan })),
                         )
                             as Box<dyn Widget<CommandMessages>>)
@@ -1197,8 +1259,10 @@ impl Gameplay {
     fn build_landed_widgets(
         &self,
         selected: Entity,
-        font: &Font,
+        app: &App,
     ) -> Option<Vec<Box<dyn Widget<CommandMessages>>>> {
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+
         let landed = self.world.get::<&Landed>(selected).ok()?;
         let parent = self.world.get::<&Parent>(selected).ok()?;
         let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
@@ -1211,10 +1275,9 @@ impl Gameplay {
         let parent_state = self.world.get::<&State>(parent.id).unwrap();
         let grandparent_body = self.world.get::<&Body>(grandparent.id).unwrap();
 
-        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![Box::new(Label::new(
-            format!("Status: Landed on {}", parent_scene_object.name),
-            font,
-        ))];
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![Box::new(
+            Label::new(format!("Status: Landed on {}", parent_scene_object.name)).font(font, app),
+        )];
 
         if let Ok(plan) = plan_launch(
             landed.offset,
@@ -1229,9 +1292,10 @@ impl Gameplay {
                     TextButton::<CommandMessages>::new(
                         Rectangle::new(100.0, 120.0, 240.0, 40.0),
                         format!("Launch | {:.0} m/s", plan.launch_dv + plan.circ_dv),
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
                     )
+                    .background_color(STYLE.bg_primary)
+                    .hovered_color(STYLE.bg_hover)
+                    .border(STYLE.border_primary, 1.0)
                     .on_click(CommandMessages::CraftCommand(Command::Launch { plan })),
                 ));
             }
@@ -1669,6 +1733,15 @@ impl Gameplay {
                     f.current_job = None;
                 }
             }
+            Event::Payday { revenue } => {
+                self.money += revenue;
+
+                // Schedule the next quarterly payout
+                self.event_queue.push(
+                    self.current_et + EphemerisTime::from_years(0.25),
+                    Event::Payday { revenue },
+                );
+            }
         }
     }
 
@@ -1930,7 +2003,7 @@ impl Gameplay {
                 None => false,
             };
 
-            line.color = vec4(91.25, 160.0, 228.75, 0.0) / 255.0;
+            line.color = STYLE.accent;
 
             if selected && !self.selection.is_animating(app.seconds as f64) {
                 line.color.w = 0.8;

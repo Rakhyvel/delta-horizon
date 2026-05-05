@@ -79,7 +79,7 @@ impl<Msg: Clone + 'static> Container<Msg> {
         self
     }
 
-    pub fn background(mut self, color: nalgebra_glm::Vec4) -> Self {
+    pub fn background_color(mut self, color: nalgebra_glm::Vec4) -> Self {
         self.background = Some(color);
         self
     }
@@ -109,6 +109,30 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
         if let Some(color) = self.background {
             app.renderer.set_color(color);
             app.renderer.fill_rect(self.rect);
+        }
+
+        // Draw border
+        if let Some((border_color, _border_size)) = self.border {
+            app.renderer.set_color(border_color);
+            // Left
+            let mut rect = Rectangle {
+                pos: self.rect.pos,
+                size: vec2(1.0, self.rect.size.y),
+            };
+            app.renderer.fill_rect(rect);
+
+            // Right
+            rect.pos.x = self.rect.pos.x + self.rect.size.x;
+            app.renderer.fill_rect(rect);
+
+            // Top
+            rect.pos = self.rect.pos;
+            rect.size = vec2(self.rect.size.x, 1.0);
+            app.renderer.fill_rect(rect);
+
+            // Bottom
+            rect.pos.y = self.rect.pos.y + self.rect.size.y;
+            app.renderer.fill_rect(rect);
         }
 
         for child in self.children.iter() {
@@ -143,13 +167,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
 
         // Compute spacer
         let mut spacer = if self.fixed_width || self.fixed_height {
+            // For fixed-size, the spacer is the space between the elements, to keep them centered
             if self.children.is_empty() {
                 Vec2::zeros()
             } else {
                 (self.rect.size - additive_content_size) / (self.children.len() as f32 + 1.0)
             }
         } else {
-            Vec2::zeros() // content-sized container has no spare space to distribute
+            // For non-fixed size, just use the padding
+            self.padding
         };
         match self.flow {
             Flow::Vertical => spacer.x = 0.0,
@@ -164,8 +190,20 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
 
         // Second pass to place children
         let mut main_offset = match self.flow {
-            Flow::Vertical => spacer.y,
-            Flow::Horizontal => spacer.x,
+            Flow::Vertical => {
+                if self.fixed_height {
+                    spacer.y
+                } else {
+                    0.0
+                }
+            }
+            Flow::Horizontal => {
+                if self.fixed_width {
+                    spacer.x
+                } else {
+                    0.0
+                }
+            }
         };
         let mut working_size = Vec2::zeros();
 
@@ -220,10 +258,16 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
         }
 
         if !self.fixed_width {
-            self.rect.size.x = working_size.x + self.padding.x * 2.0;
+            self.rect.size.x = match self.flow {
+                Flow::Vertical => working_size.x + self.padding.x * 2.0,
+                Flow::Horizontal => working_size.x + self.padding.x,
+            };
         }
         if !self.fixed_height {
-            self.rect.size.y = working_size.y + self.padding.y * 2.0;
+            self.rect.size.y = match self.flow {
+                Flow::Vertical => working_size.y + self.padding.y,
+                Flow::Horizontal => working_size.y + self.padding.y * 2.0,
+            };
         }
     }
 }

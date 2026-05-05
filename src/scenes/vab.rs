@@ -5,10 +5,9 @@ use crate::{
         inventory::PartInventory,
         parts::{PartDef, PartRegistry},
     },
-    ui::container::Container,
+    ui::{container::Container, style::STYLE},
 };
-use apricot::{app::App, font::Font, rectangle::Rectangle};
-use nalgebra_glm::vec4;
+use apricot::{app::App, font::FontId, rectangle::Rectangle};
 
 use crate::{
     container,
@@ -109,18 +108,18 @@ impl VabUi {
     }
 
     fn rebuild_modal(&mut self, app: &App) {
-        let font = app.renderer.get_current_font().unwrap();
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
 
         self.modal = Modal::new(Box::new(
             container![
                 // Title
-                Label::new("Vehicle Assembly Building:", &font),
+                Label::new("Vehicle Assembly Building:").font(font, app),
                 // Middle section
                 container![
-                    Container::new(self.build_rocket(&font))
+                    Container::new(self.build_rocket(font, app))
                         .flow(Flow::Vertical)
                         .cross_align(Align::Center),
-                    Container::new(self.build_available_parts(&font))
+                    Container::new(self.build_available_parts(font, app))
                         .flow(Flow::Vertical)
                         .cross_align(Align::Center),
                 ]
@@ -128,31 +127,27 @@ impl VabUi {
                 .cross_align(Align::Center),
                 // Bottom row
                 container![
-                    TextButton::new(
-                        Rectangle::new(100.0, 120.0, 200.0, 30.0,),
-                        "Close!",
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
-                    )
-                    .on_click(VabMessages::Close),
-                    TextButton::new(
-                        Rectangle::new(100.0, 120.0, 200.0, 30.0,),
-                        "Build!",
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
-                    )
-                    .on_click(VabMessages::Build)
+                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Close!",)
+                        .background_color(STYLE.bg_primary)
+                        .hovered_color(STYLE.bg_hover)
+                        .border(STYLE.border_primary, 1.0)
+                        .on_click(VabMessages::Close),
+                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Build!",)
+                        .background_color(STYLE.bg_primary)
+                        .hovered_color(STYLE.bg_hover)
+                        .border(STYLE.border_primary, 1.0)
+                        .on_click(VabMessages::Build)
                 ]
                 .flow(Flow::Horizontal)
                 .cross_align(Align::Center),
             ]
             .cross_align(Align::Center)
-            .background(vec4(91.25, 160.0, 228.75, 51.0) / 255.0),
+            .background_color(STYLE.bg_primary),
         ))
         .shown(true);
     }
 
-    fn build_rocket(&self, font: &Font) -> Vec<Box<dyn Widget<VabMessages>>> {
+    fn build_rocket(&self, font: FontId, app: &App) -> Vec<Box<dyn Widget<VabMessages>>> {
         let mut widgets = vec![];
 
         let payload: Vec<Box<dyn Widget<VabMessages>>> = self
@@ -160,14 +155,12 @@ impl VabUi {
             .iter()
             .map(|payload| {
                 Box::new(container![
-                    Label::new(payload.name.clone(), font),
-                    TextButton::new(
-                        Rectangle::new(100.0, 120.0, 200.0, 30.0,),
-                        "Remove",
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
-                    )
-                    .on_click(VabMessages::UnsetPayload)
+                    Label::new(payload.name.clone()).font(font, app),
+                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Remove",)
+                        .background_color(STYLE.bg_primary)
+                        .hovered_color(STYLE.bg_hover)
+                        .border(STYLE.border_primary, 1.0)
+                        .on_click(VabMessages::UnsetPayload)
                 ]) as Box<dyn Widget<VabMessages>>
             })
             .collect();
@@ -176,19 +169,17 @@ impl VabUi {
             .stages
             .iter()
             .map(|stage| {
-                Box::new(container![Label::new(stage.name.clone(), font),])
+                Box::new(container![Label::new(stage.name.clone()).font(font, app),])
                     as Box<dyn Widget<VabMessages>>
             })
             .collect();
         if !self.stages.is_empty() {
             stages.push(Box::new(
-                TextButton::new(
-                    Rectangle::new(100.0, 120.0, 200.0, 30.0),
-                    "Remove",
-                    vec4(0.02, 0.07, 0.11, 1.0),
-                    vec4(1.0, 1.0, 1.0, 0.5),
-                )
-                .on_click(VabMessages::RemoveFromStack),
+                TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0), "Remove")
+                    .background_color(STYLE.bg_primary)
+                    .hovered_color(STYLE.bg_hover)
+                    .border(STYLE.border_primary, 1.0)
+                    .on_click(VabMessages::RemoveFromStack),
             ))
         }
 
@@ -198,7 +189,7 @@ impl VabUi {
         widgets
     }
 
-    fn build_available_parts(&self, font: &Font) -> Vec<Box<dyn Widget<VabMessages>>> {
+    fn build_available_parts(&self, font: FontId, app: &App) -> Vec<Box<dyn Widget<VabMessages>>> {
         let mut widgets = vec![];
 
         let payloads: Vec<Box<dyn Widget<VabMessages>>> = self
@@ -214,14 +205,12 @@ impl VabUi {
                 }
 
                 Some(Box::new(container![
-                    Label::new(format!("{} ({count})", part.name.clone()), font),
-                    TextButton::new(
-                        Rectangle::new(100.0, 120.0, 200.0, 30.0,),
-                        "Set as payload",
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
-                    )
-                    .on_click(VabMessages::SetPayload(part_id.clone()))
+                    Label::new(format!("{} ({count})", part.name.clone())).font(font, app),
+                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Set as payload",)
+                        .background_color(STYLE.bg_primary)
+                        .hovered_color(STYLE.bg_hover)
+                        .border(STYLE.border_primary, 1.0)
+                        .on_click(VabMessages::SetPayload(part_id.clone()))
                 ]) as Box<dyn Widget<VabMessages>>)
             })
             .collect();
@@ -236,14 +225,12 @@ impl VabUi {
                     return None;
                 }
                 Some(Box::new(container![
-                    Label::new(format!("{} ({count})", part.name.clone()), font),
-                    TextButton::new(
-                        Rectangle::new(100.0, 120.0, 200.0, 30.0,),
-                        "Add to stack",
-                        vec4(0.02, 0.07, 0.11, 1.0),
-                        vec4(1.0, 1.0, 1.0, 0.5),
-                    )
-                    .on_click(VabMessages::AddToStack(part_id.clone()))
+                    Label::new(format!("{} ({count})", part.name.clone())).font(font, app),
+                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Add to stack",)
+                        .background_color(STYLE.bg_primary)
+                        .hovered_color(STYLE.bg_hover)
+                        .border(STYLE.border_primary, 1.0)
+                        .on_click(VabMessages::AddToStack(part_id.clone()))
                 ]) as Box<dyn Widget<VabMessages>>)
             })
             .collect();

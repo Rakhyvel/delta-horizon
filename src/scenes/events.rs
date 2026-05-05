@@ -56,6 +56,10 @@ pub enum Event {
         factory: Entity,
         part_id: String,
     },
+
+    Payday {
+        revenue: u32,
+    },
 }
 
 pub struct EventQueue {

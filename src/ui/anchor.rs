@@ -19,6 +19,7 @@ pub struct Anchor<Msg> {
     rect: Rectangle,
     child: Box<dyn Widget<Msg>>,
     anchor: AnchorPoint,
+    margin: Vec2,
 }
 
 impl<Msg: Clone + 'static> Anchor<Msg> {
@@ -27,9 +28,15 @@ impl<Msg: Clone + 'static> Anchor<Msg> {
             rect: Rectangle::new(0.0, 0.0, 0.0, 0.0),
             child,
             anchor,
+            margin: Vec2::zeros(),
         };
         retval.layout(retval.rect.pos);
         retval
+    }
+
+    pub fn margin(mut self, margin: Vec2) -> Self {
+        self.margin = margin;
+        self
     }
 
     pub fn set_child(&mut self, child: Box<dyn Widget<Msg>>) {
@@ -56,8 +63,23 @@ impl<Msg: Clone + 'static> Widget<Msg> for Anchor<Msg> {
             AnchorPoint::BottomRight => vec2(w - size.x, h - size.y),
         };
 
-        self.rect.pos = pos;
-        self.child.layout(pos);
+        // Apply margin (push inward from the edge)
+        let pos = match self.anchor {
+            AnchorPoint::TopLeft => pos + vec2(self.margin.x, self.margin.y),
+            AnchorPoint::TopCenter => pos + vec2(0.0, self.margin.y),
+            AnchorPoint::TopRight => pos + vec2(-self.margin.x, self.margin.y),
+            AnchorPoint::CenterLeft => pos + vec2(self.margin.x, 0.0),
+            AnchorPoint::Center => pos,
+            AnchorPoint::CenterRight => pos + vec2(-self.margin.x, 0.0),
+            AnchorPoint::BottomLeft => pos + vec2(self.margin.x, -self.margin.y),
+            AnchorPoint::BottomCenter => pos + vec2(0.0, -self.margin.y),
+            AnchorPoint::BottomRight => pos + vec2(-self.margin.x, -self.margin.y),
+        };
+
+        if self.rect.pos != pos {
+            self.rect.pos = pos;
+            self.child.layout(pos);
+        }
         self.child.as_mut().update(app, msgq);
     }
 

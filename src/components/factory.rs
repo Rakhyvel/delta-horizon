@@ -22,6 +22,7 @@ pub struct Factory {
 #[derive(Debug)]
 pub struct FactoryJob {
     pub part_id: String,
+    pub order_et: EphemerisTime,
     pub completion_et: EphemerisTime,
     pub scheduled: bool,
 }
@@ -90,6 +91,7 @@ impl Factory {
         let completion_et = current_et + EphemerisTime::from_years(part.build_time_days / 365.0);
         self.current_job = Some(FactoryJob {
             part_id,
+            order_et: current_et,
             completion_et,
             scheduled: false,
         });
@@ -98,5 +100,12 @@ impl Factory {
 
     pub fn is_idle(&self) -> bool {
         self.current_job.is_none()
+    }
+}
+
+impl FactoryJob {
+    pub fn progress(&self, current_et: EphemerisTime) -> f64 {
+        (current_et.as_years() - self.order_et.as_years())
+            / (self.completion_et.as_years() - self.order_et.as_years())
     }
 }
