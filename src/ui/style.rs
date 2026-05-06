@@ -15,6 +15,13 @@ pub struct Style {
     pub text_secondary: Vec4,
     pub text_disabled: Vec4,
 
+    // Button states
+    pub btn_active_bg: Vec4,
+    pub btn_active_border: Vec4,
+    pub btn_inactive_bg: Vec4,
+    pub btn_inactive_border: Vec4,
+    pub btn_hover_bg: Vec4,
+
     // Borders
     pub border_primary: Vec4,
     pub border_accent: Vec4,
@@ -38,10 +45,16 @@ pub static ref STYLE: Style = Style {
 
     text_primary: vec4(1.00, 1.00, 1.00, 1.00),
     text_secondary: vec4(1.0, 0.0, 1.0, 1.0),
-    text_disabled: vec4(1.0, 0.0, 1.0, 1.0),
+    text_disabled: vec4(0.6, 0.6, 0.6, 0.5),
 
     border_primary: vec4(36.0, 49.0, 62.0, 255.0) / 255.0,
     border_accent: vec4(1.0, 0.0, 1.0, 1.0),
+
+    btn_active_bg:       vec4(3.17, 12.6, 19.6, 216.0) / 255.0,
+    btn_active_border:   vec4(36.0, 49.0, 62.0, 255.0) / 255.0,
+    btn_inactive_bg:     vec4(12.0, 20.0, 28.0, 200.0) / 255.0,
+    btn_inactive_border: vec4(28.0, 38.0, 48.0, 180.0) / 255.0,
+    btn_hover_bg:        vec4(19.0, 30.0, 40.0, 220.0) / 255.0,
 
     accent: vec4(14.0, 135.0, 217.0, 216.0) / 255.0,
     accent_hover: vec4(1.0, 0.0, 1.0, 1.0),

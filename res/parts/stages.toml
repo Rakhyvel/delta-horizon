@@ -9,6 +9,7 @@ max_fuel_mass_kg = 300_000.0
 isp = 265.0
 
 [parts.cost]
+funds = 100_000
 iron = 800.0
 aluminum = 200.0
 copper = 50.0
@@ -24,6 +25,7 @@ max_fuel_mass_kg = 20_000.0
 isp = 450.0
 
 [parts.cost]
+funds = 100_000
 iron = 400.0
 aluminum = 150.0
 copper = 30.0

@@ -30,3 +30,5 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 
 lazy_static = "*"
+
+num-format = "0.4"

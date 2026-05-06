@@ -14,6 +14,7 @@ use apricot::{
 };
 use hecs::{Entity, World};
 use nalgebra_glm::{vec2, vec3, vec4, DVec3, Vec2, Vec3};
+use num_format::{Locale, ToFormattedString};
 use sdl2::keyboard::Scancode;
 
 use crate::{
@@ -104,7 +105,7 @@ pub struct Gameplay {
     vab_ui: VabUi,
 
     // Resources
-    money: u32,
+    funds: u32,
 
     // Events and timeline
     event_queue: EventQueue,
@@ -249,6 +250,9 @@ impl Scene for Gameplay {
                 }
                 CommandMessages::FactoryCommand { part_id } => {
                     if let Some(selected) = self.selection.selected_entity() {
+                        let part = self.parts.get(&part_id).expect("should be a valid part");
+                        self.funds -= part.cost.funds;
+
                         self.world
                             .get::<&mut Factory>(selected)
                             .unwrap()
@@ -408,6 +412,7 @@ impl Scene for Gameplay {
                 ),
                 reticle_texture,
                 Rectangle::new(0.0, 0.0, WIDTH, WIDTH),
+                &vec4(1.0, 1.0, 1.0, 1.0),
             );
         }
 
@@ -434,6 +439,7 @@ impl Scene for Gameplay {
                     ),
                     reticle_texture,
                     Rectangle::new(0.0, 0.0, 16.0, 16.0),
+                    &vec4(1.0, 1.0, 1.0, 1.0),
                 );
                 app.renderer
                     .draw_text(screen_pos + vec2(8.0, 8.0), &scene_obj.name);
@@ -751,7 +757,7 @@ impl Gameplay {
             turn_gui,
             vab_ui: VabUi::new(),
 
-            money: 150_000,
+            funds: 150_000,
 
             current_et: EphemerisTime::epoch(),
             animation_start_et: EphemerisTime::epoch(),
@@ -831,6 +837,7 @@ impl Gameplay {
     fn build_footer_widgets(&self, app: &App) -> Vec<Box<dyn Widget<TurnMessages>>> {
         let font = app.renderer.get_font_id_from_name("font").unwrap();
 
+        let formatted_funds = (self.funds as i64).to_formatted_string(&Locale::en);
         vec![
             Box::new(
                 TextureButton::new(
@@ -848,7 +855,7 @@ impl Gameplay {
                 .on_click(TurnMessages::NextTurn),
             ),
             Box::new(Label::new(format!("ET: {}", self.current_et.as_calendar())).font(font, app)),
-            Box::new(Label::new(format!("${}", self.money)).font(font, app)),
+            Box::new(Label::new(format!("${}", formatted_funds)).font(font, app)),
         ]
     }
 
@@ -1045,17 +1052,17 @@ impl Gameplay {
                 .parts
                 .all()
                 .map(|part| {
+                    let formatted_funds = (part.cost.funds as i64).to_formatted_string(&Locale::en);
                     Box::new(
                         TextButton::<CommandMessages>::new(
                             Rectangle::new(100.0, 120.0, WIDTH, 40.0),
-                            part.name.clone(),
+                            format!("{} (${})", part.name.clone(), formatted_funds),
                         )
-                        .background_color(STYLE.bg_primary)
-                        .hovered_color(STYLE.bg_hover)
-                        .border(STYLE.border_primary, 1.0)
+                        .use_style(&STYLE)
                         .on_click(CommandMessages::FactoryCommand {
                             part_id: part.id.clone(),
-                        }),
+                        })
+                        .active(part.cost.funds < self.funds),
                     ) as Box<dyn Widget<CommandMessages>>
                 })
                 .collect();
@@ -1734,7 +1741,7 @@ impl Gameplay {
                 }
             }
             Event::Payday { revenue } => {
-                self.money += revenue;
+                self.funds += revenue;
 
                 // Schedule the next quarterly payout
                 self.event_queue.push(

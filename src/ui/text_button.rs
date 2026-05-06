@@ -1,4 +1,4 @@
-use crate::ui::{msg::MsgQueue, widget::Widget};
+use crate::ui::{msg::MsgQueue, style::Style, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
 use nalgebra_glm::{vec2, vec4, Vec2, Vec4};
 
@@ -8,11 +8,15 @@ pub struct TextButton<Msg> {
     rect: Rectangle,
     /// The text to be drawn for the button
     label: String,
+    text_color: Vec4,
+    inactive_text_color: Vec4,
     /// The background color of the button
     background_color: Vec4,
+    inactive_background_color: Vec4,
     /// The background color of the button when hovered
     hovered_color: Vec4,
-    border: Option<(nalgebra_glm::Vec4, f32)>, // color, width
+    border: Option<(nalgebra_glm::Vec4, f32)>,
+    inactive_border: Option<(nalgebra_glm::Vec4, f32)>,
     /// The message to send when the button is clicked (no message if None)
     on_click: Option<Msg>,
     /// Whether or not the button is active or nah
@@ -25,9 +29,13 @@ impl<Msg> TextButton<Msg> {
         Self {
             rect,
             label: label.into(),
+            text_color: vec4(1.0, 1.0, 1.0, 1.0),
+            inactive_text_color: vec4(1.0, 1.0, 1.0, 1.0),
             background_color: vec4(1.0, 0.0, 1.0, 255.0),
+            inactive_background_color: vec4(1.0, 0.0, 1.0, 255.0),
             hovered_color: vec4(1.0, 0.0, 1.0, 255.0),
             border: None,
+            inactive_border: None,
             on_click: None,
             active: true,
         }
@@ -48,19 +56,31 @@ impl<Msg> TextButton<Msg> {
         self
     }
 
+    pub fn use_style(mut self, style: &Style) -> Self {
+        self.text_color = style.text_primary;
+        self.inactive_text_color = style.text_disabled;
+        self.background_color = style.btn_active_bg;
+        self.inactive_background_color = style.btn_inactive_bg;
+        self.border = Some((style.btn_active_border, 1.0));
+        self.inactive_border = Some((style.btn_inactive_border, 1.0));
+        self.hovered_color = style.btn_hover_bg;
+        self
+    }
+
     pub fn on_click(mut self, msg: Msg) -> Self {
         self.on_click = Some(msg);
         self
     }
 
-    pub fn set_active(&mut self, active: bool) {
-        self.active = active
+    pub fn active(mut self, active: bool) -> Self {
+        self.active = active;
+        self
     }
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
-        if self.rect.contains_point(&app.mouse_pos) && app.mouse_left_clicked {
+        if self.active && self.rect.contains_point(&app.mouse_pos) && app.mouse_left_clicked {
             if let Some(msg) = &self.on_click {
                 msgq.push(msg.clone());
             }
@@ -75,7 +95,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
         };
 
         // Draw background
-        let color = if self.rect.contains_point(&app.mouse_pos) {
+        let color = if !self.active {
+            self.inactive_background_color
+        } else if self.rect.contains_point(&app.mouse_pos) {
             self.hovered_color
         } else {
             self.background_color
@@ -84,7 +106,12 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
         app.renderer.fill_rect(self.rect);
 
         // Draw border
-        if let Some((border_color, _border_size)) = self.border {
+        let border = if !self.active {
+            self.inactive_border
+        } else {
+            self.border
+        };
+        if let Some((border_color, _border_size)) = border {
             app.renderer.set_color(border_color);
             // Left
             let mut rect = Rectangle {
@@ -108,6 +135,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
         }
 
         // Draw text
+        if self.active {
+            app.renderer.set_color(self.text_color);
+        } else {
+            app.renderer.set_color(self.inactive_text_color);
+        }
         app.renderer.draw_text(
             self.rect.pos + (self.rect.size - text_size) * 0.5,
             &self.label,

@@ -1,6 +1,6 @@
 use crate::ui::{msg::MsgQueue, widget::Widget};
 use apricot::{app::App, font::FontId, rectangle::Rectangle};
-use nalgebra_glm::Vec2;
+use nalgebra_glm::{vec4, Vec2, Vec4};
 
 /// A button with text
 pub struct Label {
@@ -8,6 +8,7 @@ pub struct Label {
     rect: Rectangle,
     /// The text to be drawn for the button
     label: String,
+    color: Vec4,
     font_id: Option<FontId>,
 }
 
@@ -22,6 +23,7 @@ impl Label {
         Self {
             rect,
             label: text,
+            color: vec4(1.0, 1.0, 1.0, 1.0),
             font_id: None,
         }
     }
@@ -41,6 +43,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Label {
     fn render(&self, app: &App) {
         let old_font = app.renderer.get_current_font_id();
 
+        app.renderer.set_color(self.color);
         app.renderer.set_font(self.font_id.unwrap());
         app.renderer.draw_text(self.rect.pos, &self.label);
 
