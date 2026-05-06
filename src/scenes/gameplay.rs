@@ -44,7 +44,7 @@ use crate::{
     },
     ui::{
         anchor::{Anchor, AnchorPoint},
-        container::Align,
+        container::{Align, Flow},
         hrule::HRule,
         label::Label,
         progress_bar::ProgressBar,
@@ -1052,17 +1052,60 @@ impl Gameplay {
                 .parts
                 .all()
                 .map(|part| {
+                    let can_afford = part.cost.funds < self.funds;
                     let formatted_funds = (part.cost.funds as i64).to_formatted_string(&Locale::en);
                     Box::new(
-                        TextButton::<CommandMessages>::new(
-                            Rectangle::new(100.0, 120.0, WIDTH, 40.0),
-                            format!("{} (${})", part.name.clone(), formatted_funds),
-                        )
-                        .use_style(&STYLE)
-                        .on_click(CommandMessages::FactoryCommand {
-                            part_id: part.id.clone(),
-                        })
-                        .active(part.cost.funds < self.funds),
+                        Container::new(vec![
+                            Box::new(
+                                Container::new(vec![
+                                    Box::new(
+                                        Label::new(part.name.clone())
+                                            .font(font_small_bold, app)
+                                            .color(if can_afford {
+                                                STYLE.text_primary
+                                            } else {
+                                                STYLE.text_disabled
+                                            }),
+                                    ),
+                                    Box::new(
+                                        Label::new(format!(
+                                            "${}   {}d",
+                                            formatted_funds, part.build_time_days
+                                        ))
+                                        .font(font, app)
+                                        .color(
+                                            if can_afford {
+                                                STYLE.text_primary
+                                            } else {
+                                                STYLE.negative
+                                            },
+                                        ),
+                                    ),
+                                ])
+                                .flow(Flow::Vertical)
+                                .padding(vec2(0.0, 4.0))
+                                .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0)),
+                            ),
+                            Box::new(
+                                Container::new(vec![Box::new(
+                                    TextButton::<CommandMessages>::new(
+                                        Rectangle::new(0.0, 0.0, 45.0, 25.0),
+                                        "BUILD",
+                                    )
+                                    .use_style(&STYLE)
+                                    .on_click(CommandMessages::FactoryCommand {
+                                        part_id: part.id.clone(),
+                                    })
+                                    .active(can_afford),
+                                )])
+                                .padding(vec2(0.0, 0.0))
+                                .fixed_width(vec2(WIDTH * 0.2, 10.0))
+                                .flow(Flow::Horizontal),
+                            ),
+                        ])
+                        .border(STYLE.border_primary, 1.0)
+                        .cross_align(Align::Center)
+                        .flow(Flow::Horizontal),
                     ) as Box<dyn Widget<CommandMessages>>
                 })
                 .collect();

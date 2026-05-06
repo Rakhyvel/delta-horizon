@@ -35,6 +35,11 @@ impl Label {
         self.rect.size = size;
         self
     }
+
+    pub fn color(mut self, color: Vec4) -> Self {
+        self.color = color;
+        self
+    }
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Label {

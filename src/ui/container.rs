@@ -73,6 +73,13 @@ impl<Msg: Clone + 'static> Container<Msg> {
         self
     }
 
+    pub fn fixed_width(mut self, size: Vec2) -> Self {
+        self.rect.size = size;
+        self.fixed_width = true;
+        self.layout(self.rect.pos);
+        self
+    }
+
     pub fn padding(mut self, padding: Vec2) -> Self {
         self.padding = padding;
         self.layout(self.rect.pos);
