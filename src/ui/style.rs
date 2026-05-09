@@ -21,6 +21,9 @@ pub struct Style {
     pub btn_inactive_bg: Vec4,
     pub btn_inactive_border: Vec4,
     pub btn_hover_bg: Vec4,
+    pub btn_accent_bg: Vec4,
+    pub btn_accent_border: Vec4,
+    pub btn_accent_hover_bg: Vec4,
 
     // Borders
     pub border_primary: Vec4,
@@ -55,6 +58,9 @@ pub static ref STYLE: Style = Style {
     btn_inactive_bg:     vec4(12.0, 20.0, 28.0, 200.0) / 255.0,
     btn_inactive_border: vec4(28.0, 38.0, 48.0, 180.0) / 255.0,
     btn_hover_bg:        vec4(19.0, 30.0, 40.0, 220.0) / 255.0,
+    btn_accent_bg:       vec4(20.0, 60.0, 100.0, 220.0) / 255.0,
+    btn_accent_border:   vec4(91.0, 160.0, 229.0, 255.0) / 255.0,
+    btn_accent_hover_bg: vec4(35.0, 80.0, 130.0, 240.0) / 255.0,
 
     accent: vec4(14.0, 135.0, 217.0, 216.0) / 255.0,
     accent_hover: vec4(1.0, 0.0, 1.0, 1.0),

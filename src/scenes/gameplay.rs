@@ -29,7 +29,7 @@ use crate::{
         units::SUN_MU,
     },
     components::{
-        craft::{replace_line_path, AssociatedEntity, Command},
+        craft::{replace_line_path, AssociatedEntity, Command, Stage},
         factory::{spawn_factory, Factory},
         inventory::PartInventory,
         parts::PartRegistry,
@@ -290,19 +290,17 @@ impl Scene for Gameplay {
             if let Some(selected) = self.selection.selected_entity() {
                 let parent = self.world.get::<&Parent>(selected).unwrap().id;
 
-                let payload = {
-                    self.parts
-                        .get(&self.vab_ui.payload.clone().unwrap().id)
-                        .unwrap()
-                        .instantiate_payload()
-                };
+                let payload = self
+                    .vab_ui
+                    .payload()
+                    .expect("the VAB shouldn't allow invalid payloads");
 
                 let stages = self
                     .vab_ui
-                    .stages
-                    .iter()
-                    .map(|stage_def| self.parts.get(&stage_def.id).unwrap().instantiate_stage())
-                    .collect();
+                    .stages()
+                    .into_iter()
+                    .collect::<Option<Vec<Stage>>>()
+                    .expect("the VAB shouldn't allow invalid stages");
 
                 {
                     let mut inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
@@ -549,11 +547,11 @@ impl Gameplay {
 
         // Setup the font manager
         app.renderer
-            .add_font("res/Consolas.ttf", "font", 14, sdl2::ttf::FontStyle::NORMAL);
+            .add_font("res/Consolas.ttf", "font", 15, sdl2::ttf::FontStyle::NORMAL);
         app.renderer.add_font(
             "res/Consolas.ttf",
             "font-small-bold",
-            14,
+            16,
             sdl2::ttf::FontStyle::BOLD,
         );
         app.renderer.add_font(
@@ -690,8 +688,7 @@ impl Gameplay {
                 )
                 .on_click(TurnMessages::NextTurn),
                 TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Click me!")
-                    .background_color(STYLE.bg_primary)
-                    .hovered_color(STYLE.bg_hover)
+                    .use_style(&STYLE)
                     .border(STYLE.border_primary, 1.0)
                     .on_click(TurnMessages::NextTurn),
             ]),
@@ -907,11 +904,8 @@ impl Gameplay {
             Box::new(Label::new(format!("Name: {}", scene_object.name.clone())).font(font, app)),
             Box::new(Label::new(format!("Status: {status_str}")).font(font, app)),
             Box::new(
-                Label::new(format!(
-                    "Delta V: {:.3} km/s",
-                    craft.total_remaining_dv() / 1000.0
-                ))
-                .font(font, app),
+                Label::new(format!("Delta V: {:.3} m/s", craft.total_remaining_dv()))
+                    .font(font, app),
             ),
         ];
         widgets
@@ -1123,9 +1117,7 @@ impl Gameplay {
                 Rectangle::new(100.0, 120.0, 240.0, 40.0),
                 "Stack New Vechicle",
             )
-            .background_color(STYLE.bg_primary)
-            .hovered_color(STYLE.bg_hover)
-            .border(STYLE.border_primary, 1.0)
+            .use_style(&STYLE)
             .on_click(CommandMessages::OpenVab),
         )];
 
@@ -1165,8 +1157,7 @@ impl Gameplay {
                                 plan.deorbit_dv + plan.landing_dv
                             ),
                         )
-                        .background_color(STYLE.bg_primary)
-                        .hovered_color(STYLE.bg_hover)
+                        .use_style(&STYLE)
                         .border(STYLE.border_primary, 1.0)
                         .on_click(CommandMessages::CraftCommand(Command::Land { plan })),
                     ));
@@ -1200,9 +1191,7 @@ impl Gameplay {
                                 grandparent_scene_object.name, plan.escape_dv
                             ),
                         )
-                        .background_color(STYLE.bg_primary)
-                        .hovered_color(STYLE.bg_hover)
-                        .border(STYLE.border_primary, 1.0)
+                        .use_style(&STYLE)
                         .on_click(CommandMessages::CraftCommand(Command::Escape {
                             to: grandparent.id,
                             plan,
@@ -1243,9 +1232,7 @@ impl Gameplay {
                                     plan.transfer_dv + plan.circ_dv
                                 ),
                             )
-                            .background_color(STYLE.bg_primary)
-                            .hovered_color(STYLE.bg_hover)
-                            .border(STYLE.border_primary, 1.0)
+                            .use_style(&STYLE)
                             .on_click(CommandMessages::CraftCommand(Command::Transfer {
                                 to,
                                 plan,
@@ -1288,9 +1275,7 @@ impl Gameplay {
                                 Rectangle::new(100.0, 120.0, 240.0, 40.0),
                                 format!("Flyby {} | {:.0} m/s", scene_obj.name, plan.transfer_dv),
                             )
-                            .background_color(STYLE.bg_primary)
-                            .hovered_color(STYLE.bg_hover)
-                            .border(STYLE.border_primary, 1.0)
+                            .use_style(&STYLE)
                             .on_click(CommandMessages::CraftCommand(Command::Flyby { to, plan })),
                         )
                             as Box<dyn Widget<CommandMessages>>)
@@ -1343,9 +1328,7 @@ impl Gameplay {
                         Rectangle::new(100.0, 120.0, 240.0, 40.0),
                         format!("Launch | {:.0} m/s", plan.launch_dv + plan.circ_dv),
                     )
-                    .background_color(STYLE.bg_primary)
-                    .hovered_color(STYLE.bg_hover)
-                    .border(STYLE.border_primary, 1.0)
+                    .use_style(&STYLE)
                     .on_click(CommandMessages::CraftCommand(Command::Launch { plan })),
                 ));
             }

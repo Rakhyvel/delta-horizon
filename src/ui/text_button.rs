@@ -67,6 +67,17 @@ impl<Msg> TextButton<Msg> {
         self
     }
 
+    pub fn use_style_accented(mut self, style: &Style) -> Self {
+        self.text_color = style.text_primary;
+        self.inactive_text_color = style.text_disabled;
+        self.background_color = style.btn_accent_bg;
+        self.inactive_background_color = style.btn_inactive_bg;
+        self.border = Some((style.btn_accent_border, 1.0));
+        self.inactive_border = Some((style.btn_inactive_border, 1.0));
+        self.hovered_color = style.btn_accent_hover_bg;
+        self
+    }
+
     pub fn on_click(mut self, msg: Msg) -> Self {
         self.on_click = Some(msg);
         self

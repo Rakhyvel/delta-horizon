@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     components::{
+        craft::{Craft, Payload, Stage},
         inventory::PartInventory,
         parts::{PartDef, PartRegistry},
     },
@@ -9,6 +10,7 @@ use crate::{
 };
 use apricot::{app::App, font::FontId, rectangle::Rectangle};
 use nalgebra_glm::vec2;
+use num_format::{Locale, ToFormattedString};
 
 use crate::{
     container,
@@ -114,6 +116,9 @@ impl VabUi {
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         let font_big: FontId = app.renderer.get_font_id_from_name("font-big").unwrap();
 
+        let total_dv = self.calculate_total_delta_v().unwrap_or(0.0);
+        let good_dv = total_dv > 8294.0;
+
         self.modal = Modal::new(Box::new(
             container![
                 // Title
@@ -130,18 +135,25 @@ impl VabUi {
                 ]
                 .flow(Flow::Horizontal)
                 .cross_align(Align::Start),
-                // Bottom row
+                // Bottom  row
+                container![Label::new(format!("Total dv: {total_dv:.3} m/s"))
+                    .font(font, app)
+                    .color(if good_dv {
+                        STYLE.positive
+                    } else {
+                        STYLE.warning
+                    }),]
+                .flow(Flow::Horizontal)
+                .cross_align(Align::Center),
+                // Bottom bottom row
                 container![
-                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Close!",)
-                        .background_color(STYLE.bg_primary)
-                        .hovered_color(STYLE.bg_hover)
-                        .border(STYLE.border_primary, 1.0)
+                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Close",)
+                        .use_style(&STYLE)
                         .on_click(VabMessages::Close),
                     TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Build!",)
-                        .background_color(STYLE.bg_primary)
-                        .hovered_color(STYLE.bg_hover)
-                        .border(STYLE.border_primary, 1.0)
+                        .use_style_accented(&STYLE)
                         .on_click(VabMessages::Build)
+                        .active(good_dv)
                 ]
                 .flow(Flow::Horizontal)
                 .cross_align(Align::Center),
@@ -166,9 +178,7 @@ impl VabUi {
                 Box::new(container![
                     Label::new(payload.name.clone()).font(font, app),
                     TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Remove",)
-                        .background_color(STYLE.bg_primary)
-                        .hovered_color(STYLE.bg_hover)
-                        .border(STYLE.border_primary, 1.0)
+                        .use_style(&STYLE)
                         .on_click(VabMessages::UnsetPayload)
                 ]) as Box<dyn Widget<VabMessages>>
             })
@@ -186,9 +196,7 @@ impl VabUi {
         if !self.stages.is_empty() {
             stages.push(Box::new(
                 TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0), "Remove")
-                    .background_color(STYLE.bg_primary)
-                    .hovered_color(STYLE.bg_hover)
-                    .border(STYLE.border_primary, 1.0)
+                    .use_style(&STYLE)
                     .on_click(VabMessages::RemoveFromStack),
             ))
         }
@@ -198,6 +206,20 @@ impl VabUi {
         widgets.extend(stages);
 
         widgets
+    }
+
+    fn calculate_total_delta_v(&self) -> Option<f64> {
+        let payload = self.payload()?;
+        let stages_stack: Vec<Stage> = self.stages().into_iter().collect::<Option<Vec<Stage>>>()?;
+
+        let craft = Craft {
+            command: None,
+            payload,
+            stages_stack,
+            line_path_entity: None,
+            locked: None,
+        };
+        Some(craft.total_remaining_dv())
     }
 
     fn build_available_parts(&self, font: FontId, app: &App) -> Vec<Box<dyn Widget<VabMessages>>> {
@@ -299,5 +321,22 @@ impl VabUi {
         widgets.extend(stages);
 
         widgets
+    }
+
+    pub fn payload(&self) -> Option<Payload> {
+        self.registry
+            .get(&self.payload.clone()?.id)
+            .map(|part| part.instantiate_payload())
+    }
+
+    pub fn stages(&self) -> Vec<Option<Stage>> {
+        self.stages
+            .iter()
+            .map(|stage_def| {
+                self.registry
+                    .get(&stage_def.id)
+                    .map(|part| part.instantiate_stage())
+            })
+            .collect()
     }
 }
