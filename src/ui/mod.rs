@@ -8,4 +8,5 @@ pub(crate) mod progress_bar;
 pub(crate) mod style;
 pub(crate) mod text_button;
 pub(crate) mod texture_button;
+pub(crate) mod vrule;
 pub(crate) mod widget;

@@ -51,7 +51,7 @@ pub static ref STYLE: Style = Style {
     text_disabled: vec4(0.6, 0.6, 0.6, 0.5),
 
     border_primary: vec4(36.0, 49.0, 62.0, 255.0) / 255.0,
-    border_accent: vec4(1.0, 0.0, 1.0, 1.0),
+    border_accent: vec4(91.0, 160.0, 229.0, 255.0) / 255.0,
 
     btn_active_bg:       vec4(3.17, 12.6, 19.6, 216.0) / 255.0,
     btn_active_border:   vec4(36.0, 49.0, 62.0, 255.0) / 255.0,

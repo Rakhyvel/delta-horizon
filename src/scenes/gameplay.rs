@@ -329,7 +329,7 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 1.5;
+            const TURN_TIME: f64 = 0.75;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
             let eased = t;
 

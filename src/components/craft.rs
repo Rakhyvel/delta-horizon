@@ -44,7 +44,8 @@ pub struct Stage {
     pub fuel_mass: f64,     // [kg]
     pub max_fuel_mass: f64, // [kg]
 
-    pub isp: f64, // [s]
+    pub thrust_kn: f64, // [kN]
+    pub isp: f64,       // [s]
 }
 
 pub struct AssociatedEntity {
@@ -229,46 +230,6 @@ pub fn replace_line_path(
         .line_path_entity = new_entity;
 }
 
-pub fn first_stage() -> Stage {
-    // Atlas analogue
-    Stage {
-        name: String::from("Menoetius"),
-        dry_mass: 25_000.0,
-        fuel_mass: 300_000.0,
-        max_fuel_mass: 300_000.0,
-        isp: 265.0,
-    }
-}
-
-pub fn second_stage() -> Stage {
-    // Centaur analogue
-    Stage {
-        name: String::from("Minotaur"),
-        dry_mass: 2_200.0,
-        fuel_mass: 20_000.0,
-        max_fuel_mass: 20_000.0,
-        isp: 450.0,
-    }
-}
-
-pub fn transfer_stage() -> Stage {
-    // Dawn analogue
-    Stage {
-        name: String::from("Dusk"),
-        dry_mass: 2_000.0,
-        fuel_mass: 5_000.0,
-        max_fuel_mass: 5_000.0,
-        isp: 2500.0,
-    }
-}
-
-pub fn probe() -> Payload {
-    Payload {
-        name: String::from("Proboscus"),
-        dry_mass: 3000.7,
-    }
-}
-
 impl Craft {
     /// Returns the delta v of the current stage, in m/s
     pub fn current_stage_dv(&self) -> f64 {
@@ -310,6 +271,13 @@ impl Craft {
             .sum();
 
         payload_mass + stage_mass
+    }
+
+    pub fn twr(&self) -> Option<f64> {
+        let total_mass_kg = self.total_mass();
+        let bottom_stage = self.stages_stack.last()?;
+        let thrust_n = bottom_stage.thrust_kn * 1000.0;
+        Some(thrust_n / (total_mass_kg * 9.81))
     }
 
     pub fn burn(&mut self, mut requested_dv: f64) {

@@ -18,6 +18,7 @@ pub struct PartDef {
 pub struct FuelSpec {
     pub max_fuel_mass_kg: f64,
     pub isp: f64,
+    pub thrust_kn: f64,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -86,6 +87,7 @@ impl PartDef {
             dry_mass: self.dry_mass_kg,
             fuel_mass: self.fuel.unwrap().max_fuel_mass_kg, // starts full
             max_fuel_mass: self.fuel.unwrap().max_fuel_mass_kg,
+            thrust_kn: self.fuel.unwrap().thrust_kn,
             isp: self.fuel.unwrap().isp,
         }
     }

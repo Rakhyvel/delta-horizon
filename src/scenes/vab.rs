@@ -6,7 +6,7 @@ use crate::{
         inventory::PartInventory,
         parts::{PartDef, PartRegistry},
     },
-    ui::{container::Container, style::STYLE},
+    ui::{container::Container, style::STYLE, vrule::VRule},
 };
 use apricot::{app::App, font::FontId, rectangle::Rectangle};
 use nalgebra_glm::vec2;
@@ -116,8 +116,10 @@ impl VabUi {
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         let font_big: FontId = app.renderer.get_font_id_from_name("font-big").unwrap();
 
-        let total_dv = self.calculate_total_delta_v().unwrap_or(0.0);
-        let good_dv = total_dv > 8294.0;
+        let (total_dv, twr) = self.calc_craft_dv_twr().unwrap_or((0.0, 0.0));
+        const DV_TO_LAUNCH_FROM_EARTH: f64 = 8294.0;
+        let good_dv = total_dv > DV_TO_LAUNCH_FROM_EARTH;
+        let good_twr = twr > 1.0;
 
         self.modal = Modal::new(Box::new(
             container![
@@ -127,8 +129,8 @@ impl VabUi {
                 container![
                     Container::new(self.build_rocket(font, app))
                         .flow(Flow::Vertical)
-                        .cross_align(Align::Center)
-                        .fixed_width(vec2(WIDTH, 0.0)),
+                        .cross_align(Align::Center),
+                    VRule::new(STYLE.border_primary, 1.0, 280.0),
                     Container::new(self.build_available_parts(font, app))
                         .flow(Flow::Vertical)
                         .cross_align(Align::Center),
@@ -136,13 +138,23 @@ impl VabUi {
                 .flow(Flow::Horizontal)
                 .cross_align(Align::Start),
                 // Bottom  row
-                container![Label::new(format!("Total dv: {total_dv:.3} m/s"))
-                    .font(font, app)
-                    .color(if good_dv {
-                        STYLE.positive
-                    } else {
-                        STYLE.warning
-                    }),]
+                container![
+                    Label::new(format!("Total dv: {total_dv:.3} m/s"))
+                        .font(font, app)
+                        .color(if good_dv {
+                            STYLE.positive
+                        } else {
+                            STYLE.warning
+                        }),
+                    Label::new(format!("TWR: {twr:.3}"))
+                        .font(font, app)
+                        .color(if good_twr {
+                            STYLE.positive
+                        } else {
+                            STYLE.warning
+                        }),
+                ]
+                .padding(vec2(32.0, 0.0))
                 .flow(Flow::Horizontal)
                 .cross_align(Align::Center),
                 // Bottom bottom row
@@ -153,7 +165,7 @@ impl VabUi {
                     TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Build!",)
                         .use_style_accented(&STYLE)
                         .on_click(VabMessages::Build)
-                        .active(good_dv)
+                        .active(good_dv && good_twr)
                 ]
                 .flow(Flow::Horizontal)
                 .cross_align(Align::Center),
@@ -171,44 +183,104 @@ impl VabUi {
             .get_font_id_from_name("font-small-bold")
             .unwrap();
 
-        let payload: Vec<Box<dyn Widget<VabMessages>>> = self
-            .payload
-            .iter()
-            .map(|payload| {
-                Box::new(container![
-                    Label::new(payload.name.clone()).font(font, app),
-                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Remove",)
-                        .use_style(&STYLE)
-                        .on_click(VabMessages::UnsetPayload)
-                ]) as Box<dyn Widget<VabMessages>>
-            })
-            .collect();
+        widgets.push(Box::new(Label::new("Stack:").font(font_small_bold, app)));
 
-        let mut stages: Vec<Box<dyn Widget<VabMessages>>> = self
-            .stages
-            .iter()
-            .map(|stage| {
-                Box::new(container![Label::new(stage.name.clone()).font(font, app),])
-                    as Box<dyn Widget<VabMessages>>
-            })
-            .collect();
-
-        if !self.stages.is_empty() {
-            stages.push(Box::new(
-                TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0), "Remove")
-                    .use_style(&STYLE)
-                    .on_click(VabMessages::RemoveFromStack),
-            ))
+        if let Some(payload) = &self.payload {
+            widgets.push(Box::new(
+                Container::new(vec![
+                    Box::new(
+                        Container::new(vec![
+                            Box::new(Label::new("Payload").font(font_small_bold, app)),
+                            Box::new(Label::new(payload.name.clone()).font(font, app)),
+                        ])
+                        .flow(Flow::Vertical)
+                        .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0)),
+                    ),
+                    Box::new(
+                        Container::new(vec![Box::new(
+                            TextButton::<VabMessages>::new(
+                                Rectangle::new(0.0, 0.0, 45.0, 25.0),
+                                "X",
+                            )
+                            .use_style(&STYLE)
+                            .on_click(VabMessages::UnsetPayload),
+                        )])
+                        .fixed_width(vec2(WIDTH * 0.2, 10.0))
+                        .flow(Flow::Horizontal),
+                    ),
+                ])
+                .border(STYLE.border_primary, 1.0)
+                .cross_align(Align::Center)
+                .flow(Flow::Horizontal),
+            ));
+        } else {
+            widgets.push(Box::new(
+                Container::new(vec![Box::new(
+                    Label::new("No payload")
+                        .font(font, app)
+                        .color(STYLE.text_disabled),
+                )])
+                .border(STYLE.border_primary, 1.0)
+                .fixed_width(vec2(WIDTH, 10.0))
+                .cross_align(Align::Center)
+                .flow(Flow::Horizontal),
+            ));
         }
 
-        widgets.push(Box::new(Label::new("Stack:").font(font_small_bold, app)));
-        widgets.extend(payload);
-        widgets.extend(stages);
+        // Stages from top to bottom (last in vec = bottom stage = burns first)
+        for (i, stage) in self.stages.iter().enumerate() {
+            let stage_num = self.stages.len() - i;
+            let is_bottom = i == self.stages.len() - 1;
+            widgets.push(Box::new(
+                Container::new(vec![
+                    Box::new(
+                        Container::new(vec![
+                            Box::new(
+                                Label::new(format!("Stage {stage_num}")).font(font_small_bold, app),
+                            ),
+                            Box::new(Label::new(stage.name.clone()).font(font, app)),
+                        ])
+                        .flow(Flow::Vertical)
+                        .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0)),
+                    ),
+                    Box::new(
+                        Container::new(vec![Box::new(
+                            TextButton::<VabMessages>::new(
+                                Rectangle::new(0.0, 0.0, 45.0, 25.0),
+                                "X",
+                            )
+                            .use_style(&STYLE)
+                            .on_click(VabMessages::RemoveFromStack)
+                            .active(is_bottom), // only bottom stage can be removed
+                        )])
+                        .fixed_width(vec2(WIDTH * 0.2, 10.0))
+                        .flow(Flow::Horizontal),
+                    ),
+                ])
+                .border(STYLE.border_primary, 1.0)
+                .cross_align(Align::Center)
+                .flow(Flow::Horizontal),
+            ));
+        }
+
+        if self.stages.is_empty() {
+            widgets.push(Box::new(
+                Container::new(vec![Box::new(
+                    Label::new("No stages")
+                        .font(font, app)
+                        .color(STYLE.text_disabled),
+                )])
+                .border(STYLE.border_primary, 1.0)
+                .fixed_width(vec2(WIDTH, 10.0))
+                .cross_align(Align::Center)
+                .flow(Flow::Horizontal),
+            ));
+        }
 
         widgets
     }
 
-    fn calculate_total_delta_v(&self) -> Option<f64> {
+    fn calc_craft_dv_twr(&self) -> Option<(f64, f64)> {
         let payload = self.payload()?;
         let stages_stack: Vec<Stage> = self.stages().into_iter().collect::<Option<Vec<Stage>>>()?;
 
@@ -219,7 +291,10 @@ impl VabUi {
             line_path_entity: None,
             locked: None,
         };
-        Some(craft.total_remaining_dv())
+
+        let twr = craft.twr()?;
+
+        Some((craft.total_remaining_dv(), twr))
     }
 
     fn build_available_parts(&self, font: FontId, app: &App) -> Vec<Box<dyn Widget<VabMessages>>> {
