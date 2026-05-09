@@ -8,6 +8,7 @@ use crate::{
     ui::{container::Container, style::STYLE},
 };
 use apricot::{app::App, font::FontId, rectangle::Rectangle};
+use nalgebra_glm::vec2;
 
 use crate::{
     container,
@@ -19,6 +20,8 @@ use crate::{
         widget::{recv_msgs, Widget},
     },
 };
+
+const WIDTH: f32 = 280.0;
 
 pub struct VabUi {
     modal: Modal<VabMessages>,
@@ -109,22 +112,24 @@ impl VabUi {
 
     fn rebuild_modal(&mut self, app: &App) {
         let font = app.renderer.get_font_id_from_name("font").unwrap();
+        let font_big: FontId = app.renderer.get_font_id_from_name("font-big").unwrap();
 
         self.modal = Modal::new(Box::new(
             container![
                 // Title
-                Label::new("Vehicle Assembly Building:").font(font, app),
+                Label::new("Vehicle Assembly Building:").font(font_big, app),
                 // Middle section
                 container![
                     Container::new(self.build_rocket(font, app))
                         .flow(Flow::Vertical)
-                        .cross_align(Align::Center),
+                        .cross_align(Align::Center)
+                        .fixed_width(vec2(WIDTH, 0.0)),
                     Container::new(self.build_available_parts(font, app))
                         .flow(Flow::Vertical)
                         .cross_align(Align::Center),
                 ]
                 .flow(Flow::Horizontal)
-                .cross_align(Align::Center),
+                .cross_align(Align::Start),
                 // Bottom row
                 container![
                     TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Close!",)
@@ -148,7 +153,11 @@ impl VabUi {
     }
 
     fn build_rocket(&self, font: FontId, app: &App) -> Vec<Box<dyn Widget<VabMessages>>> {
-        let mut widgets = vec![];
+        let mut widgets: Vec<Box<dyn Widget<VabMessages>>> = vec![];
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
 
         let payload: Vec<Box<dyn Widget<VabMessages>>> = self
             .payload
@@ -173,6 +182,7 @@ impl VabUi {
                     as Box<dyn Widget<VabMessages>>
             })
             .collect();
+
         if !self.stages.is_empty() {
             stages.push(Box::new(
                 TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0), "Remove")
@@ -183,6 +193,7 @@ impl VabUi {
             ))
         }
 
+        widgets.push(Box::new(Label::new("Stack:").font(font_small_bold, app)));
         widgets.extend(payload);
         widgets.extend(stages);
 
@@ -190,52 +201,101 @@ impl VabUi {
     }
 
     fn build_available_parts(&self, font: FontId, app: &App) -> Vec<Box<dyn Widget<VabMessages>>> {
-        let mut widgets = vec![];
+        let mut widgets: Vec<Box<dyn Widget<VabMessages>>> = vec![];
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
 
         let payloads: Vec<Box<dyn Widget<VabMessages>>> = self
-            .available_parts
-            .iter()
-            .filter_map(|(part_id, count)| {
-                let part = self.registry.get(part_id).unwrap();
+            .registry
+            .all()
+            .filter_map(|part| {
+                let count = self.available_parts.get(&part.id).unwrap_or(&0);
                 if part.fuel.is_some() {
                     return None;
                 }
-                if *count == 0 {
-                    return None;
-                }
 
-                Some(Box::new(container![
-                    Label::new(format!("{} ({count})", part.name.clone())).font(font, app),
-                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Set as payload",)
-                        .background_color(STYLE.bg_primary)
-                        .hovered_color(STYLE.bg_hover)
-                        .border(STYLE.border_primary, 1.0)
-                        .on_click(VabMessages::SetPayload(part_id.clone()))
-                ]) as Box<dyn Widget<VabMessages>>)
+                let have_some = *count > 0;
+
+                Some(Box::new(
+                    Container::new(vec![
+                        Box::new(
+                            Container::new(vec![Box::new(
+                                Label::new(format!("{} ({count})", part.name.clone()))
+                                    .font(font, app),
+                            )])
+                            .padding(vec2(0.0, 0.0))
+                            .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0))
+                            .flow(Flow::Horizontal),
+                        ),
+                        Box::new(
+                            Container::new(vec![Box::new(
+                                TextButton::<VabMessages>::new(
+                                    Rectangle::new(0.0, 0.0, 45.0, 25.0),
+                                    "+",
+                                )
+                                .use_style(&STYLE)
+                                .on_click(VabMessages::SetPayload(part.id.clone()))
+                                .active(have_some),
+                            )])
+                            .padding(vec2(0.0, 0.0))
+                            .fixed_width(vec2(WIDTH * 0.2, 10.0))
+                            .flow(Flow::Horizontal),
+                        ),
+                    ])
+                    .border(STYLE.border_primary, 1.0)
+                    .cross_align(Align::Center)
+                    .flow(Flow::Horizontal),
+                ) as Box<dyn Widget<VabMessages>>)
             })
             .collect();
 
         let stages: Vec<Box<dyn Widget<VabMessages>>> = self
-            .available_parts
-            .iter()
-            .filter_map(|(part_id, count)| {
-                let part = self.registry.get(part_id).unwrap();
+            .registry
+            .all()
+            .filter_map(|part| {
+                let count = self.available_parts.get(&part.id).unwrap_or(&0);
                 let _ = part.fuel?;
-                if *count == 0 {
-                    return None;
-                }
-                Some(Box::new(container![
-                    Label::new(format!("{} ({count})", part.name.clone())).font(font, app),
-                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Add to stack",)
-                        .background_color(STYLE.bg_primary)
-                        .hovered_color(STYLE.bg_hover)
-                        .border(STYLE.border_primary, 1.0)
-                        .on_click(VabMessages::AddToStack(part_id.clone()))
-                ]) as Box<dyn Widget<VabMessages>>)
+
+                let have_some = *count > 0;
+
+                Some(Box::new(
+                    Container::new(vec![
+                        Box::new(
+                            Container::new(vec![Box::new(
+                                Label::new(format!("{} ({count})", part.name.clone()))
+                                    .font(font, app),
+                            )])
+                            .padding(vec2(0.0, 0.0))
+                            .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0))
+                            .flow(Flow::Horizontal),
+                        ),
+                        Box::new(
+                            Container::new(vec![Box::new(
+                                TextButton::<VabMessages>::new(
+                                    Rectangle::new(0.0, 0.0, 45.0, 25.0),
+                                    "+",
+                                )
+                                .use_style(&STYLE)
+                                .on_click(VabMessages::AddToStack(part.id.clone()))
+                                .active(have_some),
+                            )])
+                            .padding(vec2(0.0, 0.0))
+                            .fixed_width(vec2(WIDTH * 0.2, 10.0))
+                            .flow(Flow::Horizontal),
+                        ),
+                    ])
+                    .border(STYLE.border_primary, 1.0)
+                    .cross_align(Align::Center)
+                    .flow(Flow::Horizontal),
+                ) as Box<dyn Widget<VabMessages>>)
             })
             .collect();
 
+        widgets.push(Box::new(Label::new("Payloads:").font(font_small_bold, app)));
         widgets.extend(payloads);
+        widgets.push(Box::new(Label::new("Stages:").font(font_small_bold, app)));
         widgets.extend(stages);
 
         widgets
