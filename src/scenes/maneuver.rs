@@ -11,11 +11,11 @@ use crate::{
         body::{Body, Parent, SceneObject},
         craft::{Command, Craft, Landed},
     },
-    ui::{container::Container, hrule::HRule, style::STYLE},
+    ui::{container::Container, dropdown::Dropdown, hrule::HRule, style::STYLE},
 };
 use apricot::{app::App, font::FontId, rectangle::Rectangle};
 use hecs::{Entity, World};
-use nalgebra_glm::vec2;
+use nalgebra_glm::{vec2, vec4};
 
 use crate::{
     container,
@@ -227,12 +227,6 @@ impl ManeuverModal {
             Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)),
         ];
 
-        let mut maneuver_section: Vec<Box<dyn Widget<ManeuverMessages>>> = vec![];
-
-        // Manuever type section
-        sections.push(Box::new(
-            Label::new("MANEUVER TYPE").font(font_small_bold, app),
-        ));
         let craft_dv = world
             .get::<&Craft>(self.craft.unwrap())
             .unwrap()
@@ -240,77 +234,62 @@ impl ManeuverModal {
         let is_landed = world.get::<&Landed>(self.craft.unwrap()).is_ok();
         let is_orbiting = world.get::<&State>(self.craft.unwrap()).is_ok();
 
-        let kind_buttons: Vec<Box<dyn Widget<ManeuverMessages>>> = ManeuverKind::all()
+        let kind_options: Vec<&ManeuverKind> = ManeuverKind::all()
             .iter()
             .filter(|k| k.available(is_landed, is_orbiting))
-            .map(|k| {
-                // TODO: Drop down?
-                Box::new(
-                    TextButton::new(Rectangle::new(0.0, 0.0, WIDTH, 28.0), k.label())
-                        .use_style_accented_if(&STYLE, self.selected_kind.as_ref() == Some(k))
-                        .use_style_if(&STYLE, self.selected_kind.as_ref() != Some(k))
-                        .on_click(ManeuverMessages::SelectKind(k.clone())),
-                ) as Box<dyn Widget<ManeuverMessages>>
-            })
             .collect();
-        maneuver_section.push(Box::new(Container::new(kind_buttons).flow(Flow::Vertical)));
+        let selected_kind_idx = self
+            .selected_kind
+            .as_ref()
+            .and_then(|sk| kind_options.iter().position(|k| *k == sk));
 
-        // Destination section (only for transfers and flybys)
-        // TODO: Drop down?
+        sections.push(Box::new(
+            container!(
+                Label::new("Maneuver kind:").font(font, app),
+                Dropdown::new(
+                    "",
+                    vec2(WIDTH * 0.5, 40.0),
+                    kind_options
+                        .iter()
+                        .map(|k| (k.label(), ManeuverMessages::SelectKind((*k).clone())))
+                        .collect(),
+                )
+                .selected(selected_kind_idx)
+                .use_style(&STYLE),
+            )
+            .flow(Flow::Horizontal)
+            .cross_align(Align::Center)
+            .padding(vec2(12.0, 0.0)),
+        ));
+
         if let Some(kind) = &self.selected_kind {
             if kind.needs_destination() {
                 let destinations = self.get_destinations(self.craft.unwrap(), world);
-                let mut dest_buttons: Vec<Box<dyn Widget<ManeuverMessages>>> = destinations
-                    .iter()
-                    .map(|(entity, name)| {
-                        let selected = self.selected_destination == Some(*entity);
-                        Box::new(
-                            TextButton::new(Rectangle::new(0.0, 0.0, WIDTH, 28.0), name.clone())
-                                .use_style_accented_if(&STYLE, selected)
-                                .use_style_if(&STYLE, !selected)
-                                .on_click(ManeuverMessages::SelectDestination(*entity)),
-                        ) as Box<dyn Widget<ManeuverMessages>>
-                    })
-                    .collect();
-                dest_buttons.insert(0, Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
-                dest_buttons.insert(
-                    0,
-                    Box::new(Label::new("DESTINATION").font(font_small_bold, app)),
-                );
-                maneuver_section.push(Box::new(Container::new(dest_buttons).flow(Flow::Vertical)));
+                let selected_dest_idx = self
+                    .selected_destination
+                    .and_then(|sd| destinations.iter().position(|(e, _)| *e == sd));
+                sections.push(Box::new(
+                    container!(
+                        Label::new("Destination:").font(font, app),
+                        Dropdown::new(
+                            "",
+                            vec2(WIDTH * 0.5, 40.0),
+                            destinations
+                                .iter()
+                                .map(|(entity, name)| {
+                                    (name.clone(), ManeuverMessages::SelectDestination(*entity))
+                                })
+                                .collect(),
+                        )
+                        .selected(selected_dest_idx)
+                        .use_style(&STYLE),
+                    )
+                    .flow(Flow::Horizontal)
+                    .cross_align(Align::Center)
+                    .padding(vec2(12.0, 0.0)),
+                ));
             }
         }
-
-        // Date picker (only for launch for now, others use porkchop and minfuel objective)
-        if self.selected_kind == Some(ManeuverKind::Launch) {
-            maneuver_section.push(Box::new(container![
-                HRule::new(STYLE.border_primary, 1.0, WIDTH),
-                Label::new("LAUNCH DATE").font(font_small_bold, app),
-                container![
-                    TextButton::new(Rectangle::new(0.0, 0.0, 45.0, 28.0), "-30d")
-                        .use_style(&STYLE)
-                        .on_click(ManeuverMessages::AdjustDate(-30.0)),
-                    TextButton::new(Rectangle::new(0.0, 0.0, 35.0, 28.0), "-1d")
-                        .use_style(&STYLE)
-                        .on_click(ManeuverMessages::AdjustDate(-1.0)),
-                    Label::new(self.selected_date.as_calendar()).font(font, app),
-                    TextButton::new(Rectangle::new(0.0, 0.0, 35.0, 28.0), "+1d")
-                        .use_style(&STYLE)
-                        .on_click(ManeuverMessages::AdjustDate(1.0)),
-                    TextButton::new(Rectangle::new(0.0, 0.0, 45.0, 28.0), "+30d")
-                        .use_style(&STYLE)
-                        .on_click(ManeuverMessages::AdjustDate(30.0)),
-                ]
-                .flow(Flow::Horizontal)
-                .cross_align(Align::Center),
-            ]));
-        }
-
-        sections.push(Box::new(
-            Container::new(maneuver_section)
-                .flow(Flow::Horizontal)
-                .cross_align(Align::Start),
-        ));
 
         // Result section
         let result_dv = self
@@ -367,6 +346,7 @@ impl ManeuverModal {
                     .on_click(ManeuverMessages::Confirm)
                     .active(can_confirm),
             ]
+            .fixed_width(vec2(WIDTH, 0.0))
             .flow(Flow::Horizontal)
             .cross_align(Align::Center),
         ));
