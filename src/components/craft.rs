@@ -12,7 +12,6 @@ use crate::{
         escape::EscapePlan,
         landing::LandingPlan,
         launch::LaunchPlan,
-        state::State,
         transfer::{FlybyPlan, TransferPlan},
         units::LITTLE_G,
     },
@@ -96,87 +95,6 @@ impl Command {
 
 pub struct Landed {
     pub offset: DVec3,
-}
-
-#[allow(dead_code)]
-pub fn spawn_craft(
-    payload: Payload,
-    stages_stack: Vec<Stage>,
-    init_state: State,
-    mut scene_obj: SceneObject,
-    parent: Option<Parent>,
-    world: &mut World,
-    renderer: &RenderContext,
-    bvh: &mut BVH<Entity>,
-) -> Entity {
-    let craft_mesh = renderer.get_mesh_id_from_name("cone").unwrap();
-
-    let position: DVec3 = vec3(0., 0., 0.);
-    let scale_vec: DVec3 = vec3(0.0001, 0.0001, 0.0001);
-
-    let texture_id = renderer.get_texture_id_from_name("europa").unwrap();
-
-    let craft_entity = world.spawn((
-        WorldPosition { pos: position },
-        ModelComponent::new(
-            craft_mesh,
-            texture_id,
-            nalgebra_glm::convert(position),
-            nalgebra_glm::convert(scale_vec),
-        ),
-    ));
-
-    let line_path_entity = if let Some(parent) = parent {
-        let parent_world_pos = world.get::<&WorldPosition>(parent.id).unwrap().pos;
-        let parent_mu = { world.get::<&Body>(parent.id).unwrap().mu };
-        let line_path_entity = world.spawn((
-            WorldPosition {
-                pos: parent_world_pos,
-            },
-            parent,
-            LinePathComponent::new(
-                init_state
-                    .generate_orbit_vertices(8192, parent_mu, None)
-                    .unwrap(),
-            ),
-            AssociatedEntity {
-                associate: craft_entity,
-            },
-        ));
-        world.insert(craft_entity, (parent,)).unwrap();
-        Some(line_path_entity)
-    } else {
-        None
-    };
-
-    let bvh_node_id = bvh.insert(
-        craft_entity,
-        renderer
-            .get_mesh_aabb(craft_mesh)
-            .scale(nalgebra_glm::convert(scale_vec))
-            .translate(nalgebra_glm::convert(position)),
-    );
-
-    scene_obj.bvh_node_id = Some(bvh_node_id);
-
-    world
-        .insert(
-            craft_entity,
-            (
-                scene_obj,
-                init_state,
-                Craft {
-                    payload,
-                    stages_stack,
-                    command: None,
-                    command_scheduled: false,
-                    line_path_entity,
-                },
-            ),
-        )
-        .unwrap();
-
-    craft_entity
 }
 
 pub fn spawn_landed_craft(
