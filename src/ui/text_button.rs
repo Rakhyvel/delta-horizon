@@ -137,10 +137,18 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
         app.renderer.fill_rect(self.rect);
 
         // Draw border
-        if let Some((border_color, border_size)) = self.border {
-            app.renderer.set_color(border_color);
-            app.renderer.draw_rect(self.rect, border_size);
+        if self.active {
+            if let Some((border_color, border_size)) = self.border {
+                app.renderer.set_color(border_color);
+                app.renderer.draw_rect(self.rect, border_size);
+            }
+        } else {
+            if let Some((border_color, border_size)) = self.inactive_border {
+                app.renderer.set_color(border_color);
+                app.renderer.draw_rect(self.rect, border_size);
+            }
         }
+
         // Draw text
         if self.active {
             app.renderer.set_color(self.text_color);

@@ -9,6 +9,7 @@ pub struct Dropdown<Msg> {
     options: Vec<(String, Msg)>,
     open: bool,
     selected: Option<usize>,
+    is_hovered: bool,
 
     // Colors
     background_color: Vec4,
@@ -29,6 +30,7 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
             options: options.into_iter().map(|(s, m)| (s.into(), m)).collect(),
             open: false,
             selected: None,
+            is_hovered: false,
             background_color: vec4(1.0, 0.0, 1.0, 1.0),
             hover_color: vec4(1.0, 0.0, 1.0, 1.0),
             border_color: vec4(1.0, 0.0, 1.0, 1.0),
@@ -69,7 +71,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Dropdown<Msg> {
                     return;
                 }
             }
-            // Click within menu area but not on an option — consume to block passthrough
+            // Click within menu area but not on an option, consume to block passthrough
             let menu_rect = Rectangle {
                 pos: vec2(self.rect.pos.x, self.rect.pos.y + 28.0),
                 size: vec2(self.rect.size.x, self.options.len() as f32 * 28.0),
@@ -77,7 +79,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Dropdown<Msg> {
             if menu_rect.contains_point(&app.mouse_pos) {
                 app.consume_click();
             } else {
-                // Click outside the whole dropdown — close it, let click reach its target
+                // Click outside the whole dropdown, close it and let click reach its target
                 self.open = false;
             }
         }
@@ -88,7 +90,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for Dropdown<Msg> {
             pos: self.rect.pos,
             size: vec2(self.rect.size.x, 28.0),
         };
-        if app.mouse_left_clicked && !app.is_click_consumed() && header_rect.contains_point(&app.mouse_pos) {
+        self.is_hovered = header_rect.contains_point(&app.mouse_pos);
+        if self.is_hovered && app.mouse_left_clicked && !app.is_click_consumed() {
             self.open = !self.open;
             app.consume_click();
         }
@@ -102,7 +105,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for Dropdown<Msg> {
             .map(|(s, _)| s.as_str())
             .unwrap_or(&self.label);
 
-        app.renderer.set_color(self.background_color);
+        app.renderer.set_color(if self.is_hovered && !self.open {
+            self.hover_color
+        } else {
+            self.background_color
+        });
         app.renderer.fill_rect(Rectangle {
             pos: self.rect.pos,
             size: vec2(self.rect.size.x, 28.0),
@@ -124,7 +131,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Dropdown<Msg> {
             &app.renderer,
         );
 
-        // Options: push to a higher draw layer so they render on top of all sibling widgets
+        // Push options to a higher draw layer so they render on top of all sibling widgets
         if self.open {
             app.renderer.set_draw_layer(10);
             for (i, (label, _)) in self.options.iter().enumerate() {
