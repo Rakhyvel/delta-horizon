@@ -177,6 +177,7 @@ impl VabUi {
             .background_color(STYLE.bg_primary),
         ))
         .shown(true);
+        self.modal.reposition(app);
     }
 
     fn build_rocket(&self, font: FontId, app: &App) -> Vec<Box<dyn Widget<VabMessages>>> {
@@ -289,10 +290,10 @@ impl VabUi {
 
         let craft = Craft {
             command: None,
+            command_scheduled: false,
             payload,
             stages_stack,
             line_path_entity: None,
-            locked: None,
         };
 
         let twr = craft.twr()?;

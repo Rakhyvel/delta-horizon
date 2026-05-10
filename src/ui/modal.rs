@@ -32,6 +32,19 @@ impl<Msg: Clone + 'static> Modal<Msg> {
     pub fn is_shown(&self) -> bool {
         self.shown
     }
+
+    /// Force layout to the correct centered position immediately, without waiting for the next update().
+    /// Call this after constructing or rebuilding a Modal so the first render is in the right place.
+    pub fn reposition(&mut self, app: &apricot::app::App) {
+        if self.shown {
+            let w = app.window_size.x as f32;
+            let h = app.window_size.y as f32;
+            let size = self.child.size();
+            let pos = vec2((w - size.x) / 2.0, (h - size.y) / 2.0);
+            self.rect.pos = pos;
+            self.child.layout(pos);
+        }
+    }
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {

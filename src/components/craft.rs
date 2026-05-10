@@ -8,6 +8,7 @@ use nalgebra_glm::{vec3, DVec3};
 
 use crate::{
     astro::{
+        epoch::EphemerisTime,
         escape::EscapePlan,
         landing::LandingPlan,
         launch::LaunchPlan,
@@ -25,7 +26,7 @@ pub struct Craft {
     pub stages_stack: Vec<Stage>,
 
     pub command: Option<Command>,
-    pub locked: Option<String>,
+    pub command_scheduled: bool,
     pub line_path_entity: Option<Entity>,
 }
 
@@ -59,6 +60,37 @@ pub enum Command {
     Flyby { to: Entity, plan: FlybyPlan },
     Escape { to: Entity, plan: EscapePlan },
     Land { plan: LandingPlan },
+}
+
+impl Command {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Command::Transfer { .. } => "Transfer",
+            Command::Flyby { .. } => "Flyby",
+            Command::Escape { .. } => "Escape",
+            Command::Land { .. } => "Land",
+            Command::Launch { .. } => "Launch",
+        }
+    }
+
+    pub fn burn_schedule(&self) -> Vec<(&'static str, EphemerisTime)> {
+        match self {
+            Command::Transfer { plan, .. } => vec![
+                ("Departure burn", plan.transfer_state.t),
+                ("Circularization", plan.circ_state.t),
+            ],
+            Command::Flyby { plan, .. } => vec![("Departure burn", plan.transfer_state.t)],
+            Command::Escape { plan, .. } => vec![("Escape burn", plan.escape_burn.t)],
+            Command::Land { plan } => vec![
+                ("Deorbit burn", plan.deorbit_burn.t),
+                ("Landing", plan.landing_burn.t),
+            ],
+            Command::Launch { plan } => vec![
+                ("Launch", plan.launch_burn.t),
+                ("Circularization", plan.circ_burn.t),
+            ],
+        }
+    }
 }
 
 pub struct Landed {
@@ -135,7 +167,7 @@ pub fn spawn_craft(
                     payload,
                     stages_stack,
                     command: None,
-                    locked: None,
+                    command_scheduled: false,
                     line_path_entity,
                 },
             ),
@@ -196,7 +228,7 @@ pub fn spawn_landed_craft(
                     stages_stack,
                     payload,
                     command: None,
-                    locked: None,
+                    command_scheduled: false,
                     line_path_entity: None,
                 },
             ),

@@ -352,6 +352,7 @@ impl ManeuverModal {
                 .border(STYLE.border_primary, 1.0),
         ))
         .shown(true);
+        self.modal.reposition(app);
     }
 
     fn get_destinations(&self, craft: Entity, world: &World) -> Vec<(Entity, String)> {

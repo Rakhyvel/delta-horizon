@@ -31,3 +31,20 @@ funds = 100_000
 iron = 400.0
 aluminum = 150.0
 copper = 30.0
+
+[[parts]]
+id = 'ion_cruise_stage'
+name = 'Ion Cruise Stage'
+dry_mass_kg = 500.0
+build_time_days = 120.0
+
+[parts.fuel]
+max_fuel_mass_kg = 400.0
+isp = 3100.0
+thrust_kn = 0.092
+
+[parts.cost]
+funds = 250_000
+iron = 50.0
+aluminum = 80.0
+copper = 120.0

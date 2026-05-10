@@ -38,17 +38,8 @@ pub enum Event {
         craft: Entity,
     },
 
-    /// At this event, the craft is programmed and cannot receive commands
-    LockCommands {
-        /// The craft that this event applies to
-        craft: Entity,
-        /// What the craft is doing
-        doing: String,
-    },
-
-    /// At this event, the craft is unlocked and can respond to commands
-    UnlockCommands {
-        /// The craft that this event applies to
+    /// At this event, the craft's command is cleared (maneuver sequence finished)
+    CompleteCommand {
         craft: Entity,
     },
 
