@@ -365,13 +365,14 @@ impl Scene for Gameplay {
 
         self.control(app);
         self.orbit_system(app);
-        self.landed_system(app);
+        self.landed_system();
+        self.select_system();
+        self.camera_update(app);
         if !modal_open {
             self.mouse_hover_system(app);
         }
-        self.select_system();
         self.line_path_system(app);
-        self.camera_update(app);
+        self.sync_models(app);
 
         // Delete anything we want deleted
         app.renderer.flush_deletion_queue();
@@ -1715,7 +1716,7 @@ impl Gameplay {
         for root in roots {
             let mu = { self.world.get::<&mut Body>(root).unwrap().mu };
             let root_pos = vec3(0.0, 0.0, 0.0);
-            self.propagate(&children, root, root_pos, mu, et, app);
+            self.propagate(&children, root, root_pos, mu, et);
         }
     }
 
@@ -1726,14 +1727,9 @@ impl Gameplay {
         parent_pos: DVec3,
         parent_mu: f64,
         t: EphemerisTime,
-        app: &App,
     ) {
-        // Borrow components
         let mut world_pos = self.world.get::<&mut WorldPosition>(entity).unwrap();
-        let mut model = self.world.get::<&mut ModelComponent>(entity).unwrap();
-        let scene_obj = self.world.get::<&SceneObject>(entity).unwrap();
 
-        // Compute local offset if Orbit exists
         let local_offset = if let Ok(orbit) = self.world.get::<&State>(entity) {
             orbit.propagate(t, parent_mu).unwrap().r
         } else {
@@ -1741,53 +1737,45 @@ impl Gameplay {
         };
 
         let new_world = parent_pos + local_offset;
-        let vel = new_world - world_pos.pos;
         world_pos.pos = new_world;
-        model.set_position(nalgebra_glm::convert(new_world - self.camera_3d.world_pos));
-        self.bvh.move_obj(
-            scene_obj.bvh_node_id.unwrap(),
-            &app.renderer.get_model_aabb(&model),
-            &nalgebra_glm::convert(vel),
-        );
 
-        drop(world_pos); // release borrow before recusion
-        drop(model); // release borrow before recusion
-        drop(scene_obj); // release borrow before recusion
+        drop(world_pos);
 
-        // Recurse into children
         if let Some(kids) = children.get(&entity) {
             for &child in kids {
                 let mu = { self.world.get::<&mut Body>(entity).unwrap().mu };
-                self.propagate(children, child, new_world, mu, t, app);
+                self.propagate(children, child, new_world, mu, t);
             }
         }
     }
 
     // Updates craft to be on the surface of their planet
-    fn landed_system(&mut self, app: &App) {
-        // Extract out positions
+    fn landed_system(&mut self) {
         let mut pos_map = HashMap::new();
         for (entity, (world_pos, _body)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
             pos_map.insert(entity, world_pos.pos);
         }
 
-        for (_entity, (world_pos, parent, landed, scene_obj, model)) in self.world.query_mut::<(
-            &mut WorldPosition,
-            &Parent,
-            &Landed,
-            &SceneObject,
-            &mut ModelComponent,
-        )>() {
+        for (_entity, (world_pos, parent, landed)) in
+            self.world
+                .query_mut::<(&mut WorldPosition, &Parent, &Landed)>()
+        {
             let parent_pos = pos_map.get(&parent.id).unwrap();
+            world_pos.pos = parent_pos + landed.offset;
+        }
+    }
 
-            let new_world = parent_pos + landed.offset;
-            let vel = new_world - world_pos.pos;
-            world_pos.pos = new_world;
-            model.set_position(nalgebra_glm::convert(new_world - self.camera_3d.world_pos));
+    fn sync_models(&mut self, app: &App) {
+        for (_entity, (world_pos, model, scene_obj)) in
+            self.world
+                .query_mut::<(&WorldPosition, &mut ModelComponent, &SceneObject)>()
+        {
+            let new_pos: Vec3 = nalgebra_glm::convert(world_pos.pos - self.camera_3d.world_pos);
+            model.set_position(new_pos);
             self.bvh.move_obj(
                 scene_obj.bvh_node_id.unwrap(),
                 &app.renderer.get_model_aabb(model),
-                &nalgebra_glm::convert(vel),
+                &vec3(0.0f32, 0.0, 0.0),
             );
         }
     }
