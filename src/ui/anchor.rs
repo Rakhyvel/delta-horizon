@@ -46,6 +46,39 @@ impl<Msg: Clone + 'static> Anchor<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Anchor<Msg> {
+    fn overlay_update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
+        let w = app.window_size.x as f32;
+        let h = app.window_size.y as f32;
+        let size = self.child.size();
+
+        let pos = match self.anchor {
+            AnchorPoint::TopLeft => vec2(0.0, 0.0),
+            AnchorPoint::TopCenter => vec2((w - size.x) / 2.0, 0.0),
+            AnchorPoint::TopRight => vec2(w - size.x, 0.0),
+            AnchorPoint::CenterLeft => vec2(0.0, (h - size.y) / 2.0),
+            AnchorPoint::Center => vec2((w - size.x) / 2.0, (h - size.y) / 2.0),
+            AnchorPoint::CenterRight => vec2(w - size.x, (h - size.y) / 2.0),
+            AnchorPoint::BottomLeft => vec2(0.0, h - size.y),
+            AnchorPoint::BottomCenter => vec2((w - size.x) / 2.0, h - size.y),
+            AnchorPoint::BottomRight => vec2(w - size.x, h - size.y),
+        };
+        let pos = match self.anchor {
+            AnchorPoint::TopLeft => pos + vec2(self.margin.x, self.margin.y),
+            AnchorPoint::TopCenter => pos + vec2(0.0, self.margin.y),
+            AnchorPoint::TopRight => pos + vec2(-self.margin.x, self.margin.y),
+            AnchorPoint::CenterLeft => pos + vec2(self.margin.x, 0.0),
+            AnchorPoint::Center => pos,
+            AnchorPoint::CenterRight => pos + vec2(-self.margin.x, 0.0),
+            AnchorPoint::BottomLeft => pos + vec2(self.margin.x, -self.margin.y),
+            AnchorPoint::BottomCenter => pos + vec2(0.0, -self.margin.y),
+            AnchorPoint::BottomRight => pos + vec2(-self.margin.x, -self.margin.y),
+        };
+        if self.rect.pos != pos {
+            self.child.layout(pos);
+        }
+        self.child.as_mut().overlay_update(app, msgq);
+    }
+
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
         let w = app.window_size.x as f32;
         let h = app.window_size.y as f32;

@@ -105,8 +105,14 @@ macro_rules! container {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
+    fn overlay_update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
+        for child in self.children.iter_mut().rev() {
+            child.as_mut().overlay_update(app, msgq);
+        }
+    }
+
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
-        for child in self.children.iter_mut() {
+        for child in self.children.iter_mut().rev() {
             child.as_mut().update(app, msgq);
         }
     }
@@ -119,27 +125,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
         }
 
         // Draw border
-        if let Some((border_color, _border_size)) = self.border {
+        if let Some((border_color, border_size)) = self.border {
             app.renderer.set_color(border_color);
-            // Left
-            let mut rect = Rectangle {
-                pos: self.rect.pos,
-                size: vec2(1.0, self.rect.size.y),
-            };
-            app.renderer.fill_rect(rect);
-
-            // Right
-            rect.pos.x = self.rect.pos.x + self.rect.size.x;
-            app.renderer.fill_rect(rect);
-
-            // Top
-            rect.pos = self.rect.pos;
-            rect.size = vec2(self.rect.size.x, 1.0);
-            app.renderer.fill_rect(rect);
-
-            // Bottom
-            rect.pos.y = self.rect.pos.y + self.rect.size.y;
-            app.renderer.fill_rect(rect);
+            app.renderer.draw_rect(self.rect, border_size);
         }
 
         for child in self.children.iter() {

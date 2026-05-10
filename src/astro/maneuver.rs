@@ -152,7 +152,7 @@ pub fn find_soi_entry(
     Ok(transfer_orbit.t + EphemerisTime::from_years(hi * tof))
 }
 
-pub fn find_soi_exit(orbit: &State, soi: f64, mu: f64) -> EphemerisTime {
+pub fn find_soi_exit(orbit: &State, soi: f64, mu: f64) -> Result<EphemerisTime, String> {
     // First find a rough bracket by marching forward
     let dt_coarse = EphemerisTime::from_years(1.0 / 365.0); // 1 day steps
     let mut t = orbit.t + EphemerisTime::from_secs(60.0);
@@ -160,13 +160,13 @@ pub fn find_soi_exit(orbit: &State, soi: f64, mu: f64) -> EphemerisTime {
     // March until we're outside the SOI
     loop {
         t += dt_coarse;
-        let pos = orbit.propagate(t, mu).unwrap().r;
+        let pos = orbit.propagate(t, mu)?.r;
         if pos.norm() >= soi {
             break;
         }
         // Safety limit - 10 years
         if t > orbit.t + EphemerisTime::from_years(10.0) {
-            panic!("SOI exit not found within 10 years");
+            return Err(String::from("SOI exit not found within 10 years"));
         }
     }
 
@@ -185,7 +185,7 @@ pub fn find_soi_exit(orbit: &State, soi: f64, mu: f64) -> EphemerisTime {
         }
     }
 
-    hi
+    Ok(hi)
 }
 
 pub fn circularization(orbit: &State, mu: f64) -> (State, f64) {
@@ -241,19 +241,19 @@ pub fn get_grandparent_state(
     soi: f64,
     grandparent_mu: f64,
     parent_mu: f64,
-) -> State {
-    let soi_exit_et = find_soi_exit(craft_state, soi, parent_mu);
+) -> Result<State, String> {
+    let soi_exit_et = find_soi_exit(craft_state, soi, parent_mu)?;
 
     // Craft state at SOI exit in parent-relative frame
-    let craft_at_exit = craft_state.propagate(soi_exit_et, parent_mu).unwrap();
+    let craft_at_exit = craft_state.propagate(soi_exit_et, parent_mu)?;
 
     // Parent state at SOI exit in grandparent frame
-    let parent_at_exit = parent_state.propagate(soi_exit_et, grandparent_mu).unwrap();
+    let parent_at_exit = parent_state.propagate(soi_exit_et, grandparent_mu)?;
 
     // Recontextualize to grandparent frame
-    State {
+    Ok(State {
         r: craft_at_exit.r + parent_at_exit.r,
         v: craft_at_exit.v + parent_at_exit.v,
         t: soi_exit_et,
-    }
+    })
 }

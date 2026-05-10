@@ -31,6 +31,12 @@ impl<Msg: Clone + 'static> Modal<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {
+    fn overlay_update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
+        if self.shown {
+            self.child.as_mut().overlay_update(app, msgq);
+        }
+    }
+
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
         if self.shown {
             let w = app.window_size.x as f32;

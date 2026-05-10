@@ -39,12 +39,14 @@ use crate::{
     generation::lexicon::Lexicon,
     scenes::{
         events::{Event, EventQueue},
+        maneuver::ManeuverModal,
         starbox::Starbox,
         vab::VabUi,
     },
     ui::{
         anchor::{Anchor, AnchorPoint},
         container::{Align, Flow},
+        dropdown::Dropdown,
         hrule::HRule,
         label::Label,
         progress_bar::ProgressBar,
@@ -103,6 +105,7 @@ pub struct Gameplay {
     turn_gui: Anchor<TurnMessages>,
     gui: Anchor<CommandMessages>,
     vab_ui: VabUi,
+    maneuver_ui: ManeuverModal,
 
     // Resources
     funds: u32,
@@ -128,6 +131,7 @@ enum CommandMessages {
     CraftCommand(Command),
     FactoryCommand { part_id: String },
     OpenVab,
+    OpenManeuver,
 }
 
 #[derive(Debug)]
@@ -268,6 +272,12 @@ impl Scene for Gameplay {
                         self.vab_ui.show(&inventory, &self.parts, app);
                     }
                 }
+                CommandMessages::OpenManeuver => {
+                    if let Some(selected) = self.selection.selected_entity() {
+                        self.maneuver_ui
+                            .show(selected, self.current_et, &self.world, app);
+                    }
+                }
             }
         }
 
@@ -325,6 +335,14 @@ impl Scene for Gameplay {
                     &mut self.bvh,
                 );
                 self.selection.crafts.push(landed_craft_entity);
+            }
+        }
+
+        if let Some(result) = self.maneuver_ui.update(self.current_et, &self.world, app) {
+            if let Some(selected) = self.selection.selected_entity() {
+                let command = result.into_command();
+                self.world.get::<&mut Craft>(selected).unwrap().command = Some(command);
+                self.gui = self.rebuild_gui(app);
             }
         }
 
@@ -448,6 +466,7 @@ impl Scene for Gameplay {
         self.gui.render(app);
         self.turn_gui.render(app);
         self.vab_ui.render(app);
+        self.maneuver_ui.render(app);
     }
 }
 
@@ -553,6 +572,12 @@ impl Gameplay {
             "font-small-bold",
             16,
             sdl2::ttf::FontStyle::BOLD,
+        );
+        app.renderer.add_font(
+            "res/Consolas.ttf",
+            "font-small-italic",
+            16,
+            sdl2::ttf::FontStyle::ITALIC,
         );
         app.renderer.add_font(
             "res/Consolas.ttf",
@@ -753,6 +778,7 @@ impl Gameplay {
             gui,
             turn_gui,
             vab_ui: VabUi::new(),
+            maneuver_ui: ManeuverModal::new(),
 
             funds: 150_000,
 
@@ -863,23 +889,14 @@ impl Gameplay {
     ) -> Vec<Box<dyn Widget<CommandMessages>>> {
         let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
 
-        if let Ok(craft) = self.world.get::<&Craft>(selected) {
+        if self.world.get::<&Craft>(selected).is_ok() {
             widgets.extend(self.build_craft_info(selected, app));
-
-            if craft.command.is_none() && craft.locked.is_none() {
-                if let Some(status) = self.build_orbit_widgets(selected) {
-                    widgets.extend(status);
-                }
-                if let Some(status) = self.build_landed_widgets(selected, app) {
-                    widgets.extend(status);
-                }
-            }
         } else if self.world.get::<&Body>(selected).is_ok() {
             widgets.extend(self.build_body_info(selected, app));
         } else if self.world.get::<&Factory>(selected).is_ok() {
             widgets.extend(self.build_factory_info(selected, app));
         } else if self.world.get::<&Vab>(selected).is_ok() {
-            widgets.extend(self.build_vab_info(selected));
+            widgets.extend(self.build_vab_info(selected, app));
         }
 
         widgets
@@ -890,24 +907,93 @@ impl Gameplay {
         selected: Entity,
         app: &App,
     ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+        const WIDTH: f32 = 280.0;
         let font = app.renderer.get_font_id_from_name("font").unwrap();
-        let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
-        let craft = self.world.get::<&Craft>(selected).unwrap();
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
+        let font_small_italic = app
+            .renderer
+            .get_font_id_from_name("font-small-italic")
+            .unwrap();
+        let font_big = app.renderer.get_font_id_from_name("font-big").unwrap();
 
+        let craft = self.world.get::<&Craft>(selected).unwrap();
+        let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
+
+        let craft_dv = craft.total_remaining_dv();
+
+        let is_idle = craft.locked.is_none();
         let status_str = if let Some(doing) = &craft.locked {
             doing.clone()
         } else {
-            String::from("ready")
+            String::from("NO MISSION SELECTED")
         };
 
-        let widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
-            Box::new(Label::new(format!("Name: {}", scene_object.name.clone())).font(font, app)),
-            Box::new(Label::new(format!("Status: {status_str}")).font(font, app)),
-            Box::new(
-                Label::new(format!("Delta V: {:.3} m/s", craft.total_remaining_dv()))
-                    .font(font, app),
-            ),
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
+            Box::new(Label::new(scene_object.name.clone().to_uppercase()).font(font_big, app)),
+            Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)),
+            Box::new(Label::new("STATUS").font(font_small_bold, app)),
+            Box::new(Label::new(status_str).font(font_small_italic, app)),
         ];
+
+        if is_idle {
+            widgets.push(Box::new(
+                TextButton::<CommandMessages>::new(
+                    Rectangle::new(0.0, 0.0, WIDTH, 30.0),
+                    "Plan Maneuver...",
+                )
+                .use_style_accented(&STYLE)
+                .on_click(CommandMessages::OpenManeuver),
+            ))
+        };
+        widgets.push(Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
+
+        // Stages from bottom to top
+        widgets.push(Box::new(Label::new("STAGES").font(font_small_bold, app)));
+
+        widgets.push(Box::new(
+            Label::new(format!("Total dv: {:.0} m/s", craft_dv))
+                .font(font, app)
+                .color(STYLE.text_primary),
+        ));
+
+        for stage in craft.stages_stack.iter() {
+            let fuel_pct = stage.fuel_mass / stage.max_fuel_mass;
+            widgets.push(Box::new(
+                Container::new(vec![
+                    Box::new(Label::new(stage.name.clone()).font(font_small_bold, app)),
+                    Box::new(
+                        Label::new(format!(
+                            "{:.0}/{:.0} kg",
+                            stage.fuel_mass, stage.max_fuel_mass
+                        ))
+                        .font(font, app)
+                        .color(if fuel_pct > 0.25 {
+                            STYLE.text_primary
+                        } else {
+                            STYLE.warning
+                        }),
+                    ),
+                    Box::new(
+                        ProgressBar::new(vec2(WIDTH - 24.0, 8.0))
+                            .background_color(STYLE.bg_primary)
+                            .fill_color(if fuel_pct > 0.25 {
+                                STYLE.accent
+                            } else {
+                                STYLE.warning
+                            })
+                            .border(STYLE.border_primary, 1.0)
+                            .progress(fuel_pct as f32),
+                    ),
+                ])
+                .flow(Flow::Vertical)
+                .border(STYLE.border_primary, 1.0)
+                .fixed_width(vec2(WIDTH, 10.0)),
+            ));
+        }
+
         widgets
     }
 
@@ -1008,8 +1094,6 @@ impl Gameplay {
             Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)),
         ];
 
-        println!("{:?}", &factory.current_job);
-
         if let Some(job) = &factory.current_job {
             let part = self
                 .parts
@@ -1046,7 +1130,7 @@ impl Gameplay {
                 .parts
                 .all()
                 .map(|part| {
-                    let can_afford = part.cost.funds < self.funds;
+                    let can_afford = part.cost.funds <= self.funds;
                     let formatted_funds = (part.cost.funds as i64).to_formatted_string(&Locale::en);
                     Box::new(
                         Container::new(vec![
@@ -1094,7 +1178,8 @@ impl Gameplay {
                                 )])
                                 .padding(vec2(0.0, 0.0))
                                 .fixed_width(vec2(WIDTH * 0.2, 10.0))
-                                .flow(Flow::Horizontal),
+                                .cross_align(Align::End)
+                                .flow(Flow::Vertical),
                             ),
                         ])
                         .border(STYLE.border_primary, 1.0)
@@ -1111,15 +1196,99 @@ impl Gameplay {
         widgets
     }
 
-    fn build_vab_info(&self, _selected: Entity) -> Vec<Box<dyn Widget<CommandMessages>>> {
-        let widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![Box::new(
+    fn build_vab_info(&self, selected: Entity, app: &App) -> Vec<Box<dyn Widget<CommandMessages>>> {
+        const WIDTH: f32 = 280.0;
+
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
+        let font_big = app.renderer.get_font_id_from_name("font-big").unwrap();
+
+        let parent = self.world.get::<&Parent>(selected).unwrap().id;
+        let inventory = self.world.get::<&PartInventory>(parent).unwrap();
+
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![
+            Box::new(Label::new("VAB").font(font_big, app)),
+            Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)),
+            Box::new(Label::new("INVENTORY").font(font_small_bold, app)),
+            Box::new(
+                Dropdown::new(
+                    "",
+                    vec2(WIDTH * 0.5, 40.0),
+                    vec![
+                        ("Flyby", CommandMessages::OpenVab),
+                        ("Transfer", CommandMessages::OpenVab),
+                        ("Escape", CommandMessages::OpenVab),
+                        ("Land", CommandMessages::OpenVab),
+                        ("Launch", CommandMessages::OpenVab),
+                        ("Re-enter", CommandMessages::OpenVab),
+                    ],
+                )
+                .use_style(&STYLE),
+            ),
+        ];
+
+        // Show available parts
+        let inventory_rows: Vec<Box<dyn Widget<CommandMessages>>> = self
+            .parts
+            .all()
+            .filter_map(|part| {
+                let count = inventory.parts.get(&part.id).copied().unwrap_or(0);
+                if count == 0 {
+                    return None;
+                }
+                Some(Box::new(
+                    Container::new(vec![
+                        Box::new(
+                            Container::new(vec![Box::new(
+                                Label::new(part.name.clone()).font(font_small_bold, app),
+                            )])
+                            .flow(Flow::Vertical)
+                            .padding(vec2(0.0, 0.0))
+                            .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0)),
+                        ),
+                        Box::new(
+                            Container::new(vec![Box::new(
+                                Label::new(format!("x{count}")).font(font, app),
+                            )])
+                            .padding(vec2(0.0, 0.0))
+                            .fixed_width(vec2(WIDTH * 0.2, 10.0))
+                            .cross_align(Align::End)
+                            .flow(Flow::Vertical),
+                        ),
+                    ])
+                    .border(STYLE.border_primary, 1.0)
+                    .cross_align(Align::Center)
+                    .flow(Flow::Horizontal),
+                ) as Box<dyn Widget<CommandMessages>>)
+            })
+            .collect();
+
+        if inventory_rows.is_empty() {
+            widgets.push(Box::new(
+                Label::new("No parts available")
+                    .font(font, app)
+                    .color(STYLE.text_disabled),
+            ));
+        } else {
+            widgets.push(Box::new(
+                Container::new(inventory_rows).padding(vec2(0.0, 0.0)),
+            ));
+        }
+
+        widgets.push(Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
+        widgets.push(Box::new(Label::new("ASSEMBLE").font(font_small_bold, app)));
+        widgets.push(Box::new(
             TextButton::<CommandMessages>::new(
-                Rectangle::new(100.0, 120.0, 240.0, 40.0),
-                "Stack New Vechicle",
+                Rectangle::new(0.0, 0.0, WIDTH, 30.0),
+                "Stack New Vehicle...",
             )
-            .use_style(&STYLE)
-            .on_click(CommandMessages::OpenVab),
-        )];
+            .use_style_accented(&STYLE)
+            .on_click(CommandMessages::OpenVab)
+            .active(!inventory.parts.is_empty()),
+        ));
 
         widgets
     }
@@ -1310,9 +1479,7 @@ impl Gameplay {
         let parent_state = self.world.get::<&State>(parent.id).unwrap();
         let grandparent_body = self.world.get::<&Body>(grandparent.id).unwrap();
 
-        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![Box::new(
-            Label::new(format!("Status: Landed on {}", parent_scene_object.name)).font(font, app),
-        )];
+        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
 
         if let Ok(plan) = plan_launch(
             landed.offset,

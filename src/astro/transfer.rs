@@ -325,7 +325,7 @@ pub fn plan_flyby(
     let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu)?;
 
     let exit_state =
-        get_grandparent_state(&flyby_state, target_body_state, soi_radius, mu, target_mu);
+        get_grandparent_state(&flyby_state, target_body_state, soi_radius, mu, target_mu)?;
 
     Ok(FlybyPlan {
         transfer_state,

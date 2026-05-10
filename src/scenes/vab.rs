@@ -10,7 +10,6 @@ use crate::{
 };
 use apricot::{app::App, font::FontId, rectangle::Rectangle};
 use nalgebra_glm::vec2;
-use num_format::{Locale, ToFormattedString};
 
 use crate::{
     container,
@@ -139,14 +138,14 @@ impl VabUi {
                 .cross_align(Align::Start),
                 // Bottom  row
                 container![
-                    Label::new(format!("Total dv: {total_dv:.3} m/s"))
+                    Label::new(format!("Total dv: {total_dv:.0} m/s"))
                         .font(font, app)
                         .color(if good_dv {
                             STYLE.positive
                         } else {
                             STYLE.warning
                         }),
-                    Label::new(format!("TWR: {twr:.3}"))
+                    Label::new(format!("TWR: {twr:.2}"))
                         .font(font, app)
                         .color(if good_twr {
                             STYLE.positive

@@ -36,9 +36,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextureButton<Msg> {
     /// Checks if the button is being hovered and clicked
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
         let is_hovered = self.rect.contains_point(&app.mouse_pos);
-        if is_hovered && app.mouse_left_clicked {
+        if is_hovered && !app.is_click_consumed() && app.mouse_left_clicked {
             if let Some(msg) = self.on_click.clone() {
                 msgq.push(msg);
+                app.consume_click();
             }
         }
     }

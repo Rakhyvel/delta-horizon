@@ -4,9 +4,7 @@ use crate::astro::{
     epoch::EphemerisTime,
     maneuver::{circularization, find_apoapsis, sphere_of_influence},
     state::State,
-    units::{
-        EARTH_RADII_PER_AU, G, KM_PER_EARTH_RADIUS, METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
-    },
+    units::{G, KM_PER_EARTH_RADIUS, METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR},
 };
 
 #[derive(Clone, Copy)]

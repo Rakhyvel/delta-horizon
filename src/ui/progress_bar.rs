@@ -1,6 +1,6 @@
 use crate::ui::{msg::MsgQueue, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
-use nalgebra_glm::{vec2, vec4, Vec2, Vec4};
+use nalgebra_glm::{vec4, Vec2, Vec4};
 
 pub struct ProgressBar {
     /// The rectangle defining the button's position and size
@@ -62,27 +62,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for ProgressBar {
         app.renderer.fill_rect(filled_rect);
 
         // Draw border
-        if let Some((border_color, _border_size)) = self.border {
+        if let Some((border_color, border_size)) = self.border {
             app.renderer.set_color(border_color);
-            // Left
-            let mut rect = Rectangle {
-                pos: self.rect.pos,
-                size: vec2(1.0, self.rect.size.y),
-            };
-            app.renderer.fill_rect(rect);
-
-            // Right
-            rect.pos.x = self.rect.pos.x + self.rect.size.x;
-            app.renderer.fill_rect(rect);
-
-            // Top
-            rect.pos = self.rect.pos;
-            rect.size = vec2(self.rect.size.x, 1.0);
-            app.renderer.fill_rect(rect);
-
-            // Bottom
-            rect.pos.y = self.rect.pos.y + self.rect.size.y;
-            app.renderer.fill_rect(rect);
+            app.renderer.draw_rect(self.rect, border_size);
         }
     }
 

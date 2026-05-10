@@ -1,11 +1,11 @@
 use crate::astro::{
     epoch::EphemerisTime,
-    maneuver::{find_periapsis, find_soi_exit, get_grandparent_state, sphere_of_influence},
+    maneuver::{find_periapsis, get_grandparent_state, sphere_of_influence},
     state::State,
     units::{G, METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct EscapePlan {
     pub escape_burn: State,
     pub escape_dv: f64,
@@ -45,7 +45,7 @@ pub fn plan_escape(
     );
 
     let grandparent_orbit =
-        get_grandparent_state(&escape_burn, parent_state, soi_radius, grandparent_mu, mu);
+        get_grandparent_state(&escape_burn, parent_state, soi_radius, grandparent_mu, mu)?;
 
     Ok(EscapePlan {
         escape_burn,

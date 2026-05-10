@@ -1,5 +1,6 @@
 pub(crate) mod anchor;
 pub(crate) mod container;
+pub(crate) mod dropdown;
 pub(crate) mod hrule;
 pub(crate) mod label;
 pub(crate) mod modal;

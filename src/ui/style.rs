@@ -1,5 +1,3 @@
-// src/ui/style.rs
-
 use nalgebra_glm::vec4;
 use nalgebra_glm::Vec4;
 

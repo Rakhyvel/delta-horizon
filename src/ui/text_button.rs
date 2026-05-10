@@ -1,6 +1,6 @@
 use crate::ui::{msg::MsgQueue, style::Style, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
-use nalgebra_glm::{vec2, vec4, Vec2, Vec4};
+use nalgebra_glm::{vec4, Vec2, Vec4};
 
 /// A button with text
 pub struct TextButton<Msg> {
@@ -78,6 +78,20 @@ impl<Msg> TextButton<Msg> {
         self
     }
 
+    pub fn use_style_if(self, style: &Style, condition: bool) -> Self {
+        if !condition {
+            return self;
+        }
+        self.use_style(style)
+    }
+
+    pub fn use_style_accented_if(self, style: &Style, condition: bool) -> Self {
+        if !condition {
+            return self;
+        }
+        self.use_style_accented(style)
+    }
+
     pub fn on_click(mut self, msg: Msg) -> Self {
         self.on_click = Some(msg);
         self
@@ -91,9 +105,14 @@ impl<Msg> TextButton<Msg> {
 
 impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
-        if self.active && self.rect.contains_point(&app.mouse_pos) && app.mouse_left_clicked {
+        if self.active
+            && !app.is_click_consumed()
+            && self.rect.contains_point(&app.mouse_pos)
+            && app.mouse_left_clicked
+        {
             if let Some(msg) = &self.on_click {
                 msgq.push(msg.clone());
+                app.consume_click();
             }
         }
     }
@@ -117,34 +136,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
         app.renderer.fill_rect(self.rect);
 
         // Draw border
-        let border = if !self.active {
-            self.inactive_border
-        } else {
-            self.border
-        };
-        if let Some((border_color, _border_size)) = border {
+        if let Some((border_color, border_size)) = self.border {
             app.renderer.set_color(border_color);
-            // Left
-            let mut rect = Rectangle {
-                pos: self.rect.pos,
-                size: vec2(1.0, self.rect.size.y),
-            };
-            app.renderer.fill_rect(rect);
-
-            // Right
-            rect.pos.x = self.rect.pos.x + self.rect.size.x;
-            app.renderer.fill_rect(rect);
-
-            // Top
-            rect.pos = self.rect.pos;
-            rect.size = vec2(self.rect.size.x, 1.0);
-            app.renderer.fill_rect(rect);
-
-            // Bottom
-            rect.pos.y = self.rect.pos.y + self.rect.size.y;
-            app.renderer.fill_rect(rect);
+            app.renderer.draw_rect(self.rect, border_size);
         }
-
         // Draw text
         if self.active {
             app.renderer.set_color(self.text_color);

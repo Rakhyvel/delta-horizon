@@ -5,7 +5,6 @@ use crate::ui::{msg::MsgQueue, widget::Widget};
 
 pub struct HRule {
     pub color: Vec4,
-    pub thickness: f32,
     rect: Rectangle,
 }
 
@@ -13,7 +12,6 @@ impl HRule {
     pub fn new(color: Vec4, thickness: f32, width: f32) -> Self {
         Self {
             color,
-            thickness,
             rect: Rectangle::new(0.0, 0.0, width, thickness),
         }
     }

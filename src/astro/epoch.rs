@@ -2,7 +2,7 @@ use std::ops::{Add, AddAssign, Div, Mul, Sub};
 
 use chrono::{Datelike, Timelike};
 
-use crate::astro::units::SECONDS_PER_YEAR;
+use crate::astro::units::{SECONDS_PER_DAY, SECONDS_PER_YEAR};
 
 /// Microseconds after the save start epoch
 /// Should allow for ~292,000 years future and past
@@ -10,6 +10,7 @@ use crate::astro::units::SECONDS_PER_YEAR;
 pub struct EphemerisTime(i64);
 
 pub const ET_PER_SECOND: f64 = 1_000_000.0;
+const ET_PER_DAY: f64 = SECONDS_PER_DAY * ET_PER_SECOND;
 const ET_PER_YEAR: f64 = SECONDS_PER_YEAR * ET_PER_SECOND;
 
 impl EphemerisTime {
@@ -19,6 +20,10 @@ impl EphemerisTime {
 
     pub fn from_years(years: f64) -> Self {
         Self((years * ET_PER_YEAR) as i64)
+    }
+
+    pub fn from_days(days: f64) -> Self {
+        Self((days * ET_PER_DAY) as i64)
     }
 
     pub fn from_secs(secs: f64) -> Self {
