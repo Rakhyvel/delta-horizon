@@ -65,6 +65,7 @@ impl<Msg: Clone + 'static> Container<Msg> {
         self
     }
 
+    #[allow(dead_code)]
     pub fn fixed_size(mut self, size: Vec2) -> Self {
         self.rect.size = size;
         self.fixed_height = true;

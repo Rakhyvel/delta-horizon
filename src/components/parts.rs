@@ -22,6 +22,7 @@ pub struct FuelSpec {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct ResourceCost {
     #[serde(default)]
     pub funds: u32,

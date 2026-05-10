@@ -1,6 +1,7 @@
 use nalgebra_glm::vec4;
 use nalgebra_glm::Vec4;
 
+#[allow(dead_code)]
 pub struct Style {
     // Backgrounds
     pub bg_primary: Vec4,

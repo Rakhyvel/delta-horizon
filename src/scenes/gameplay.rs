@@ -364,7 +364,7 @@ impl Scene for Gameplay {
         }
 
         self.control(app);
-        self.orbit_system(app);
+        self.orbit_system();
         self.landed_system();
         self.select_system();
         self.camera_update(app);
@@ -1688,7 +1688,7 @@ impl Gameplay {
     }
 
     /// Updates planets based on their on-rails orbits around their parent bodies
-    fn orbit_system(&mut self, app: &App) {
+    fn orbit_system(&mut self) {
         // Build parent -> children map
         let mut children: HashMap<Entity, Vec<Entity>> = HashMap::new();
 

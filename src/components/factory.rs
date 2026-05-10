@@ -97,10 +97,6 @@ impl Factory {
         });
         Ok(())
     }
-
-    pub fn is_idle(&self) -> bool {
-        self.current_job.is_none()
-    }
 }
 
 impl FactoryJob {

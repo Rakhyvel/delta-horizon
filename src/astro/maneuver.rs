@@ -216,6 +216,7 @@ pub fn circularization(orbit: &State, mu: f64) -> (State, f64) {
     )
 }
 
+#[allow(dead_code)]
 pub fn get_flyby_state(
     transfer_orbit: &State,
     target_orbit: &State,

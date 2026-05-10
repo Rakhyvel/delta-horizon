@@ -32,6 +32,7 @@ pub struct Craft {
 
 #[derive(Clone)]
 pub struct Payload {
+    #[allow(dead_code)]
     pub name: String,
     pub dry_mass: f64,
     // TODO: add things like component slots and components
@@ -97,6 +98,7 @@ pub struct Landed {
     pub offset: DVec3,
 }
 
+#[allow(dead_code)]
 pub fn spawn_craft(
     payload: Payload,
     stages_stack: Vec<Stage>,
@@ -263,7 +265,7 @@ pub fn replace_line_path(
 }
 
 impl Craft {
-    /// Returns the delta v of the current stage, in m/s
+    #[allow(dead_code)]
     pub fn current_stage_dv(&self) -> f64 {
         let stage = self.stages_stack.last();
         if stage.is_none() {

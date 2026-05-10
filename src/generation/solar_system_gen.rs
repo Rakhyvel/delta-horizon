@@ -263,12 +263,14 @@ fn max_moons(body_radius: f64) -> usize {
     (-4.0 * 0.7f64.powf(body_radius) + 4.0) as usize
 }
 
+#[allow(dead_code)]
 fn has_habitable(planets: &[BodySystem]) -> bool {
     planets.iter().any(|p| {
         p.planet.0.habitable() && p.planet.0.category == Category::EarthLike && !p.moons.is_empty()
     })
 }
 
+#[allow(dead_code)]
 fn has_planet(planets: &[BodySystem], categories: &[Category], thresh: usize) -> bool {
     let count = planets
         .iter()
@@ -277,6 +279,7 @@ fn has_planet(planets: &[BodySystem], categories: &[Category], thresh: usize) ->
     count >= thresh
 }
 
+#[allow(dead_code)]
 fn all_moons_small(planets: &Vec<BodySystem>) -> bool {
     for system in planets {
         let planet_mass = system.planet.0.mass();
@@ -290,6 +293,7 @@ fn all_moons_small(planets: &Vec<BodySystem>) -> bool {
     true
 }
 
+#[allow(dead_code)]
 fn no_stripped(planets: &[BodySystem]) -> bool {
     planets
         .iter()
