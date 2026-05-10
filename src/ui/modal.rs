@@ -28,6 +28,10 @@ impl<Msg: Clone + 'static> Modal<Msg> {
     pub fn set_shown(&mut self, shown: bool) {
         self.shown = shown
     }
+
+    pub fn is_shown(&self) -> bool {
+        self.shown
+    }
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Modal<Msg> {

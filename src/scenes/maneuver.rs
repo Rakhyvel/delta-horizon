@@ -169,6 +169,10 @@ impl ManeuverModal {
         self.modal.set_shown(true);
     }
 
+    pub fn is_shown(&self) -> bool {
+        self.modal.is_shown()
+    }
+
     pub fn update(
         &mut self,
         current_et: EphemerisTime,

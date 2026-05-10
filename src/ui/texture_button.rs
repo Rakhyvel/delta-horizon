@@ -13,6 +13,8 @@ pub struct TextureButton<Msg> {
     hovered_texture_id: TextureId,
     /// Message to send when the button is clicked
     on_click: Option<Msg>,
+    /// Whether the button is hovered
+    is_hovered: bool,
 }
 
 impl<Msg> TextureButton<Msg> {
@@ -23,6 +25,7 @@ impl<Msg> TextureButton<Msg> {
             texture_id,
             hovered_texture_id,
             on_click: None,
+            is_hovered: false,
         }
     }
 
@@ -35,8 +38,8 @@ impl<Msg> TextureButton<Msg> {
 impl<Msg: Clone + 'static> Widget<Msg> for TextureButton<Msg> {
     /// Checks if the button is being hovered and clicked
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
-        let is_hovered = self.rect.contains_point(&app.mouse_pos);
-        if is_hovered && !app.is_click_consumed() && app.mouse_left_clicked {
+        self.is_hovered = self.rect.contains_point(&app.mouse_pos);
+        if self.is_hovered && !app.is_click_consumed() && app.mouse_left_clicked {
             if let Some(msg) = self.on_click.clone() {
                 msgq.push(msg);
                 app.consume_click();
@@ -46,10 +49,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextureButton<Msg> {
 
     /// Renders a button to the screen
     fn render(&self, app: &App) {
-        let is_hovered = self.rect.contains_point(&app.mouse_pos);
         app.renderer.copy_texture(
             self.rect,
-            if is_hovered {
+            if self.is_hovered {
                 self.hovered_texture_id
             } else {
                 self.texture_id

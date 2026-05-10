@@ -244,57 +244,7 @@ impl SelectionState {
 impl Scene for Gameplay {
     /// Update the scene every tick
     fn update(&mut self, app: &App) {
-        // Handle all the messages from UI
-        for msg in recv_msgs(app, &mut self.gui) {
-            match msg {
-                CommandMessages::CraftCommand(cmd) => {
-                    if let Some(selected) = self.selection.selected_entity() {
-                        self.world.get::<&mut Craft>(selected).unwrap().command = Some(cmd);
-                    }
-                }
-                CommandMessages::FactoryCommand { part_id } => {
-                    if let Some(selected) = self.selection.selected_entity() {
-                        let part = self.parts.get(&part_id).expect("should be a valid part");
-                        self.funds -= part.cost.funds;
-
-                        self.world
-                            .get::<&mut Factory>(selected)
-                            .unwrap()
-                            .start_job(part_id, self.current_et, &self.parts)
-                            .expect("you wouldnt give a fake part would you");
-                        self.gui = self.rebuild_gui(app);
-                    }
-                }
-                CommandMessages::OpenVab => {
-                    if let Some(selected) = self.selection.selected_entity() {
-                        let parent = self.world.get::<&Parent>(selected).unwrap().id;
-                        let inventory = self.world.get::<&PartInventory>(parent).unwrap();
-                        self.vab_ui.show(&inventory, &self.parts, app);
-                    }
-                }
-                CommandMessages::OpenManeuver => {
-                    if let Some(selected) = self.selection.selected_entity() {
-                        self.maneuver_ui
-                            .show(selected, self.current_et, &self.world, app);
-                    }
-                }
-            }
-        }
-
-        for msg in recv_msgs(app, &mut self.turn_gui) {
-            match msg {
-                TurnMessages::NextTurn => {
-                    if !self.is_animating() {
-                        self.schedule_events();
-                        if let Some((&next_event_time, _)) = self.event_queue.events.iter().next() {
-                            self.animation_start_et = self.current_et;
-                            self.animation_target_et = next_event_time;
-                            self.animation_start_real = app.seconds as f64;
-                        }
-                    }
-                }
-            }
-        }
+        let modal_open = self.vab_ui.is_shown() || self.maneuver_ui.is_shown();
 
         if self.vab_ui.update(app) {
             if let Some(selected) = self.selection.selected_entity() {
@@ -346,6 +296,62 @@ impl Scene for Gameplay {
             }
         }
 
+        if !modal_open {
+            // Handle all the messages from UI
+            for msg in recv_msgs(app, &mut self.gui) {
+                match msg {
+                    CommandMessages::CraftCommand(cmd) => {
+                        if let Some(selected) = self.selection.selected_entity() {
+                            self.world.get::<&mut Craft>(selected).unwrap().command = Some(cmd);
+                        }
+                    }
+                    CommandMessages::FactoryCommand { part_id } => {
+                        if let Some(selected) = self.selection.selected_entity() {
+                            let part = self.parts.get(&part_id).expect("should be a valid part");
+                            self.funds -= part.cost.funds;
+
+                            self.world
+                                .get::<&mut Factory>(selected)
+                                .unwrap()
+                                .start_job(part_id, self.current_et, &self.parts)
+                                .expect("you wouldnt give a fake part would you");
+                            self.gui = self.rebuild_gui(app);
+                        }
+                    }
+                    CommandMessages::OpenVab => {
+                        if let Some(selected) = self.selection.selected_entity() {
+                            let parent = self.world.get::<&Parent>(selected).unwrap().id;
+                            let inventory = self.world.get::<&PartInventory>(parent).unwrap();
+                            self.vab_ui.show(&inventory, &self.parts, app);
+                        }
+                    }
+                    CommandMessages::OpenManeuver => {
+                        if let Some(selected) = self.selection.selected_entity() {
+                            self.maneuver_ui
+                                .show(selected, self.current_et, &self.world, app);
+                        }
+                    }
+                }
+            }
+
+            for msg in recv_msgs(app, &mut self.turn_gui) {
+                match msg {
+                    TurnMessages::NextTurn => {
+                        if !self.is_animating() {
+                            self.schedule_events();
+                            if let Some((&next_event_time, _)) =
+                                self.event_queue.events.iter().next()
+                            {
+                                self.animation_start_et = self.current_et;
+                                self.animation_target_et = next_event_time;
+                                self.animation_start_real = app.seconds as f64;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if self.is_animating() {
             const TURN_TIME: f64 = 0.75;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
@@ -371,7 +377,9 @@ impl Scene for Gameplay {
         self.control(app);
         self.orbit_system(app);
         self.landed_system(app);
-        self.mouse_hover_system(app);
+        if !modal_open {
+            self.mouse_hover_system(app);
+        }
         self.select_system();
         self.line_path_system(app);
         self.camera_update(app);
@@ -2079,8 +2087,9 @@ impl Gameplay {
             let dist = nalgebra_glm::l1_norm(&(screen_pos - mouse_pos));
             if dist < 16.0 {
                 self.hovered = Some(entity);
-                if app.mouse_left_clicked {
+                if app.mouse_left_clicked && !app.is_click_consumed() {
                     self.selection.set_selected(entity, app.seconds as f64);
+                    app.consume_click();
                     self.gui = self.rebuild_gui(app);
                 }
                 break;

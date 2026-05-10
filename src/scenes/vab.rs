@@ -111,6 +111,10 @@ impl VabUi {
         self.rebuild_modal(app);
     }
 
+    pub fn is_shown(&self) -> bool {
+        self.modal.is_shown()
+    }
+
     fn rebuild_modal(&mut self, app: &App) {
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         let font_big: FontId = app.renderer.get_font_id_from_name("font-big").unwrap();

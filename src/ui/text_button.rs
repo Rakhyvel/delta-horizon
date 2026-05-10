@@ -21,6 +21,8 @@ pub struct TextButton<Msg> {
     on_click: Option<Msg>,
     /// Whether or not the button is active or nah
     active: bool,
+    /// Whether the button is hovered or not
+    hovered: bool,
 }
 
 impl<Msg> TextButton<Msg> {
@@ -38,6 +40,7 @@ impl<Msg> TextButton<Msg> {
             inactive_border: None,
             on_click: None,
             active: true,
+            hovered: false,
         }
     }
 
@@ -105,11 +108,9 @@ impl<Msg> TextButton<Msg> {
 
 impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
-        if self.active
-            && !app.is_click_consumed()
-            && self.rect.contains_point(&app.mouse_pos)
-            && app.mouse_left_clicked
-        {
+        self.hovered = self.active && self.rect.contains_point(&app.mouse_pos);
+
+        if self.active && self.hovered && !app.is_click_consumed() && app.mouse_left_clicked {
             if let Some(msg) = &self.on_click {
                 msgq.push(msg.clone());
                 app.consume_click();
@@ -127,7 +128,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
         // Draw background
         let color = if !self.active {
             self.inactive_background_color
-        } else if self.rect.contains_point(&app.mouse_pos) {
+        } else if self.hovered {
             self.hovered_color
         } else {
             self.background_color
