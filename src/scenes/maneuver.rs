@@ -15,7 +15,7 @@ use crate::{
 };
 use apricot::{app::App, font::FontId, rectangle::Rectangle};
 use hecs::{Entity, World};
-use nalgebra_glm::{vec2, vec4};
+use nalgebra_glm::vec2;
 
 use crate::{
     container,
@@ -44,7 +44,6 @@ pub struct ManeuverModal {
 enum ManeuverMessages {
     SelectKind(ManeuverKind),
     SelectDestination(Entity),
-    AdjustDate(f64),
     Confirm,
     Close,
 }
@@ -184,18 +183,12 @@ impl ManeuverModal {
             match msg {
                 ManeuverMessages::SelectKind(maneuver_kind) => {
                     self.selected_kind = Some(maneuver_kind);
-                    self.computed_plan = self.compute_plan(craft, world);
+                    self.computed_plan = self.compute_plan(craft, current_et, world);
                     self.rebuild(world, app)
                 }
                 ManeuverMessages::SelectDestination(entity) => {
                     self.selected_destination = Some(entity);
-                    self.computed_plan = self.compute_plan(craft, world);
-                    self.rebuild(world, app)
-                }
-                ManeuverMessages::AdjustDate(day_offset) => {
-                    self.selected_date += EphemerisTime::from_days(day_offset);
-                    self.selected_date = self.selected_date.max(current_et);
-                    self.computed_plan = self.compute_plan(craft, world);
+                    self.computed_plan = self.compute_plan(craft, current_et, world);
                     self.rebuild(world, app)
                 }
                 ManeuverMessages::Close => {
@@ -374,9 +367,13 @@ impl ManeuverModal {
             .collect()
     }
 
-    fn compute_plan(&self, craft: Entity, world: &World) -> Option<ManeuverResult> {
+    fn compute_plan(
+        &self,
+        craft: Entity,
+        current_et: EphemerisTime,
+        world: &World,
+    ) -> Option<ManeuverResult> {
         let kind = self.selected_kind.as_ref()?;
-        let manuever_et = self.selected_date;
 
         let init_state = world.get::<&State>(craft);
         let parent = world
@@ -394,7 +391,7 @@ impl ManeuverModal {
                     &init_state.unwrap(),
                     &target_state,
                     target_body.body_radius,
-                    manuever_et,
+                    current_et,
                     parent_body.mass(),
                     target_body.mass(),
                     TransferObjective::MinFuel,
@@ -411,7 +408,7 @@ impl ManeuverModal {
                     &init_state.unwrap(),
                     &target_state,
                     target_body.body_radius,
-                    manuever_et,
+                    current_et,
                     parent_body.mass(),
                     target_body.mass(),
                     TransferObjective::MinFuel,
@@ -427,7 +424,7 @@ impl ManeuverModal {
                 let plan = plan_escape(
                     &init_state.unwrap(),
                     &parent_state,
-                    manuever_et,
+                    current_et,
                     grandparent_body.mass(),
                     parent_body.mass(),
                 );
@@ -441,7 +438,7 @@ impl ManeuverModal {
                 let plan = plan_landing(
                     &init_state.unwrap(),
                     target_body.body_radius,
-                    manuever_et,
+                    current_et,
                     target_body.mu,
                 )
                 .ok()?;
@@ -457,7 +454,7 @@ impl ManeuverModal {
                     landed.offset,
                     &parent_state,
                     parent_body.body_radius,
-                    manuever_et,
+                    current_et,
                     grandparent_body.mass(),
                     parent_body.mass(),
                 )

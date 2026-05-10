@@ -18,16 +18,7 @@ use num_format::{Locale, ToFormattedString};
 use sdl2::keyboard::Scancode;
 
 use crate::{
-    astro::{
-        epoch::EphemerisTime,
-        escape::plan_escape,
-        landing::plan_landing,
-        launch::plan_launch,
-        maneuver::sphere_of_influence,
-        state::State,
-        transfer::{plan_flyby, plan_transfer, TransferObjective},
-        units::SUN_MU,
-    },
+    astro::{epoch::EphemerisTime, maneuver::sphere_of_influence, state::State, units::SUN_MU},
     components::{
         craft::{replace_line_path, AssociatedEntity, Command, Stage},
         factory::{spawn_factory, Factory},
@@ -46,7 +37,6 @@ use crate::{
     ui::{
         anchor::{Anchor, AnchorPoint},
         container::{Align, Flow},
-        dropdown::Dropdown,
         hrule::HRule,
         label::Label,
         progress_bar::ProgressBar,
@@ -128,7 +118,6 @@ enum TurnMessages {
 
 #[derive(Clone)]
 enum CommandMessages {
-    CraftCommand(Command),
     FactoryCommand { part_id: String },
     OpenVab,
     OpenManeuver,
@@ -300,11 +289,6 @@ impl Scene for Gameplay {
             // Handle all the messages from UI
             for msg in recv_msgs(app, &mut self.gui) {
                 match msg {
-                    CommandMessages::CraftCommand(cmd) => {
-                        if let Some(selected) = self.selection.selected_entity() {
-                            self.world.get::<&mut Craft>(selected).unwrap().command = Some(cmd);
-                        }
-                    }
                     CommandMessages::FactoryCommand { part_id } => {
                         if let Some(selected) = self.selection.selected_entity() {
                             let part = self.parts.get(&part_id).expect("should be a valid part");
@@ -1221,21 +1205,6 @@ impl Gameplay {
             Box::new(Label::new("VAB").font(font_big, app)),
             Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)),
             Box::new(Label::new("INVENTORY").font(font_small_bold, app)),
-            Box::new(
-                Dropdown::new(
-                    "",
-                    vec2(WIDTH * 0.5, 40.0),
-                    vec![
-                        ("Flyby", CommandMessages::OpenVab),
-                        ("Transfer", CommandMessages::OpenVab),
-                        ("Escape", CommandMessages::OpenVab),
-                        ("Land", CommandMessages::OpenVab),
-                        ("Launch", CommandMessages::OpenVab),
-                        ("Re-enter", CommandMessages::OpenVab),
-                    ],
-                )
-                .use_style(&STYLE),
-            ),
         ];
 
         // Show available parts
@@ -1299,217 +1268,6 @@ impl Gameplay {
         ));
 
         widgets
-    }
-
-    fn build_orbit_widgets(
-        &self,
-        selected: Entity,
-    ) -> Option<Vec<Box<dyn Widget<CommandMessages>>>> {
-        let craft = self.world.get::<&Craft>(selected).unwrap();
-        let _orbit = self.world.get::<&State>(selected).ok()?;
-        let parent = self.world.get::<&Parent>(selected).ok()?;
-        let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
-
-        let craft_dv = craft.total_remaining_dv();
-
-        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
-
-        // Land on body
-        {
-            let craft_state = self.world.get::<&State>(selected).unwrap();
-            let target_body = self.world.get::<&Body>(parent.id).unwrap();
-            if let Ok(plan) = plan_landing(
-                &craft_state,
-                target_body.body_radius,
-                self.current_et,
-                target_body.mu,
-            ) {
-                if plan.deorbit_dv + plan.landing_dv <= craft_dv {
-                    widgets.push(Box::new(
-                        TextButton::<CommandMessages>::new(
-                            Rectangle::new(100.0, 120.0, 240.0, 40.0),
-                            format!(
-                                "Land on {} | {:.0} m/s",
-                                parent_scene_object.name,
-                                plan.deorbit_dv + plan.landing_dv
-                            ),
-                        )
-                        .use_style(&STYLE)
-                        .border(STYLE.border_primary, 1.0)
-                        .on_click(CommandMessages::CraftCommand(Command::Land { plan })),
-                    ));
-                }
-            }
-        }
-
-        // Escape transfer to grandparent body
-        if let Ok(grandparent) = self.world.get::<&Parent>(parent.id) {
-            let craft_state = self.world.get::<&State>(selected).unwrap();
-            let parent_state = self.world.get::<&State>(parent.id).unwrap();
-            let parent_body = self.world.get::<&Body>(parent.id).unwrap();
-            let grandparent_body = self.world.get::<&Body>(grandparent.id).unwrap();
-            let grandparent_scene_object = self.world.get::<&SceneObject>(grandparent.id).unwrap();
-
-            println!("grandparent mass: {} earth masses", grandparent_body.mass());
-
-            if let Ok(plan) = plan_escape(
-                &craft_state,
-                &parent_state,
-                self.current_et,
-                grandparent_body.mass(),
-                parent_body.mass(),
-            ) {
-                if plan.escape_dv <= craft_dv {
-                    widgets.push(Box::new(
-                        TextButton::<CommandMessages>::new(
-                            Rectangle::new(100.0, 120.0, 240.0, 40.0),
-                            format!(
-                                "{} | {:.0} m/s",
-                                grandparent_scene_object.name, plan.escape_dv
-                            ),
-                        )
-                        .use_style(&STYLE)
-                        .on_click(CommandMessages::CraftCommand(Command::Escape {
-                            to: grandparent.id,
-                            plan,
-                        })),
-                    ));
-                }
-            }
-        }
-
-        // Transfers to sibling bodies
-        let mut binding = self.world.query::<(&State, &Body, &SceneObject, &Parent)>();
-        let transfers = binding
-            .iter()
-            .filter(|(_, (_, _, _, p))| p.id == parent.id)
-            .filter_map(|(to, (_, _, scene_obj, _))| {
-                let init_state = self.world.get::<&State>(selected).unwrap();
-                let target_state = self.world.get::<&State>(to).unwrap();
-                let target_body = self.world.get::<&Body>(to).unwrap();
-                let parent = self.world.get::<&Parent>(selected).unwrap().id;
-                let parent_body = self.world.get::<&Body>(parent).unwrap();
-
-                if let Ok(plan) = plan_transfer(
-                    &init_state,
-                    &target_state,
-                    target_body.body_radius,
-                    self.current_et,
-                    parent_body.mass(),
-                    target_body.mass(),
-                    TransferObjective::MinFuel,
-                ) {
-                    if plan.circ_dv + plan.transfer_dv <= craft_dv {
-                        Some(Box::new(
-                            TextButton::<CommandMessages>::new(
-                                Rectangle::new(100.0, 120.0, 240.0, 40.0),
-                                format!(
-                                    "{} | {:.0} m/s",
-                                    scene_obj.name,
-                                    plan.transfer_dv + plan.circ_dv
-                                ),
-                            )
-                            .use_style(&STYLE)
-                            .on_click(CommandMessages::CraftCommand(Command::Transfer {
-                                to,
-                                plan,
-                            })),
-                        )
-                            as Box<dyn Widget<CommandMessages>>)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            });
-        widgets.extend(transfers);
-
-        // Transfers to sibling bodies
-        let mut binding = self.world.query::<(&State, &Body, &SceneObject, &Parent)>();
-        let flybys = binding
-            .iter()
-            .filter(|(_, (_, _, _, p))| p.id == parent.id)
-            .filter_map(|(to, (_, _, scene_obj, _))| {
-                let init_state = self.world.get::<&State>(selected).unwrap();
-                let target_state = self.world.get::<&State>(to).unwrap();
-                let target_body = self.world.get::<&Body>(to).unwrap();
-                let parent = self.world.get::<&Parent>(selected).unwrap().id;
-                let parent_body = self.world.get::<&Body>(parent).unwrap();
-
-                if let Ok(plan) = plan_flyby(
-                    &init_state,
-                    &target_state,
-                    target_body.body_radius,
-                    self.current_et,
-                    parent_body.mass(),
-                    target_body.mass(),
-                    TransferObjective::MinFuel,
-                ) {
-                    if plan.transfer_dv <= craft_dv {
-                        Some(Box::new(
-                            TextButton::<CommandMessages>::new(
-                                Rectangle::new(100.0, 120.0, 240.0, 40.0),
-                                format!("Flyby {} | {:.0} m/s", scene_obj.name, plan.transfer_dv),
-                            )
-                            .use_style(&STYLE)
-                            .on_click(CommandMessages::CraftCommand(Command::Flyby { to, plan })),
-                        )
-                            as Box<dyn Widget<CommandMessages>>)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            });
-        widgets.extend(flybys);
-
-        Some(widgets)
-    }
-
-    fn build_landed_widgets(
-        &self,
-        selected: Entity,
-        app: &App,
-    ) -> Option<Vec<Box<dyn Widget<CommandMessages>>>> {
-        let font = app.renderer.get_font_id_from_name("font").unwrap();
-
-        let landed = self.world.get::<&Landed>(selected).ok()?;
-        let parent = self.world.get::<&Parent>(selected).ok()?;
-        let parent_scene_object = self.world.get::<&SceneObject>(parent.id).unwrap();
-        let parent_body = self.world.get::<&Body>(parent.id).unwrap();
-        let grandparent = self.world.get::<&Parent>(parent.id).unwrap();
-
-        let craft = self.world.get::<&Craft>(selected).unwrap();
-        let craft_dv = craft.total_remaining_dv();
-
-        let parent_state = self.world.get::<&State>(parent.id).unwrap();
-        let grandparent_body = self.world.get::<&Body>(grandparent.id).unwrap();
-
-        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
-
-        if let Ok(plan) = plan_launch(
-            landed.offset,
-            &parent_state,
-            parent_body.body_radius,
-            self.current_et,
-            grandparent_body.mass(),
-            parent_body.mass(),
-        ) {
-            if plan.launch_dv + plan.circ_dv <= craft_dv {
-                widgets.push(Box::new(
-                    TextButton::<CommandMessages>::new(
-                        Rectangle::new(100.0, 120.0, 240.0, 40.0),
-                        format!("Launch | {:.0} m/s", plan.launch_dv + plan.circ_dv),
-                    )
-                    .use_style(&STYLE)
-                    .on_click(CommandMessages::CraftCommand(Command::Launch { plan })),
-                ));
-            }
-        }
-
-        Some(widgets)
     }
 
     fn schedule_events(&mut self) {
