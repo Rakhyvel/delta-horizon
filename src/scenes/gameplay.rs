@@ -49,6 +49,7 @@ use crate::{
     components::{
         body::{spawn_body, Body, Category, Parent, SceneObject},
         craft::{spawn_landed_craft, Craft, Landed},
+        icosphere,
     },
     generation::solar_system_gen::{self},
     ui::{
@@ -60,7 +61,6 @@ use crate::{
 
 /// Object file data, used for meshes
 pub const QUAD_XY_DATA: &[u8] = include_bytes!("../../res/quad-xy.obj");
-pub const ICO_DATA: &[u8] = include_bytes!("../../res/ico-sphere.obj");
 pub const UV_DATA: &[u8] = include_bytes!("../../res/uv-sphere.obj");
 pub const CONE_DATA: &[u8] = include_bytes!("../../res/cone.obj");
 pub const CUBE_DATA: &[u8] = include_bytes!("../../res/cube.obj");
@@ -536,9 +536,23 @@ impl Gameplay {
         app.renderer
             .add_mesh_from_obj(QUAD_XY_DATA, Some("quad-xy"));
         app.renderer.add_mesh_from_obj(UV_DATA, Some("uv"));
-        app.renderer.add_mesh_from_obj(ICO_DATA, Some("ico"));
         app.renderer.add_mesh_from_obj(CONE_DATA, Some("cone"));
         app.renderer.add_mesh_from_obj(CUBE_DATA, Some("cube"));
+
+        let ico_80 = icosphere::generate(1); // 80-face icosphere for most rocky bodies
+        let ico_20 = icosphere::generate(0); // 20-face icosphere for dwarf bodies
+        app.renderer.add_mesh_from_verts(
+            ico_80.indices.clone(),
+            vec![&ico_80.positions, &ico_80.normals, &ico_80.uvs],
+            Some("ico-80"),
+        );
+        app.renderer.add_mesh_from_verts(
+            ico_20.indices.clone(),
+            vec![&ico_20.positions, &ico_20.normals, &ico_20.uvs],
+            Some("ico-20"),
+        );
+        let ico_80_tiles = ico_80.tile_directions;
+        let ico_20_tiles = ico_20.tile_directions;
 
         // Setup the texture manager
         app.renderer
@@ -605,6 +619,7 @@ impl Gameplay {
                 name: String::from("The Sun"),
             },
             None,
+            vec![],
             &mut world,
             &app.renderer,
             &mut bvh,
@@ -624,6 +639,13 @@ impl Gameplay {
         for system in planets {
             let name = lexicon.generate_word(7);
             println!("Planet: {}", name);
+            let planet_tiles = if system.planet.0.gaseous() {
+                vec![]
+            } else if system.planet.0.category == Category::Dwarf {
+                ico_20_tiles.clone()
+            } else {
+                ico_80_tiles.clone()
+            };
             let planet_entity = spawn_body(
                 system.planet.0,
                 system.planet.1,
@@ -632,6 +654,7 @@ impl Gameplay {
                     name,
                 },
                 Some(Parent { id: sun_entity }),
+                planet_tiles,
                 &mut world,
                 &app.renderer,
                 &mut bvh,
@@ -646,6 +669,13 @@ impl Gameplay {
             for moon in system.moons {
                 let name = lexicon.generate_word(10);
                 println!("Moon: {}", name);
+                let moon_tiles = if moon.0.gaseous() {
+                    vec![]
+                } else if moon.0.category == Category::Dwarf {
+                    ico_20_tiles.clone()
+                } else {
+                    ico_80_tiles.clone()
+                };
                 let moon_entity = spawn_body(
                     moon.0,
                     moon.1,
@@ -654,6 +684,7 @@ impl Gameplay {
                         name,
                     },
                     Some(Parent { id: planet_entity }),
+                    moon_tiles,
                     &mut world,
                     &app.renderer,
                     &mut bvh,
@@ -670,6 +701,7 @@ impl Gameplay {
             Parent {
                 id: bodies[habitable_planet],
             },
+            0,
             &mut world,
             &app.renderer,
             &mut bvh,
@@ -684,6 +716,7 @@ impl Gameplay {
             Parent {
                 id: bodies[habitable_planet],
             },
+            3,
             &mut world,
             &app.renderer,
             &mut bvh,

@@ -1,6 +1,8 @@
 pub(crate) mod body;
 pub(crate) mod craft;
 pub(crate) mod factory;
+pub(crate) mod icosphere;
 pub(crate) mod inventory;
 pub(crate) mod parts;
+pub(crate) mod tile;
 pub(crate) mod vab;

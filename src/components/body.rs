@@ -12,7 +12,7 @@ use nalgebra_glm::{vec3, DVec3};
 
 use crate::{
     astro::{state::State, units::G},
-    components::{craft::AssociatedEntity, inventory::PartInventory},
+    components::{craft::AssociatedEntity, inventory::PartInventory, tile::TileMap},
 };
 
 pub struct SceneObject {
@@ -58,14 +58,17 @@ pub fn spawn_body(
     init_state: State,
     mut scene_obj: SceneObject,
     parent: Option<Parent>,
+    tile_directions: Vec<(f64, f64, f64)>,
     world: &mut World,
     renderer: &RenderContext,
     bvh: &mut BVH<Entity>,
 ) -> Entity {
     let body_mesh = if body.gaseous() {
         renderer.get_mesh_id_from_name("uv").unwrap()
+    } else if body.category == Category::Dwarf {
+        renderer.get_mesh_id_from_name("ico-20").unwrap()
     } else {
-        renderer.get_mesh_id_from_name("ico").unwrap()
+        renderer.get_mesh_id_from_name("ico-80").unwrap()
     };
 
     let position: DVec3 = vec3(0., 0., 0.);
@@ -123,6 +126,7 @@ pub fn spawn_body(
                 PartInventory {
                     parts: HashMap::new(),
                 },
+                TileMap::new(tile_directions),
             ),
         )
         .unwrap();

@@ -12,6 +12,7 @@ use crate::{
         body::{Body, Parent, SceneObject},
         craft::Landed,
         parts::PartRegistry,
+        tile::{SurfaceTile, TileMap},
     },
 };
 
@@ -30,6 +31,7 @@ pub struct FactoryJob {
 pub fn spawn_factory(
     mut scene_obj: SceneObject,
     parent: Parent,
+    tile_index: u32,
     world: &mut World,
     renderer: &RenderContext,
     bvh: &mut BVH<Entity>,
@@ -41,7 +43,11 @@ pub fn spawn_factory(
 
     let texture_id = renderer.get_texture_id_from_name("europa").unwrap();
 
-    let parent_radius = { world.get::<&Body>(parent.id).unwrap().body_radius };
+    let offset = {
+        let body = world.get::<&Body>(parent.id).unwrap();
+        let tile_map = world.get::<&TileMap>(parent.id).unwrap();
+        tile_map.tile_offset(tile_index, body.body_radius)
+    };
 
     let craft_entity = world.spawn((
         WorldPosition { pos: position },
@@ -69,13 +75,17 @@ pub fn spawn_factory(
             (
                 scene_obj,
                 parent,
-                Landed {
-                    offset: vec3(parent_radius, 0.0, 0.0),
-                },
+                Landed { offset },
+                SurfaceTile { index: tile_index },
                 Factory { current_job: None },
             ),
         )
         .unwrap();
+
+    world
+        .get::<&mut TileMap>(parent.id)
+        .unwrap()
+        .occupy(tile_index, craft_entity);
 
     craft_entity
 }
