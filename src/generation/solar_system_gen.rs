@@ -415,8 +415,8 @@ fn compute_spacing(rng: &mut impl Rng, orbital_radius_au: f64, radius: f64) -> f
 
 fn categorize_planet(radius: f64) -> Category {
     match radius {
-        (0.0..0.1) => Category::Dwarf,
-        (0.1..0.8) => Category::SubEarth,
+        (0.0..0.3) => Category::Dwarf,
+        (0.3..0.8) => Category::SubEarth,
         (0.8..1.5) => Category::EarthLike,
         (1.5..2.5) => Category::SuperEarth,
         (2.5..4.0) => Category::MiniNeptune,

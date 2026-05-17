@@ -6,10 +6,13 @@ pub struct IcosphereMesh {
     pub normals: Vec<f32>,
     pub uvs: Vec<f32>,
     pub indices: Vec<u32>,
-    /// Unit-vector centroid of each face — one entry per tile
+    /// Unit-vector centroid of each face, one entry per tile
     pub tile_directions: Vec<(f64, f64, f64)>,
 }
 
+/// Generate a flat-shaded icosphere. Each face gets 3 unique vertices so
+/// normals are per-face (giving the low-poly look) and UVs are sampled from
+/// the face centroid (no seam distortion).
 pub fn generate(subdivisions: u32) -> IcosphereMesh {
     let mut verts = base_vertices();
     let mut faces = base_faces();
@@ -18,51 +21,55 @@ pub fn generate(subdivisions: u32) -> IcosphereMesh {
         faces = subdivide_once(&mut verts, faces);
     }
 
-    // Compute per-vertex spherical UVs
-    let mut uv_list: Vec<[f32; 2]> = verts
-        .iter()
-        .map(|v| {
-            let u = v[1].atan2(v[0]) / (2.0 * PI) + 0.5;
-            let vv = v[2].asin() / PI + 0.5;
-            [u, vv]
-        })
-        .collect();
+    let n = faces.len();
+    let mut positions = Vec::with_capacity(n * 9);
+    let mut normals = Vec::with_capacity(n * 9);
+    let mut uvs = Vec::with_capacity(n * 9);
+    let mut indices = Vec::with_capacity(n * 3);
+    let mut tile_directions = Vec::with_capacity(n);
 
-    // Fix seam: duplicate vertices where u wraps across the atan2 discontinuity
-    fix_seam(&mut verts, &mut uv_list, &mut faces);
+    for (i, face) in faces.iter().enumerate() {
+        let a = verts[face[0] as usize];
+        let b = verts[face[1] as usize];
+        let c = verts[face[2] as usize];
 
-    // Tile directions are face centroids — computed after seam fix, but positions
-    // are identical for duplicated vertices so the result is the same either way
-    let tile_directions = faces
-        .iter()
-        .map(|face| {
-            let a = &verts[face[0] as usize];
-            let b = &verts[face[1] as usize];
-            let c = &verts[face[2] as usize];
-            let cx = (a[0] + b[0] + c[0]) as f64 / 3.0;
-            let cy = (a[1] + b[1] + c[1]) as f64 / 3.0;
-            let cz = (a[2] + b[2] + c[2]) as f64 / 3.0;
-            let len = (cx * cx + cy * cy + cz * cz).sqrt();
-            (cx / len, cy / len, cz / len)
-        })
-        .collect();
+        // Face centroid, projected onto unit sphere
+        let cx = (a[0] + b[0] + c[0]) / 3.0;
+        let cy = (a[1] + b[1] + c[1]) / 3.0;
+        let cz = (a[2] + b[2] + c[2]) / 3.0;
+        let clen = (cx * cx + cy * cy + cz * cz).sqrt();
+        let norm = [cx / clen, cy / clen, cz / clen];
 
-    let mut positions = Vec::with_capacity(verts.len() * 3);
-    let mut normals = Vec::with_capacity(verts.len() * 3);
-    let mut uvs = Vec::with_capacity(verts.len() * 2);
+        let (mut ua, va) = sphere_uv(a);
+        let (mut ub, vb) = sphere_uv(b);
+        let (mut uc, vc) = sphere_uv(c);
 
-    for (v, uv) in verts.iter().zip(uv_list.iter()) {
-        positions.extend_from_slice(v);
-        normals.extend_from_slice(v); // unit sphere: normal == position
-        uvs.push(uv[0]);
-        uvs.push(uv[1]);
-    }
+        // Fix antimeridian seam: vertices near u=0 and u=1 on the same triangle
+        // cause the GPU to interpolate across the full texture width. Shift any u
+        // that is far below the max up by 1.0 so all three are on the same side.
+        let u_max = ua.max(ub).max(uc);
+        if u_max - ua > 0.5 {
+            ua += 1.0;
+        }
+        if u_max - ub > 0.5 {
+            ub += 1.0;
+        }
+        if u_max - uc > 0.5 {
+            uc += 1.0;
+        }
 
-    let mut indices = Vec::with_capacity(faces.len() * 3);
-    for face in &faces {
-        indices.push(face[0]);
-        indices.push(face[1]);
-        indices.push(face[2]);
+        let base = (i * 3) as u32;
+        indices.extend_from_slice(&[base, base + 1, base + 2]);
+
+        for (vert, u, v) in [(a, ua, va), (b, ub, vb), (c, uc, vc)] {
+            positions.extend_from_slice(&vert);
+            normals.extend_from_slice(&norm);
+            uvs.push(u);
+            uvs.push(v);
+            uvs.push(0.0);
+        }
+
+        tile_directions.push((norm[0] as f64, norm[1] as f64, norm[2] as f64));
     }
 
     IcosphereMesh {
@@ -71,42 +78,6 @@ pub fn generate(subdivisions: u32) -> IcosphereMesh {
         uvs,
         indices,
         tile_directions,
-    }
-}
-
-/// Duplicate vertices that sit on seam-spanning faces, giving them u + 1.0 so
-/// the triangle samples a continuous strip of the texture instead of wrapping.
-fn fix_seam(
-    verts: &mut Vec<[f32; 3]>,
-    uv_list: &mut Vec<[f32; 2]>,
-    faces: &mut Vec<[u32; 3]>,
-) {
-    // Cache: original vertex index → duplicate index with u += 1
-    let mut duplicates: HashMap<u32, u32> = HashMap::new();
-
-    for face in faces.iter_mut() {
-        let ua = uv_list[face[0] as usize][0];
-        let ub = uv_list[face[1] as usize][0];
-        let uc = uv_list[face[2] as usize][0];
-
-        // A face spans the seam when its u range is impossibly wide for a single
-        // triangle on the sphere — caused by u wrapping from ~1 back to ~0.
-        if ua.max(ub).max(uc) - ua.min(ub).min(uc) > 0.5 {
-            for slot in face.iter_mut() {
-                if uv_list[*slot as usize][0] < 0.5 {
-                    let orig = *slot;
-                    if !duplicates.contains_key(&orig) {
-                        let new_idx = verts.len() as u32;
-                        let pos = verts[orig as usize];
-                        let old_uv = uv_list[orig as usize];
-                        verts.push(pos);
-                        uv_list.push([old_uv[0] + 1.0, old_uv[1]]);
-                        duplicates.insert(orig, new_idx);
-                    }
-                    *slot = duplicates[&orig];
-                }
-            }
-        }
     }
 }
 
@@ -198,4 +169,15 @@ fn get_midpoint(
     verts.push([mx / len, my / len, mz / len]);
     cache.insert(key, idx);
     idx
+}
+
+fn sphere_uv(v: [f32; 3]) -> (f32, f32) {
+    let x = v[0];
+    let y = v[1];
+    let z = v[2];
+
+    let u = y.atan2(x) / (2.0 * PI) + 0.5;
+    let v = 1.0 - (z.asin() / PI + 0.5);
+
+    (u, v)
 }

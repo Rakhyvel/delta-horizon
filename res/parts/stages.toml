@@ -1,3 +1,11 @@
+# TODO:
+# - small solid kick stages (Juno !, Scout)
+# - hypergolic (restartable?) upper stages (agena, fregat, delta-P, briz-M)
+# - hydrolox upper stages (Centaur)
+# - kerolox core stages
+# - NERVA stages?
+# - EP
+
 [[parts]]
 id = 'atlas_first_stage'
 name = 'Atlas First Stage'
