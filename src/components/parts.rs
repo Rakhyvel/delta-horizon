@@ -12,6 +12,9 @@ pub struct PartDef {
     pub cost: ResourceCost,
 
     pub fuel: Option<FuelSpec>,
+
+    #[serde(default)]
+    pub requires: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
@@ -26,16 +29,6 @@ pub struct FuelSpec {
 pub struct ResourceCost {
     #[serde(default)]
     pub funds: u32,
-    #[serde(default)]
-    pub iron: f64,
-    #[serde(default)]
-    pub aluminum: f64,
-    #[serde(default)]
-    pub silicon: f64,
-    #[serde(default)]
-    pub copper: f64,
-    #[serde(default)]
-    pub water: f64,
 }
 
 #[derive(serde::Deserialize)]

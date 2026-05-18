@@ -52,6 +52,7 @@ use crate::{
         icosphere,
     },
     generation::solar_system_gen::{self},
+    scenes::tech_tree::TechTree,
     ui::{
         container::Container,
         texture_button::TextureButton,
@@ -99,6 +100,7 @@ pub struct Gameplay {
 
     // Resources
     funds: u32,
+    tech_tree: TechTree,
 
     // Events and timeline
     event_queue: EventQueue,
@@ -373,6 +375,7 @@ impl Scene for Gameplay {
         }
         self.line_path_system(app);
         self.sync_models(app);
+        self.tech_tree.update(&self.world);
 
         // Delete anything we want deleted
         app.renderer.flush_deletion_queue();
@@ -757,8 +760,10 @@ impl Gameplay {
         let mut event_queue = EventQueue::new();
         event_queue.push(
             EphemerisTime::epoch() + EphemerisTime::from_years(0.25),
-            Event::Payday { revenue: 125_000 },
+            Event::Payday { revenue: 15_000 },
         );
+
+        let tech_tree = TechTree::new(bodies[habitable_planet], sun_entity);
 
         Self {
             world,
@@ -811,7 +816,8 @@ impl Gameplay {
             vab_ui: VabUi::new(),
             maneuver_ui: ManeuverModal::new(),
 
-            funds: 150_000,
+            funds: 75_000,
+            tech_tree,
 
             current_et: EphemerisTime::epoch(),
             animation_start_et: EphemerisTime::epoch(),
@@ -1195,6 +1201,7 @@ impl Gameplay {
             let build_orders: Vec<Box<dyn Widget<CommandMessages>>> = self
                 .parts
                 .all()
+                .filter(|part| self.tech_tree.is_available(part))
                 .map(|part| {
                     let can_afford = part.cost.funds <= self.funds;
                     let formatted_funds = (part.cost.funds as i64).to_formatted_string(&Locale::en);
@@ -1257,6 +1264,60 @@ impl Gameplay {
             widgets.push(Box::new(
                 Container::new(build_orders).padding(vec2(0.0, 0.0)),
             ));
+
+            let locked_parts: Vec<Box<dyn Widget<CommandMessages>>> = self
+                .parts
+                .all()
+                .filter(|part| !self.tech_tree.is_available(part))
+                .map(|part| {
+                    let req = part.requires.as_deref().unwrap_or("unknown");
+                    Box::new(
+                        Container::new(vec![
+                            Box::new(
+                                Container::new(vec![
+                                    Box::new(
+                                        Label::new(part.name.clone())
+                                            .font(font_small_bold, app)
+                                            .color(STYLE.text_disabled),
+                                    ),
+                                    Box::new(
+                                        Label::new(format!("Requires: {}", req))
+                                            .font(font, app)
+                                            .color(STYLE.text_disabled),
+                                    ),
+                                ])
+                                .flow(Flow::Vertical)
+                                .padding(vec2(0.0, 4.0))
+                                .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0)),
+                            ),
+                            Box::new(
+                                Container::new(vec![Box::new(
+                                    Label::new("LOCKED")
+                                        .font(font, app)
+                                        .color(STYLE.text_disabled),
+                                )])
+                                .padding(vec2(0.0, 0.0))
+                                .fixed_width(vec2(WIDTH * 0.2, 10.0))
+                                .cross_align(Align::End)
+                                .flow(Flow::Vertical),
+                            ),
+                        ])
+                        .border(STYLE.border_primary, 1.0)
+                        .cross_align(Align::Center)
+                        .flow(Flow::Horizontal),
+                    ) as Box<dyn Widget<CommandMessages>>
+                })
+                .collect();
+            if !locked_parts.is_empty() {
+                widgets.push(Box::new(
+                    Label::new("LOCKED")
+                        .font(font_small_bold, app)
+                        .color(STYLE.text_disabled),
+                ));
+                widgets.push(Box::new(
+                    Container::new(locked_parts).padding(vec2(0.0, 0.0)),
+                ));
+            }
         }
 
         widgets
@@ -1590,6 +1651,7 @@ impl Gameplay {
                 new_soi_radius,
             } => {
                 self.selection.set_selected(craft, app.seconds as f64);
+                self.tech_tree.on_soi_change(new_parent, &self.world);
 
                 let new_parent_world_pos =
                     self.world.get::<&WorldPosition>(new_parent).unwrap().pos;

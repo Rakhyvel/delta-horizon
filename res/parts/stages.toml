@@ -6,26 +6,48 @@
 # - NERVA stages?
 # - EP
 
+
+## SOLID FUEL STAGES ###
+
 [[parts]]
-id = 'atlas_first_stage'
-name = 'Atlas First Stage'
-dry_mass_kg = 25_000.0
-build_time_days = 90.0
+id = 'algol'
+name = 'Algol'
+desc = 'Solid first stage'
+dry_mass_kg = 1650.0
+build_time_days = 7.0
 
 [parts.fuel]
-max_fuel_mass_kg = 300_000.0
-isp = 265.0
-thrust_kn = 3_800.0
+max_fuel_mass_kg = 9950.0
+isp = 236.0
+thrust_kn = 560.0
 
 [parts.cost]
-funds = 100_000
-iron = 800.0
-aluminum = 200.0
-copper = 50.0
+funds = 1_500
+
+
+[[parts]]
+id = 'altair'
+name = 'Altair'
+desc = 'Solid upper stage'
+dry_mass_kg = 37.0
+build_time_days = 7.0
+
+[parts.fuel]
+max_fuel_mass_kg = 238.0
+isp = 255.0
+thrust_kn = 22.0
+
+[parts.cost]
+funds = 800
+
+
+## LIQUID FUEL STAGES ##
 
 [[parts]]
 id = 'centaur_upper_stage'
 name = 'Centaur Upper Stage'
+desc = 'hydrolox upper stage'
+requires = 'first-human'
 dry_mass_kg = 2_200.0
 build_time_days = 60.0
 
@@ -35,14 +57,28 @@ isp = 450.0
 thrust_kn = 99.0
 
 [parts.cost]
-funds = 100_000
-iron = 400.0
-aluminum = 150.0
-copper = 30.0
+funds = 60_000
+
+[[parts]]
+id = 'atlas_first_stage'
+name = 'Atlas First Stage'
+desc = 'RP-1 first stage'
+requires = 'first-sat'
+dry_mass_kg = 25_000.0
+build_time_days = 90.0
+
+[parts.fuel]
+max_fuel_mass_kg = 300_000.0
+isp = 265.0
+thrust_kn = 3_800.0
+
+[parts.cost]
+funds = 80_000
 
 [[parts]]
 id = 'ion_cruise_stage'
 name = 'Ion Cruise Stage'
+requires = 'planet-orbit'
 dry_mass_kg = 500.0
 build_time_days = 120.0
 
@@ -52,7 +88,4 @@ isp = 3100.0
 thrust_kn = 0.092
 
 [parts.cost]
-funds = 250_000
-iron = 50.0
-aluminum = 80.0
-copper = 120.0
+funds = 200_000
