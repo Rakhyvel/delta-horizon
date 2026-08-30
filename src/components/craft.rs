@@ -44,6 +44,7 @@ pub struct Stage {
     pub dry_mass: f64,      // [kg]
     pub fuel_mass: f64,     // [kg]
     pub max_fuel_mass: f64, // [kg]
+    pub solid: bool,
 
     pub thrust_kn: f64, // [kN]
     pub isp: f64,       // [s]
@@ -231,13 +232,15 @@ impl Craft {
         Some(thrust_n / (total_mass_kg * 9.81))
     }
 
-    pub fn burn(&mut self, mut requested_dv: f64) {
+    /// Attempts to burn propellant to get `requested_dv`, returns the actual dv imparted
+    pub fn burn(&mut self, mut requested_dv: f64) -> f64 {
+        let mut applied = 0.0;
+
         while requested_dv > 0.0 {
             let m0 = self.total_mass();
 
-            let stage = match self.stages_stack.last_mut() {
-                Some(s) => s,
-                None => break,
+            let Some(stage) = self.stages_stack.last_mut() else {
+                break;
             };
 
             // max dv this stage can provide RIGHT NOW
@@ -246,24 +249,22 @@ impl Craft {
             let mf = m0 - stage_fuel;
             let max_dv = stage.isp * LITTLE_G * (m0 / mf.max(1e-9)).ln();
 
-            if max_dv >= requested_dv {
-                // stage can handle it fully
+            if max_dv >= requested_dv && !stage.solid {
+                // stage can handle it fully, and it's not a solid motor
                 let mf_needed = m0 / (requested_dv / (stage.isp * LITTLE_G)).exp();
                 let fuel_used = (m0 - mf_needed).min(stage.fuel_mass);
 
                 stage.fuel_mass -= fuel_used;
-                return;
-            } else {
-                // burn entire stage
-                let mf = m0 - stage.fuel_mass;
-                debug_assert!(stage.fuel_mass <= m0, "fuel mass exceeds total mass");
-                let dv_used = stage.isp * LITTLE_G * (m0 / mf.max(1e-9)).ln();
-
-                requested_dv -= dv_used;
-
-                stage.fuel_mass = 0.0;
-                self.stages_stack.pop(); // discard stage
+                return applied + requested_dv;
             }
+
+            // either liquid stage can't handle full request, or any solid, burn the entire stage
+            stage.fuel_mass = 0.0;
+            self.stages_stack.pop(); // discard stage
+            applied += max_dv;
+            requested_dv -= max_dv;
         }
+
+        applied
     }
 }

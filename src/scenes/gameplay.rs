@@ -20,7 +20,12 @@ use num_format::{Locale, ToFormattedString};
 use sdl2::keyboard::Scancode::{self};
 
 use crate::{
-    astro::{epoch::EphemerisTime, maneuver::sphere_of_influence, state::State, units::SUN_MU},
+    astro::{
+        epoch::EphemerisTime,
+        maneuver::sphere_of_influence,
+        state::State,
+        units::{METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR, SUN_MU},
+    },
     components::{
         craft::{replace_line_path, AssociatedEntity, Command, Stage},
         factory::{spawn_factory, Factory},
@@ -497,19 +502,10 @@ impl Scene for Gameplay {
             }
         }
 
-        if let Some((selected, _, line_path)) = &self.selected_tile {
-            let world_pos = self.world.get::<&WorldPosition>(*selected).unwrap().pos;
-            let relative_pos = world_pos - self.camera_3d.world_pos;
-            let (view_matrix, proj_matrix) = self.camera_3d.inner.view_proj_matrices();
-
-            app.renderer.draw_line_path_at(
-                line_path,
-                nalgebra_glm::convert(relative_pos),
-                view_matrix,
-                proj_matrix,
-            );
-        }
-        if let Some((selected, _, line_path)) = &self.hovered_tile {
+        for (selected, _, line_path) in [&self.selected_tile, &self.hovered_tile]
+            .into_iter()
+            .flatten()
+        {
             let world_pos = self.world.get::<&WorldPosition>(*selected).unwrap().pos;
             let relative_pos = world_pos - self.camera_3d.world_pos;
             let (view_matrix, proj_matrix) = self.camera_3d.inner.view_proj_matrices();
@@ -907,11 +903,13 @@ impl Gameplay {
         }
         self.prev_tab_state = curr_tab_state;
 
-        const MIN_DISTANCE: f64 = 0.12;
-        const MAX_DISTANCE: f64 = 1e6;
+        let body_radius = self.get_selected_body_radius().unwrap_or(0.0);
+        let altitude = self.distance - body_radius;
 
-        let control_speed = 0.005;
-        let zoom_control_speed = 0.1 * (self.distance - MIN_DISTANCE);
+        let min_distance: f64 = 0.12 + body_radius;
+        let max_distance: f64 = 1e6 + body_radius;
+
+        let control_speed = 0.0005 * (altitude - min_distance).clamp(4.0, 10.0);
         if app.mouse_left_dragging {
             self.phi -= control_speed * (app.mouse_vel.x as f64);
             self.theta = (self.theta - control_speed * (app.mouse_vel.y as f64))
@@ -919,8 +917,9 @@ impl Gameplay {
                 .min(PI / 2.0 - control_speed);
         }
 
-        self.distance = (self.distance - zoom_control_speed * (app.mouse_wheel as f64))
-            .clamp(0.0, MAX_DISTANCE);
+        let zoom_factor = 0.9f64.powf(app.mouse_wheel as f64);
+
+        self.distance = (self.distance * zoom_factor).clamp(min_distance, max_distance);
     }
 
     fn rebuild_gui(&self, app: &App) -> Anchor<CommandMessages> {
@@ -1746,10 +1745,35 @@ impl Gameplay {
             } => {
                 self.selection.set_selected(craft, app.seconds as f64);
 
+                let old_v = self
+                    .world
+                    .get::<&State>(craft)
+                    .ok()
+                    .map(|s| s.v)
+                    .unwrap_or(DVec3::zeros());
+                let actual_dv = { self.world.get::<&mut Craft>(craft).unwrap().burn(dv) }
+                    / METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR;
+                if actual_dv <= 1e-9 {
+                    println!(
+                        "Burn for {:?} aborted, no propellant! (wanted {}, can you believe that?!)",
+                        craft, dv
+                    );
+                    return;
+                }
+                let dv_vec = new_orbit.v - old_v;
+                let actual_orbit = if dv_vec.norm() > 1e-12 {
+                    State {
+                        v: old_v + dv_vec.normalize() * actual_dv,
+                        ..new_orbit
+                    }
+                } else {
+                    new_orbit
+                };
+
                 println!(
                     "Burn firing, r={:?} v={:?} at {}",
-                    new_orbit.r,
-                    new_orbit.v,
+                    actual_orbit.r,
+                    actual_orbit.v,
                     self.current_et.as_calendar()
                 );
                 let parent = self.world.get::<&Parent>(craft).unwrap().id;
@@ -1765,20 +1789,16 @@ impl Gameplay {
                         },
                         Parent { id: parent },
                         LinePathComponent::new(
-                            new_orbit
+                            actual_orbit
                                 .generate_orbit_vertices(8192, parent_mu, soi_radius)
                                 .unwrap(),
                         ),
                         AssociatedEntity { associate: craft },
                     )),
                 );
-                {
-                    let mut craft_component = self.world.get::<&mut Craft>(craft).unwrap();
-                    craft_component.burn(dv);
-                }
                 self.world.remove_one::<State>(craft).ok();
                 self.world
-                    .insert(craft, (new_orbit, Parent { id: parent }))
+                    .insert(craft, (actual_orbit, Parent { id: parent }))
                     .unwrap();
             }
             Event::Launch { craft } => {
@@ -2241,6 +2261,13 @@ impl Gameplay {
             }
             child = parent.id;
         }
+    }
+
+    fn get_selected_body_radius(&self) -> Option<f64> {
+        let entity = self.selection.selected_entity()?;
+        let mut q = self.world.query_one::<&Body>(entity).ok()?;
+        let body = q.get()?;
+        Some(body.body_radius)
     }
 
     /// Updates the camera position and lookat based on mouse panning and body selection

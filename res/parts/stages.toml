@@ -20,6 +20,7 @@ build_time_days = 7.0
 max_fuel_mass_kg = 9950.0
 isp = 236.0
 thrust_kn = 560.0
+solid = true
 
 [parts.cost]
 funds = 1_500
@@ -36,6 +37,7 @@ build_time_days = 7.0
 max_fuel_mass_kg = 238.0
 isp = 255.0
 thrust_kn = 22.0
+solid = true
 
 [parts.cost]
 funds = 800
@@ -55,6 +57,7 @@ build_time_days = 60.0
 max_fuel_mass_kg = 20_000.0
 isp = 450.0
 thrust_kn = 99.0
+solid = false
 
 [parts.cost]
 funds = 60_000
@@ -71,6 +74,7 @@ build_time_days = 90.0
 max_fuel_mass_kg = 300_000.0
 isp = 265.0
 thrust_kn = 3_800.0
+solid = false
 
 [parts.cost]
 funds = 80_000
@@ -86,6 +90,7 @@ build_time_days = 120.0
 max_fuel_mass_kg = 400.0
 isp = 3100.0
 thrust_kn = 0.092
+solid = false
 
 [parts.cost]
 funds = 200_000
