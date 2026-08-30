@@ -8,14 +8,16 @@ use apricot::{
     camera::{Camera, ProjectionKind},
     high_precision::{self, WorldPosition},
     opengl::create_program,
+    ray::Ray,
     rectangle::Rectangle,
     render_core::{LinePathComponent, ModelComponent},
     shadow_map::DirectionalLightSource,
+    sphere::Sphere,
 };
 use hecs::{Entity, World};
 use nalgebra_glm::{vec2, vec3, vec4, DVec3, Vec2, Vec3};
 use num_format::{Locale, ToFormattedString};
-use sdl2::keyboard::Scancode;
+use sdl2::keyboard::Scancode::{self};
 
 use crate::{
     astro::{epoch::EphemerisTime, maneuver::sphere_of_influence, state::State, units::SUN_MU},
@@ -24,6 +26,7 @@ use crate::{
         factory::{spawn_factory, Factory},
         inventory::PartInventory,
         parts::PartRegistry,
+        tile::TileMap,
         vab::{spawn_vab, Vab},
     },
     container,
@@ -79,6 +82,7 @@ pub struct Gameplay {
 
     selection: SelectionState,
     hovered: Option<Entity>,
+    hovered_tile: Option<(Entity, usize, LinePathComponent)>,
 
     /// All the parts, loaded from the toml
     parts: PartRegistry,
@@ -372,6 +376,7 @@ impl Scene for Gameplay {
         self.camera_update(app);
         if !modal_open {
             self.mouse_hover_system(app);
+            self.tile_select_system(app);
         }
         self.line_path_system(app);
         self.sync_models(app);
@@ -463,6 +468,19 @@ impl Scene for Gameplay {
             }
         }
 
+        if let Some((selected, _, line_path)) = &self.hovered_tile {
+            let world_pos = self.world.get::<&WorldPosition>(*selected).unwrap().pos;
+            let relative_pos = world_pos - self.camera_3d.world_pos;
+            let (view_matrix, proj_matrix) = self.camera_3d.inner.view_proj_matrices();
+
+            app.renderer.draw_line_path_at(
+                line_path,
+                nalgebra_glm::convert(relative_pos),
+                view_matrix,
+                proj_matrix,
+            );
+        }
+
         // Draw GUI
         self.gui.render(app);
         self.turn_gui.render(app);
@@ -542,7 +560,7 @@ impl Gameplay {
         app.renderer.add_mesh_from_obj(CONE_DATA, Some("cone"));
         app.renderer.add_mesh_from_obj(CUBE_DATA, Some("cube"));
 
-        let ico_80 = icosphere::generate(1); // 80-face icosphere for most rocky bodies
+        let ico_80 = icosphere::generate(2); // 80-face icosphere for most rocky bodies
         let ico_20 = icosphere::generate(0); // 20-face icosphere for dwarf bodies
         app.renderer.add_mesh_from_verts(
             ico_80.indices.clone(),
@@ -556,6 +574,8 @@ impl Gameplay {
         );
         let ico_80_tiles = ico_80.tile_directions;
         let ico_20_tiles = ico_20.tile_directions;
+        let ico_80_tile_tris = ico_80.tile_tris;
+        let ico_20_tile_tris = ico_20.tile_tris;
 
         // Setup the texture manager
         app.renderer
@@ -623,6 +643,7 @@ impl Gameplay {
             },
             None,
             vec![],
+            vec![],
             &mut world,
             &app.renderer,
             &mut bvh,
@@ -642,13 +663,14 @@ impl Gameplay {
         for system in planets {
             let name = lexicon.generate_word(7);
             println!("Planet: {}", name);
-            let planet_tiles = if system.planet.0.gaseous() {
-                vec![]
+            let (planet_tiles, planet_tris) = if system.planet.0.gaseous() {
+                (vec![], vec![])
             } else if system.planet.0.category == Category::Dwarf {
-                ico_20_tiles.clone()
+                (ico_20_tiles.clone(), ico_20_tile_tris.clone())
             } else {
-                ico_80_tiles.clone()
+                (ico_80_tiles.clone(), ico_80_tile_tris.clone())
             };
+
             let planet_entity = spawn_body(
                 system.planet.0,
                 system.planet.1,
@@ -658,6 +680,7 @@ impl Gameplay {
                 },
                 Some(Parent { id: sun_entity }),
                 planet_tiles,
+                planet_tris,
                 &mut world,
                 &app.renderer,
                 &mut bvh,
@@ -672,12 +695,12 @@ impl Gameplay {
             for moon in system.moons {
                 let name = lexicon.generate_word(10);
                 println!("Moon: {}", name);
-                let moon_tiles = if moon.0.gaseous() {
-                    vec![]
-                } else if moon.0.category == Category::Dwarf {
-                    ico_20_tiles.clone()
+                let (moon_tiles, moon_tris) = if moon.0.gaseous() {
+                    (vec![], vec![])
+                } else if system.planet.0.category == Category::Dwarf {
+                    (ico_20_tiles.clone(), ico_20_tile_tris.clone())
                 } else {
-                    ico_80_tiles.clone()
+                    (ico_80_tiles.clone(), ico_80_tile_tris.clone())
                 };
                 let moon_entity = spawn_body(
                     moon.0,
@@ -688,6 +711,7 @@ impl Gameplay {
                     },
                     Some(Parent { id: planet_entity }),
                     moon_tiles,
+                    moon_tris,
                     &mut world,
                     &app.renderer,
                     &mut bvh,
@@ -774,7 +798,7 @@ impl Gameplay {
                     vec3(0.0, 0.0, 0.0),
                     vec3(0.0, 0.0, 1.0),
                     ProjectionKind::Perspective {
-                        fov: 0.65,
+                        fov_rad: 37.0f32.to_radians(),
                         far: 10000000.0,
                     },
                     4.0 / 3.0,
@@ -803,6 +827,7 @@ impl Gameplay {
 
             selection: SelectionState::new(crafts, bodies),
             hovered: None,
+            hovered_tile: None,
 
             parts,
 
@@ -852,7 +877,7 @@ impl Gameplay {
         const MAX_DISTANCE: f64 = 1e6;
 
         let control_speed = 0.005;
-        let zoom_control_speed = 0.15 * (self.distance - MIN_DISTANCE);
+        let zoom_control_speed = 0.1 * (self.distance - MIN_DISTANCE);
         if app.mouse_left_down {
             self.phi -= control_speed * (app.mouse_vel.x as f64);
             self.theta = (self.theta - control_speed * (app.mouse_vel.y as f64))
@@ -1885,10 +1910,12 @@ impl Gameplay {
         }
     }
 
+    /// Does the thing where you click on dots and it selects stuff
     fn mouse_hover_system(&mut self, app: &App) {
         self.hovered = None;
 
         let mouse_pos = app.mouse_pos;
+
         for (entity, (world_pos, _model)) in self
             .world
             .query::<(&WorldPosition, &ModelComponent)>()
@@ -1911,6 +1938,90 @@ impl Gameplay {
                 break;
             }
         }
+    }
+
+    fn tile_select_system(&mut self, app: &App) {
+        let pick = self.pick_hovered_tile(app);
+
+        match (self.hovered_tile.take(), pick) {
+            (Some((e, i, lp)), Some((ne, ni, _))) if e == ne && i == ni => {
+                self.hovered_tile = Some((e, i, lp))
+            }
+            (old, new) => {
+                if let Some((_, _, mut lp)) = old {
+                    app.renderer.queue_vao_deletion(&mut lp.vao);
+                    app.renderer.queue_buffer_deletion(&mut lp.vertices_buffer);
+                }
+
+                self.hovered_tile = new.map(|(e, i, v)| {
+                    let mut line_path = LinePathComponent::new(v);
+                    line_path.color = vec4(1.0, 1.0, 1.0, 0.5);
+                    line_path.width = 5.0;
+                    line_path.fade = false;
+                    (e, i, line_path)
+                });
+            }
+        }
+    }
+
+    fn pick_hovered_tile(&self, app: &App) -> Option<(Entity, usize, Vec<f32>)> {
+        let Some(selected_entity) = self.selection.selected_entity() else {
+            return None; // If nothing is selected, just return
+        };
+
+        // Check if the selected is a body
+        let mut q = match self
+            .world
+            .query_one::<(&Body, &WorldPosition, &TileMap)>(selected_entity)
+        {
+            Ok(q) => q,
+            Err(_) => return None,
+        };
+        let (body, pos, tile_map) = q.get()?;
+
+        // Exclude gaseous planets since they dont have tiles
+        if body.gaseous() {
+            return None;
+        }
+
+        // Check if the mouse is hovering over the planet
+        let relative_pos = pos.pos - self.camera_3d.world_pos;
+        let center = nalgebra_glm::convert(relative_pos);
+        let body_sphere = Sphere {
+            center,
+            radius: body.body_radius as f32,
+        };
+        let mouse_ray = self.camera_3d.inner.get_ray(
+            app.mouse_pos.x,
+            app.mouse_pos.y,
+            app.window_size.x as f32,
+            app.window_size.y as f32,
+        );
+        let Some(_) = body_sphere.raycast(&mouse_ray) else {
+            // not hovering over the planet
+            return None;
+        };
+
+        // Go through each tile and figure out which one is closest to the ray intersection point
+        let r = body.body_radius as f32 * 1.002;
+        let local_origin = (mouse_ray.origin() - center) / r;
+        let local_ray = Ray::new(local_origin, mouse_ray.dir());
+
+        let (i, _t) = tile_map
+            .tris
+            .iter()
+            .enumerate()
+            .filter_map(|(i, tri)| tri.raycast(&local_ray).map(|t| (i, t)))
+            .min_by(|a, b| a.1.total_cmp(&b.1))?;
+
+        let tri = tile_map.tris[i] * r;
+        let tri_corners: [f32; 9] = tri.into();
+
+        let mut vertices = Vec::with_capacity(12);
+        vertices.extend_from_slice(&tri_corners);
+        vertices.extend_from_slice(&tri_corners[0..3]);
+
+        Some((selected_entity, i, vertices))
     }
 
     fn line_path_system(&mut self, app: &App) {

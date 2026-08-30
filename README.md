@@ -1,10 +1,14 @@
 # Delta Horizon
 
+A turn-based, event-driven space program strategy game. 
+
 ## TODO:
 - [x] Procedurally generated solar system
 - [x] Delta-V graph
 - [x] Stages/payloads
-- [x] Economy
+- [ ] Economy
+    - [ ] starter-world resource market, that sells materials at doggy doodoo prices compared to what you could extract from ISRU
+    - [ ] quarterly funding scales with prestige, shrinks if player goes quiet
 - [ ] Tech tree
     - [ ] TechTree which tracks the conditions and what's unlocked
     - [ ] start off with really bad solid stage parts, have to progress towards better ones
@@ -49,6 +53,10 @@
 - [ ] Bases & stations
     - require power, oxygen, food, water
 - [ ] Misc polish
+    - [ ] figure out how to fix turn based-ness
+        * if only next event is payday, 3 whole months go by that might have been a window
+        * or if a player has 12 craft up, they're constantly hitting getting interrupted
+        * probably just need more play testing to really find an answer
     - [ ] Ability to buy new tiles for factories
     - [ ] Dynamic UI elements
         * progress bar going up as turn animates

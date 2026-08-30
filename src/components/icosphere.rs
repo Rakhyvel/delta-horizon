@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 use std::f32::consts::PI;
 
+use apricot::tri::Tri;
+use nalgebra_glm::{DVec3, Vec3};
+
 pub struct IcosphereMesh {
     pub positions: Vec<f32>,
     pub normals: Vec<f32>,
     pub uvs: Vec<f32>,
     pub indices: Vec<u32>,
     /// Unit-vector centroid of each face, one entry per tile
-    pub tile_directions: Vec<(f64, f64, f64)>,
+    pub tile_directions: Vec<DVec3>,
+    pub tile_tris: Vec<Tri>,
 }
 
 /// Generate a flat-shaded icosphere. Each face gets 3 unique vertices so
@@ -27,6 +31,9 @@ pub fn generate(subdivisions: u32) -> IcosphereMesh {
     let mut uvs = Vec::with_capacity(n * 9);
     let mut indices = Vec::with_capacity(n * 3);
     let mut tile_directions = Vec::with_capacity(n);
+    let mut tile_tris: Vec<Tri> = (0..faces.len())
+        .map(|_| Tri::new(Vec3::zeros(), Vec3::zeros(), Vec3::zeros()))
+        .collect();
 
     for (i, face) in faces.iter().enumerate() {
         let a = verts[face[0] as usize];
@@ -40,28 +47,12 @@ pub fn generate(subdivisions: u32) -> IcosphereMesh {
         let clen = (cx * cx + cy * cy + cz * cz).sqrt();
         let norm = [cx / clen, cy / clen, cz / clen];
 
-        let (mut ua, va) = sphere_uv(a);
-        let (mut ub, vb) = sphere_uv(b);
-        let (mut uc, vc) = sphere_uv(c);
-
-        // Fix antimeridian seam: vertices near u=0 and u=1 on the same triangle
-        // cause the GPU to interpolate across the full texture width. Shift any u
-        // that is far below the max up by 1.0 so all three are on the same side.
-        let u_max = ua.max(ub).max(uc);
-        if u_max - ua > 0.5 {
-            ua += 1.0;
-        }
-        if u_max - ub > 0.5 {
-            ub += 1.0;
-        }
-        if u_max - uc > 0.5 {
-            uc += 1.0;
-        }
-
         let base = (i * 3) as u32;
         indices.extend_from_slice(&[base, base + 1, base + 2]);
 
-        for (vert, u, v) in [(a, ua, va), (b, ub, vb), (c, uc, vc)] {
+        let (u, v) = sphere_uv(norm);
+
+        for vert in [a, b, c] {
             positions.extend_from_slice(&vert);
             normals.extend_from_slice(&norm);
             uvs.push(u);
@@ -69,7 +60,8 @@ pub fn generate(subdivisions: u32) -> IcosphereMesh {
             uvs.push(0.0);
         }
 
-        tile_directions.push((norm[0] as f64, norm[1] as f64, norm[2] as f64));
+        tile_directions.push(DVec3::new(norm[0] as f64, norm[1] as f64, norm[2] as f64));
+        tile_tris[i] = Tri::new(Vec3::from(a), Vec3::from(b), Vec3::from(c));
     }
 
     IcosphereMesh {
@@ -78,6 +70,7 @@ pub fn generate(subdivisions: u32) -> IcosphereMesh {
         uvs,
         indices,
         tile_directions,
+        tile_tris,
     }
 }
 

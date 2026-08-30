@@ -1,3 +1,4 @@
+use apricot::tri::Tri;
 use hecs::Entity;
 use nalgebra_glm::DVec3;
 
@@ -10,15 +11,18 @@ pub struct SurfaceTile {
 /// Per-body component tracking tile occupancy and the face-centroid directions
 pub struct TileMap {
     pub occupants: Vec<Option<Entity>>,
-    pub directions: Vec<(f64, f64, f64)>,
+    pub directions: Vec<DVec3>,
+    pub tris: Vec<Tri>,
 }
 
 impl TileMap {
-    pub fn new(directions: Vec<(f64, f64, f64)>) -> Self {
+    pub fn new(directions: Vec<DVec3>, tris: Vec<Tri>) -> Self {
+        assert_eq!(directions.len(), tris.len());
         let n = directions.len();
         Self {
             occupants: vec![None; n],
             directions,
+            tris,
         }
     }
 
@@ -38,7 +42,7 @@ impl TileMap {
 
     /// Surface position offset for a tile, scaled to the body radius
     pub fn tile_offset(&self, index: u32, radius: f64) -> DVec3 {
-        let (x, y, z) = self.directions[index as usize];
-        nalgebra_glm::vec3(x * radius, y * radius, z * radius)
+        let dir = self.directions[index as usize];
+        dir * radius
     }
 }

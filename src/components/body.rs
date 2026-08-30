@@ -6,6 +6,7 @@ use apricot::{
     bvh::{BVHNodeId, BVH},
     high_precision::WorldPosition,
     render_core::{LinePathComponent, ModelComponent, RenderContext, TextureId},
+    tri::Tri,
 };
 use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
@@ -58,7 +59,8 @@ pub fn spawn_body(
     init_state: State,
     mut scene_obj: SceneObject,
     parent: Option<Parent>,
-    tile_directions: Vec<(f64, f64, f64)>,
+    tile_directions: Vec<DVec3>,
+    tile_tris: Vec<Tri>,
     world: &mut World,
     renderer: &RenderContext,
     bvh: &mut BVH<Entity>,
@@ -126,7 +128,7 @@ pub fn spawn_body(
                 PartInventory {
                     parts: HashMap::new(),
                 },
-                TileMap::new(tile_directions),
+                TileMap::new(tile_directions, tile_tris),
             ),
         )
         .unwrap();
