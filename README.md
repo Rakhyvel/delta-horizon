@@ -5,7 +5,8 @@ A turn-based, event-driven space program strategy game.
 ## TODO:
 - [x] Procedurally generated solar system
 - [x] Delta-V graph
-- [x] Stages/payloads
+- [ ] Stages/payloads
+    - [ ] solid rockets should fire for their entire duration (making them very imprecise!)
 - [ ] Economy
     - [ ] starter-world resource market, that sells materials at doggy doodoo prices compared to what you could extract from ISRU
     - [ ] quarterly funding scales with prestige, shrinks if player goes quiet
@@ -57,10 +58,11 @@ A turn-based, event-driven space program strategy game.
         * if only next event is payday, 3 whole months go by that might have been a window
         * or if a player has 12 craft up, they're constantly hitting getting interrupted
         * probably just need more play testing to really find an answer
-    - [ ] Ability to buy new tiles for factories
+    - [ ] Ability to buy new tiles to build new factories
     - [ ] Dynamic UI elements
         * progress bar going up as turn animates
         * calendar string changing as turn animates
+        * scrollable containers (gonna be super imporant!)
     - [ ] body rotation (could help with taking off)
     - [ ] allow aero capture when payload has heat shield and user has atmospheric instrument readings
     - [ ] crew + life support
@@ -74,4 +76,6 @@ A turn-based, event-driven space program strategy game.
     - [ ] planetary atmospheres
     - [ ] asteroids
     - [ ] Space stations, bases
-    - [ ] solid rockets should fire for their entire duration (making them very imprecise!)
+    - [ ] make actual building models, and rotate them to their tile's normal
+    - [ ] show more info about stages, their dv, their resources, maybe a little model sprite, in VAB and factory
+    - [ ] show how many stages we have in inventory in the factory

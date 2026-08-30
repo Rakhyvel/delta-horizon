@@ -26,7 +26,7 @@ use crate::{
         factory::{spawn_factory, Factory},
         inventory::PartInventory,
         parts::PartRegistry,
-        tile::{TileMap, TileSets},
+        tile::{SurfaceTile, TileMap, TileSets},
         vab::{spawn_vab, Vab},
     },
     container,
@@ -82,6 +82,7 @@ pub struct Gameplay {
 
     selection: SelectionState,
     hovered: Option<Entity>,
+    selected_tile: Option<(Entity, usize, LinePathComponent)>,
     hovered_tile: Option<(Entity, usize, LinePathComponent)>,
 
     /// All the parts, loaded from the toml
@@ -133,11 +134,13 @@ enum CommandMessages {
 enum SelectionKind {
     Craft,
     Body,
+    Building,
 }
 
 struct SelectionState {
     pub crafts: Vec<Entity>,
     pub bodies: Vec<Entity>,
+    pub buildings: Vec<Entity>,
 
     pub selected: Option<usize>,
     pub kind: SelectionKind,
@@ -149,12 +152,13 @@ struct SelectionState {
 }
 
 impl SelectionState {
-    pub fn new(crafts: Vec<Entity>, bodies: Vec<Entity>) -> Self {
+    pub fn new(crafts: Vec<Entity>, bodies: Vec<Entity>, buildings: Vec<Entity>) -> Self {
         Self {
             crafts,
             bodies,
+            buildings,
             selected: None,
-            kind: SelectionKind::Craft,
+            kind: SelectionKind::Body,
             selected_pos: vec3(0.0, 0.0, 0.0),
             prev_selected_pos: vec3(0.0, 0.0, 0.0),
             transition: 0.0,
@@ -181,7 +185,12 @@ impl SelectionState {
                 .bodies
                 .iter()
                 .position(|e| *e == entity)
-                .map(|x| (x, SelectionKind::Body)));
+                .map(|x| (x, SelectionKind::Body)))
+            .or(self
+                .buildings
+                .iter()
+                .position(|e| *e == entity)
+                .map(|x| (x, SelectionKind::Building)));
 
         if let Some((idx, kind)) = found {
             self.selected = Some(idx);
@@ -232,6 +241,7 @@ impl SelectionState {
         match self.kind {
             SelectionKind::Body => &self.bodies,
             SelectionKind::Craft => &self.crafts,
+            SelectionKind::Building => &self.buildings,
         }
     }
 }
@@ -375,8 +385,11 @@ impl Scene for Gameplay {
         self.select_system();
         self.camera_update(app);
         if !modal_open {
-            self.mouse_hover_system(app);
+            self.hovered = None;
+            self.mouse_hover_system(app, false);
             self.tile_select_system(app);
+            self.mouse_hover_system(app, true);
+            self.sync_selected_tile(app);
         }
         self.line_path_system(app);
         self.sync_models(app);
@@ -422,20 +435,24 @@ impl Scene for Gameplay {
 
         // Draw the 2D stuff
         // Draw selected reticle
-        if !self.selection.is_animating(app.seconds as f64) {
-            let reticle_texture = app.renderer.get_texture_id_from_name("reticle").unwrap();
-            const WIDTH: f32 = 16.0;
-            app.renderer.copy_texture(
-                Rectangle::new(
-                    (app.window_size.x as f32 - WIDTH) * 0.5,
-                    (app.window_size.y as f32 - WIDTH) * 0.5,
-                    WIDTH,
-                    WIDTH,
-                ),
-                reticle_texture,
-                Rectangle::new(0.0, 0.0, WIDTH, WIDTH),
-                &vec4(1.0, 1.0, 1.0, 1.0),
-            );
+        if let Some(entity) = self.selection.selected_entity() {
+            if !self.selection.is_animating(app.seconds as f64)
+                && self.world.get::<&Craft>(entity).is_ok()
+            {
+                let reticle_texture = app.renderer.get_texture_id_from_name("reticle").unwrap();
+                const WIDTH: f32 = 16.0;
+                app.renderer.copy_texture(
+                    Rectangle::new(
+                        (app.window_size.x as f32 - WIDTH) * 0.5,
+                        (app.window_size.y as f32 - WIDTH) * 0.5,
+                        WIDTH,
+                        WIDTH,
+                    ),
+                    reticle_texture,
+                    Rectangle::new(0.0, 0.0, WIDTH, WIDTH),
+                    &vec4(1.0, 1.0, 1.0, 1.0),
+                );
+            }
         }
 
         // Draw hovered reticle
@@ -444,30 +461,53 @@ impl Scene for Gameplay {
                 let hovered_world_pos = self.world.get::<&WorldPosition>(hovered).unwrap().pos;
                 let scene_obj = self.world.get::<&SceneObject>(hovered).unwrap();
 
+                let radius = self
+                    .world
+                    .get::<&Body>(hovered)
+                    .map(|b| b.body_radius)
+                    .unwrap_or(0.0);
+
                 let relative_pos = hovered_world_pos - self.camera_3d.world_pos;
-                let screen_pos = self
-                    .world_to_screen(relative_pos, app)
-                    .expect("we're hovering over it so it should exist");
+                match self.world_to_screen(relative_pos, app) {
+                    Some(screen_pos)
+                    // !self.is_occluded(hovered, relative_pos) && 
+                        if self.apparent_radius_px(radius, relative_pos.norm(), app) < 2.0 =>
+                    {
+                        let width = 16.0;
 
-                let width = 16.0;
-
-                let reticle_texture = app.renderer.get_texture_id_from_name("reticle").unwrap();
-                app.renderer.copy_texture(
-                    Rectangle::new(
-                        screen_pos.x - width * 0.5,
-                        screen_pos.y - width * 0.5,
-                        width,
-                        width,
-                    ),
-                    reticle_texture,
-                    Rectangle::new(0.0, 0.0, 16.0, 16.0),
-                    &vec4(1.0, 1.0, 1.0, 1.0),
-                );
-                app.renderer
-                    .draw_text(screen_pos + vec2(8.0, 8.0), &scene_obj.name);
+                        let reticle_texture =
+                            app.renderer.get_texture_id_from_name("reticle").unwrap();
+                        app.renderer.copy_texture(
+                            Rectangle::new(
+                                screen_pos.x - width * 0.5,
+                                screen_pos.y - width * 0.5,
+                                width,
+                                width,
+                            ),
+                            reticle_texture,
+                            Rectangle::new(0.0, 0.0, 16.0, 16.0),
+                            &vec4(1.0, 1.0, 1.0, 1.0),
+                        );
+                        app.renderer
+                            .draw_text(screen_pos + vec2(8.0, 8.0), &scene_obj.name);
+                    }
+                    _ => {}
+                };
             }
         }
 
+        if let Some((selected, _, line_path)) = &self.selected_tile {
+            let world_pos = self.world.get::<&WorldPosition>(*selected).unwrap().pos;
+            let relative_pos = world_pos - self.camera_3d.world_pos;
+            let (view_matrix, proj_matrix) = self.camera_3d.inner.view_proj_matrices();
+
+            app.renderer.draw_line_path_at(
+                line_path,
+                nalgebra_glm::convert(relative_pos),
+                view_matrix,
+                proj_matrix,
+            );
+        }
         if let Some((selected, _, line_path)) = &self.hovered_tile {
             let world_pos = self.world.get::<&WorldPosition>(*selected).unwrap().pos;
             let relative_pos = world_pos - self.camera_3d.world_pos;
@@ -656,7 +696,8 @@ impl Gameplay {
         );
 
         let mut bodies = vec![sun_entity];
-        let mut crafts = vec![];
+        let crafts = vec![];
+        let mut buildings = vec![];
 
         let (_lexicon, _node_count) = Lexicon::create("res/names.txt", "res/names.lex");
         let lexicon = Lexicon::read("res/names.lex");
@@ -723,7 +764,7 @@ impl Gameplay {
             &app.renderer,
             &mut bvh,
         );
-        crafts.push(factory);
+        buildings.push(factory);
 
         let vab = spawn_vab(
             SceneObject {
@@ -738,7 +779,7 @@ impl Gameplay {
             &app.renderer,
             &mut bvh,
         );
-        crafts.push(vab);
+        buildings.push(vab);
 
         let gui = Anchor::<CommandMessages>::new(
             Box::new(container![].at(vec2(100.0, 100.0))),
@@ -815,8 +856,9 @@ impl Gameplay {
                 1024,
             ),
 
-            selection: SelectionState::new(crafts, bodies),
+            selection: SelectionState::new(crafts, bodies, buildings),
             hovered: None,
+            selected_tile: None,
             hovered_tile: None,
 
             parts,
@@ -868,7 +910,7 @@ impl Gameplay {
 
         let control_speed = 0.005;
         let zoom_control_speed = 0.1 * (self.distance - MIN_DISTANCE);
-        if app.mouse_left_down {
+        if app.mouse_left_dragging {
             self.phi -= control_speed * (app.mouse_vel.x as f64);
             self.theta = (self.theta - control_speed * (app.mouse_vel.y as f64))
                 .max(control_speed - PI / 2.0)
@@ -1890,59 +1932,49 @@ impl Gameplay {
         }
     }
 
+    /// Sets the selected position for the camera to orbit about based on the selected entity
     fn select_system(&mut self) {
-        if let Some(selected_entity) = self.selection.selected_entity() {
-            for (entity, world_pos) in self.world.query_mut::<&mut WorldPosition>() {
-                if entity == selected_entity {
-                    self.selection.selected_pos = world_pos.pos;
-                }
-            }
+        let Some(selected_entity) = self.selection.selected_entity() else {
+            return;
+        };
+
+        // Buildings keep the camera centered on their planet, not on themselves
+        let focus = if self.world.get::<&SurfaceTile>(selected_entity).is_ok() {
+            self.world
+                .get::<&Parent>(selected_entity)
+                .map(|p| p.id)
+                .unwrap_or(selected_entity)
+        } else {
+            selected_entity
+        };
+
+        if let Ok(world_pos) = self.world.get::<&WorldPosition>(focus) {
+            self.selection.selected_pos = world_pos.pos
         }
     }
 
-    /// Does the thing where you click on dots and it selects stuff
-    fn mouse_hover_system(&mut self, app: &App) {
-        self.hovered = None;
-
-        let mouse_pos = app.mouse_pos;
-
-        for (entity, (world_pos, _model)) in self
-            .world
-            .query::<(&WorldPosition, &ModelComponent)>()
-            .iter()
-        {
-            let relative_pos = world_pos.pos - self.camera_3d.world_pos;
-            let screen_pos = self.world_to_screen(relative_pos, app);
-            if screen_pos.is_none() {
-                continue;
-            }
-            let screen_pos = screen_pos.unwrap();
-            let dist = nalgebra_glm::l1_norm(&(screen_pos - mouse_pos));
-            if dist < 16.0 {
-                self.hovered = Some(entity);
-                if app.mouse_left_clicked && !app.is_click_consumed() {
-                    self.selection.set_selected(entity, app.seconds as f64);
-                    app.consume_click();
-                    self.gui = self.rebuild_gui(app);
-                }
-                break;
-            }
-        }
-    }
-
+    /// Sets the selected entity based on a per-tile check on the already selected entity
     fn tile_select_system(&mut self, app: &App) {
         let pick = self.pick_hovered_tile(app);
 
-        match (self.hovered_tile.take(), pick) {
-            (Some((e, i, lp)), Some((ne, ni, _))) if e == ne && i == ni => {
-                self.hovered_tile = Some((e, i, lp))
-            }
-            (old, new) => {
-                if let Some((_, _, mut lp)) = old {
+        // If the tile is hovered, and selected, make the tile's occupant hovered and selected
+        if let Some((entity, tile_index, _)) = &pick {
+            let hovered = {
+                let tile_map = self.world.get::<&TileMap>(*entity).unwrap();
+                tile_map.occupant(*tile_index as u32).unwrap_or(*entity)
+            };
+
+            self.hovered = Some(hovered);
+            if app.mouse_left_clicked && !app.is_click_consumed() {
+                self.selection.set_selected(hovered, app.seconds as f64);
+                app.consume_click();
+                self.gui = self.rebuild_gui(app);
+
+                if let Some((_, _, mut lp)) = self.selected_tile.take() {
                     lp.queue_deletion(&app.renderer);
                 }
 
-                self.hovered_tile = new.map(|(e, i, v)| {
+                self.selected_tile = pick.clone().map(|(e, i, v)| {
                     let mut line_path = LinePathComponent::new(v);
                     line_path.color = vec4(1.0, 1.0, 1.0, 1.0);
                     line_path.width = 5.0;
@@ -1951,17 +1983,51 @@ impl Gameplay {
                 });
             }
         }
+
+        let unchanged = matches!(
+            (&self.hovered_tile, &pick),
+            (Some((e, i, _)), Some((ne, ni, _))) if e == ne && i == ni
+        );
+        if unchanged {
+            return;
+        }
+
+        // rebuild the line path component if the hovered tile has changed
+        if let Some((_, _, mut lp)) = self.hovered_tile.take() {
+            lp.queue_deletion(&app.renderer);
+        }
+        self.hovered_tile = pick.map(|(e, i, v)| {
+            let mut line_path = LinePathComponent::new(v);
+            line_path.color = vec4(1.0, 1.0, 1.0, 0.45);
+            line_path.width = 5.0;
+            line_path.fade = false;
+            (e, i, line_path)
+        });
     }
 
+    /// Returns the selected entity, the tile index for that entity, and the tile vertices for a tile if it's
+    /// hovered over, otherwise None
     fn pick_hovered_tile(&self, app: &App) -> Option<(Entity, usize, Vec<f32>)> {
+        if self.hovered.is_some() {
+            return None; // some other hover system already wrote to hover
+        }
+
         let Some(selected_entity) = self.selection.selected_entity() else {
             return None; // If nothing is selected, just return
+        };
+
+        let body_entity = if self.world.get::<&Body>(selected_entity).is_ok() {
+            selected_entity
+        } else if let Ok(parent) = self.world.get::<&Parent>(selected_entity) {
+            parent.id
+        } else {
+            return None;
         };
 
         // Check if the selected is a body
         let mut q = match self
             .world
-            .query_one::<(&Body, &WorldPosition, &TileMap)>(selected_entity)
+            .query_one::<(&Body, &WorldPosition, &TileMap)>(body_entity)
         {
             Ok(q) => q,
             Err(_) => return None,
@@ -2010,7 +2076,50 @@ impl Gameplay {
         vertices.extend_from_slice(&tri_corners);
         vertices.extend_from_slice(&tri_corners[0..3]);
 
-        Some((selected_entity, i, vertices))
+        Some((body_entity, i, vertices))
+    }
+
+    /// Sets the hovered and selected entities for bodies and craft based on a coarse, spherical metric
+    fn mouse_hover_system(&mut self, app: &App, bodies: bool) {
+        if self.hovered.is_some() {
+            return; // some other hover system already wrote to hover
+        }
+
+        let mouse_pos = app.mouse_pos;
+
+        for (entity, (world_pos, _model)) in self
+            .world
+            .query::<hecs::Without<(&WorldPosition, &ModelComponent), &SurfaceTile>>()
+            .iter()
+        {
+            let body = self.world.get::<&Body>(entity);
+            if body.is_ok() != bodies {
+                continue;
+            }
+            let relative_pos = world_pos.pos - self.camera_3d.world_pos;
+            let screen_pos = self.world_to_screen(relative_pos, app);
+            if screen_pos.is_none() {
+                continue;
+            }
+
+            let radius = body.map(|b| b.body_radius).unwrap_or(0.0);
+
+            let screen_pos = screen_pos.unwrap();
+            let l1_dist = nalgebra_glm::l2_norm(&(screen_pos - mouse_pos));
+            if (l1_dist as f64)
+                < self
+                    .apparent_radius_px(radius, relative_pos.norm(), app)
+                    .max(16.0)
+            {
+                self.hovered = Some(entity);
+                if app.mouse_left_clicked && !app.is_click_consumed() {
+                    self.selection.set_selected(entity, app.seconds as f64);
+                    app.consume_click();
+                    self.gui = self.rebuild_gui(app);
+                }
+                break;
+            }
+        }
     }
 
     fn line_path_system(&mut self, app: &App) {
@@ -2198,9 +2307,9 @@ impl Gameplay {
     fn render_dots(&mut self, app: &App) {
         app.renderer.set_color(vec4(1.0, 1.0, 1.0, 1.0));
 
-        for (_entity, (world_pos, _model)) in self
+        for (entity, (world_pos, _model)) in self
             .world
-            .query::<(&WorldPosition, &ModelComponent)>()
+            .query::<hecs::Without<(&WorldPosition, &ModelComponent), &SurfaceTile>>()
             .iter()
         {
             let relative_pos = world_pos.pos - self.camera_3d.world_pos;
@@ -2209,7 +2318,74 @@ impl Gameplay {
                     pos: screen,
                     size: vec2(2.0, 2.0),
                 };
-                app.renderer.fill_rect(rect);
+                let radius = self
+                    .world
+                    .get::<&Body>(entity)
+                    .map(|b| b.body_radius)
+                    .unwrap_or(0.0);
+
+                if !self.is_occluded(entity, relative_pos)
+                    && self.apparent_radius_px(radius, relative_pos.norm(), app) < 2.0
+                {
+                    app.renderer.fill_rect(rect);
+                }
+            }
+        }
+    }
+
+    fn is_occluded(&self, entity: Entity, relative_pos: DVec3) -> bool {
+        let dist = relative_pos.norm();
+        let dir = relative_pos / dist;
+
+        for (other, (opos, obody)) in self.world.query::<(&WorldPosition, &Body)>().iter() {
+            if other == entity {
+                continue; // body never occludes itself
+            }
+
+            let c = opos.pos - self.camera_3d.world_pos;
+            let along = c.dot(&dir);
+            if along <= 0.0 || along >= dist {
+                continue; // behind camera, or further away than the target
+            }
+
+            let perp_sq = c.norm_squared() - along * along;
+            if perp_sq < obody.body_radius * obody.body_radius {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Radius of a body on screen in px
+    fn apparent_radius_px(&self, radius: f64, dist: f64, app: &App) -> f64 {
+        let ProjectionKind::Perspective { fov_rad, .. } = self.camera_3d.inner.projection_kind
+        else {
+            return 0.0;
+        };
+        (radius / dist) / (fov_rad as f64 / 2.0).tan() * (app.window_size.y as f64 / 2.0)
+    }
+
+    fn sync_selected_tile(&mut self, app: &App) {
+        let Some((body, index, _)) = &self.selected_tile else {
+            return;
+        };
+
+        let still_valid = match self.selection.selected_entity() {
+            Some(sel) => {
+                sel == *body
+                    || self
+                        .world
+                        .get::<&TileMap>(*body)
+                        .ok()
+                        .and_then(|tm| tm.occupant(*index as u32))
+                        == Some(sel)
+            }
+            None => false,
+        };
+
+        if !still_valid {
+            if let Some((_, _, mut lp)) = self.selected_tile.take() {
+                lp.queue_deletion(&app.renderer);
             }
         }
     }

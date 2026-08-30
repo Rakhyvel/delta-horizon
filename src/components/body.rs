@@ -67,6 +67,7 @@ pub fn spawn_body(
     renderer: &RenderContext,
     bvh: &mut BVH<Entity>,
 ) -> Entity {
+    // choose the tile set, roughly scaling tile area linearly
     const MARS_RADIUS: f64 = 0.532;
     let (body_mesh, tiles) = if body.gaseous() {
         (renderer.get_mesh_id_from_name("uv").unwrap(), None)

@@ -25,7 +25,7 @@ impl TileMap {
 
     #[allow(dead_code)]
     pub fn is_free(&self, index: u32) -> bool {
-        self.occupants[index as usize].is_none()
+        self.occupant(index).is_none()
     }
 
     pub fn occupy(&mut self, index: u32, entity: Entity) {
@@ -35,6 +35,10 @@ impl TileMap {
     #[allow(dead_code)]
     pub fn free(&mut self, index: u32) {
         self.occupants[index as usize] = None;
+    }
+
+    pub fn occupant(&self, index: u32) -> Option<Entity> {
+        self.occupants[index as usize]
     }
 
     /// Surface position offset for a tile, scaled to the body radius
