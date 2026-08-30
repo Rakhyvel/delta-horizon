@@ -169,8 +169,7 @@ pub fn replace_line_path(
     if let Some(old) = old_line_path {
         {
             let mut line_path = world.get::<&mut LinePathComponent>(old).unwrap();
-            renderer.queue_vao_deletion(&mut line_path.vao);
-            renderer.queue_buffer_deletion(&mut line_path.vertices_buffer);
+            line_path.queue_deletion(renderer);
         }
         world.despawn(old).ok();
     }

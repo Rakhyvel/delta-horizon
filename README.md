@@ -72,5 +72,6 @@ A turn-based, event-driven space program strategy game.
     - [ ] re-usable first stages that return back to the bodys inventory after launch
     - [ ] tug payloads that transport fuel, raw materials or other craft
     - [ ] planetary atmospheres
+    - [ ] asteroids
     - [ ] Space stations, bases
     - [ ] solid rockets should fire for their entire duration (making them very imprecise!)

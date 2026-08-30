@@ -2,15 +2,13 @@ use std::collections::HashMap;
 use std::f32::consts::PI;
 
 use apricot::tri::Tri;
-use nalgebra_glm::{DVec3, Vec3};
+use nalgebra_glm::Vec3;
 
 pub struct IcosphereMesh {
     pub positions: Vec<f32>,
     pub normals: Vec<f32>,
     pub uvs: Vec<f32>,
     pub indices: Vec<u32>,
-    /// Unit-vector centroid of each face, one entry per tile
-    pub tile_directions: Vec<DVec3>,
     pub tile_tris: Vec<Tri>,
 }
 
@@ -30,10 +28,7 @@ pub fn generate(subdivisions: u32) -> IcosphereMesh {
     let mut normals = Vec::with_capacity(n * 9);
     let mut uvs = Vec::with_capacity(n * 9);
     let mut indices = Vec::with_capacity(n * 3);
-    let mut tile_directions = Vec::with_capacity(n);
-    let mut tile_tris: Vec<Tri> = (0..faces.len())
-        .map(|_| Tri::new(Vec3::zeros(), Vec3::zeros(), Vec3::zeros()))
-        .collect();
+    let mut tile_tris = Vec::with_capacity(faces.len());
 
     for (i, face) in faces.iter().enumerate() {
         let a = verts[face[0] as usize];
@@ -60,8 +55,7 @@ pub fn generate(subdivisions: u32) -> IcosphereMesh {
             uvs.push(0.0);
         }
 
-        tile_directions.push(DVec3::new(norm[0] as f64, norm[1] as f64, norm[2] as f64));
-        tile_tris[i] = Tri::new(Vec3::from(a), Vec3::from(b), Vec3::from(c));
+        tile_tris.push(Tri::new(Vec3::from(a), Vec3::from(b), Vec3::from(c)));
     }
 
     IcosphereMesh {
@@ -69,7 +63,6 @@ pub fn generate(subdivisions: u32) -> IcosphereMesh {
         normals,
         uvs,
         indices,
-        tile_directions,
         tile_tris,
     }
 }

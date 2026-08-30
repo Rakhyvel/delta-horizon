@@ -26,7 +26,7 @@ use crate::{
         factory::{spawn_factory, Factory},
         inventory::PartInventory,
         parts::PartRegistry,
-        tile::TileMap,
+        tile::{TileMap, TileSets},
         vab::{spawn_vab, Vab},
     },
     container,
@@ -560,22 +560,29 @@ impl Gameplay {
         app.renderer.add_mesh_from_obj(CONE_DATA, Some("cone"));
         app.renderer.add_mesh_from_obj(CUBE_DATA, Some("cube"));
 
-        let ico_80 = icosphere::generate(2); // 80-face icosphere for most rocky bodies
         let ico_20 = icosphere::generate(0); // 20-face icosphere for dwarf bodies
+        let ico_80 = icosphere::generate(1); // 80-face icosphere for mars-like sub-earths
+        let ico_320 = icosphere::generate(2); // 320-face icosphere for large rocky bodies
+        app.renderer.add_mesh_from_verts(
+            ico_20.indices.clone(),
+            vec![&ico_20.positions, &ico_20.normals, &ico_20.uvs],
+            Some("ico-20"),
+        );
         app.renderer.add_mesh_from_verts(
             ico_80.indices.clone(),
             vec![&ico_80.positions, &ico_80.normals, &ico_80.uvs],
             Some("ico-80"),
         );
         app.renderer.add_mesh_from_verts(
-            ico_20.indices.clone(),
-            vec![&ico_20.positions, &ico_20.normals, &ico_20.uvs],
-            Some("ico-20"),
+            ico_320.indices.clone(),
+            vec![&ico_320.positions, &ico_320.normals, &ico_320.uvs],
+            Some("ico-320"),
         );
-        let ico_80_tiles = ico_80.tile_directions;
-        let ico_20_tiles = ico_20.tile_directions;
-        let ico_80_tile_tris = ico_80.tile_tris;
-        let ico_20_tile_tris = ico_20.tile_tris;
+        let tile_sets = TileSets {
+            dwarf: ico_20.tile_tris,
+            sub: ico_80.tile_tris,
+            large: ico_320.tile_tris,
+        };
 
         // Setup the texture manager
         app.renderer
@@ -642,8 +649,7 @@ impl Gameplay {
                 name: String::from("The Sun"),
             },
             None,
-            vec![],
-            vec![],
+            &tile_sets,
             &mut world,
             &app.renderer,
             &mut bvh,
@@ -663,13 +669,6 @@ impl Gameplay {
         for system in planets {
             let name = lexicon.generate_word(7);
             println!("Planet: {}", name);
-            let (planet_tiles, planet_tris) = if system.planet.0.gaseous() {
-                (vec![], vec![])
-            } else if system.planet.0.category == Category::Dwarf {
-                (ico_20_tiles.clone(), ico_20_tile_tris.clone())
-            } else {
-                (ico_80_tiles.clone(), ico_80_tile_tris.clone())
-            };
 
             let planet_entity = spawn_body(
                 system.planet.0,
@@ -679,8 +678,7 @@ impl Gameplay {
                     name,
                 },
                 Some(Parent { id: sun_entity }),
-                planet_tiles,
-                planet_tris,
+                &tile_sets,
                 &mut world,
                 &app.renderer,
                 &mut bvh,
@@ -695,13 +693,6 @@ impl Gameplay {
             for moon in system.moons {
                 let name = lexicon.generate_word(10);
                 println!("Moon: {}", name);
-                let (moon_tiles, moon_tris) = if moon.0.gaseous() {
-                    (vec![], vec![])
-                } else if system.planet.0.category == Category::Dwarf {
-                    (ico_20_tiles.clone(), ico_20_tile_tris.clone())
-                } else {
-                    (ico_80_tiles.clone(), ico_80_tile_tris.clone())
-                };
                 let moon_entity = spawn_body(
                     moon.0,
                     moon.1,
@@ -710,8 +701,7 @@ impl Gameplay {
                         name,
                     },
                     Some(Parent { id: planet_entity }),
-                    moon_tiles,
-                    moon_tris,
+                    &tile_sets,
                     &mut world,
                     &app.renderer,
                     &mut bvh,
@@ -1949,13 +1939,12 @@ impl Gameplay {
             }
             (old, new) => {
                 if let Some((_, _, mut lp)) = old {
-                    app.renderer.queue_vao_deletion(&mut lp.vao);
-                    app.renderer.queue_buffer_deletion(&mut lp.vertices_buffer);
+                    lp.queue_deletion(&app.renderer);
                 }
 
                 self.hovered_tile = new.map(|(e, i, v)| {
                     let mut line_path = LinePathComponent::new(v);
-                    line_path.color = vec4(1.0, 1.0, 1.0, 0.5);
+                    line_path.color = vec4(1.0, 1.0, 1.0, 1.0);
                     line_path.width = 5.0;
                     line_path.fade = false;
                     (e, i, line_path)

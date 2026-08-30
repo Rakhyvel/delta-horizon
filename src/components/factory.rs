@@ -39,7 +39,7 @@ pub fn spawn_factory(
     let craft_mesh = renderer.get_mesh_id_from_name("cube").unwrap();
 
     let position: DVec3 = vec3(0., 0., 0.);
-    let scale_vec: DVec3 = vec3(0.1, 0.1, 0.1);
+    let scale_vec: DVec3 = vec3(0.05, 0.05, 0.05);
 
     let texture_id = renderer.get_texture_id_from_name("europa").unwrap();
 

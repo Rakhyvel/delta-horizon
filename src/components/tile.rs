@@ -11,17 +11,14 @@ pub struct SurfaceTile {
 /// Per-body component tracking tile occupancy and the face-centroid directions
 pub struct TileMap {
     pub occupants: Vec<Option<Entity>>,
-    pub directions: Vec<DVec3>,
     pub tris: Vec<Tri>,
 }
 
 impl TileMap {
-    pub fn new(directions: Vec<DVec3>, tris: Vec<Tri>) -> Self {
-        assert_eq!(directions.len(), tris.len());
-        let n = directions.len();
+    pub fn new(tris: Vec<Tri>) -> Self {
+        let n = tris.len();
         Self {
             occupants: vec![None; n],
-            directions,
             tris,
         }
     }
@@ -42,7 +39,14 @@ impl TileMap {
 
     /// Surface position offset for a tile, scaled to the body radius
     pub fn tile_offset(&self, index: u32, radius: f64) -> DVec3 {
-        let dir = self.directions[index as usize];
+        let t = self.tris[index as usize];
+        let dir: DVec3 = nalgebra_glm::convert(((t.v0() + t.v1() + t.v2()) / 3.0).normalize());
         dir * radius
     }
+}
+
+pub struct TileSets {
+    pub dwarf: Vec<Tri>,
+    pub sub: Vec<Tri>,
+    pub large: Vec<Tri>,
 }

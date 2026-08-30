@@ -6,14 +6,17 @@ use apricot::{
     bvh::{BVHNodeId, BVH},
     high_precision::WorldPosition,
     render_core::{LinePathComponent, ModelComponent, RenderContext, TextureId},
-    tri::Tri,
 };
 use hecs::{Entity, World};
 use nalgebra_glm::{vec3, DVec3};
 
 use crate::{
     astro::{state::State, units::G},
-    components::{craft::AssociatedEntity, inventory::PartInventory, tile::TileMap},
+    components::{
+        craft::AssociatedEntity,
+        inventory::PartInventory,
+        tile::{TileMap, TileSets},
+    },
 };
 
 pub struct SceneObject {
@@ -59,18 +62,29 @@ pub fn spawn_body(
     init_state: State,
     mut scene_obj: SceneObject,
     parent: Option<Parent>,
-    tile_directions: Vec<DVec3>,
-    tile_tris: Vec<Tri>,
+    tile_sets: &TileSets,
     world: &mut World,
     renderer: &RenderContext,
     bvh: &mut BVH<Entity>,
 ) -> Entity {
-    let body_mesh = if body.gaseous() {
-        renderer.get_mesh_id_from_name("uv").unwrap()
-    } else if body.category == Category::Dwarf {
-        renderer.get_mesh_id_from_name("ico-20").unwrap()
+    const MARS_RADIUS: f64 = 0.532;
+    let (body_mesh, tiles) = if body.gaseous() {
+        (renderer.get_mesh_id_from_name("uv").unwrap(), None)
+    } else if body.body_radius > MARS_RADIUS {
+        (
+            renderer.get_mesh_id_from_name("ico-320").unwrap(),
+            Some(&tile_sets.large),
+        )
+    } else if body.body_radius > MARS_RADIUS * 0.5 {
+        (
+            renderer.get_mesh_id_from_name("ico-80").unwrap(),
+            Some(&tile_sets.sub),
+        )
     } else {
-        renderer.get_mesh_id_from_name("ico-80").unwrap()
+        (
+            renderer.get_mesh_id_from_name("ico-20").unwrap(),
+            Some(&tile_sets.dwarf),
+        )
     };
 
     let position: DVec3 = vec3(0., 0., 0.);
@@ -128,7 +142,7 @@ pub fn spawn_body(
                 PartInventory {
                     parts: HashMap::new(),
                 },
-                TileMap::new(tile_directions, tile_tris),
+                TileMap::new(tiles.cloned().unwrap_or_default()),
             ),
         )
         .unwrap();
