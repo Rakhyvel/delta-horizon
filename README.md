@@ -8,7 +8,7 @@ A turn-based, event-driven space colony survival strategy game.
 - [x] Stages/payloads
 - [ ] Dynamic UI elements
     x progress bar going up as turn animates
-    * calendar string changing as turn animates
+    x calendar string changing as turn animates
     * timeline at the bottom which displays upcoming events like transfers and depletion dates, allows user to see, plan, and subscribe to transfer windows
     * scrollable containers (gonna be super imporant!)
     * better part cards

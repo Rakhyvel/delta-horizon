@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::ui::{msg::MsgQueue, widget::Widget};
 use apricot::{app::App, font::FontId, rectangle::Rectangle};
 use nalgebra_glm::{vec4, Vec2, Vec4};
@@ -6,6 +8,7 @@ use nalgebra_glm::{vec4, Vec2, Vec4};
 pub struct Label {
     /// The rectangle defining the button's position and size
     rect: Rectangle,
+    source: Option<Rc<RefCell<String>>>,
     /// The text to be drawn for the button
     label: String,
     color: Vec4,
@@ -22,10 +25,18 @@ impl Label {
         };
         Self {
             rect,
+            source: None,
             label: text,
             color: vec4(1.0, 1.0, 1.0, 1.0),
             font_id: None,
         }
+    }
+
+    pub fn bound(source: Rc<RefCell<String>>) -> Self {
+        // ...to fall in love...
+        let mut label = Self::new(source.borrow().clone());
+        label.source = Some(source);
+        label
     }
 
     pub fn font(mut self, font_id: FontId, app: &App) -> Self {
@@ -43,7 +54,20 @@ impl Label {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Label {
-    fn update(&mut self, _app: &App, _msgq: &mut MsgQueue<Msg>) {}
+    fn update(&mut self, app: &App, _msgq: &mut MsgQueue<Msg>) {
+        let Some(src) = &self.source else {
+            return;
+        };
+        let s = src.borrow();
+        if *s == self.label {
+            return; // unchanged
+        }
+        self.label = s.clone();
+        if let Some(font_id) = self.font_id {
+            let font = app.renderer.get_font_from_id(font_id).unwrap();
+            self.rect.size = font.measure(&self.label)
+        }
+    }
 
     fn render(&self, app: &App) {
         let old_font = app.renderer.get_current_font_id();

@@ -1,6 +1,11 @@
 //! This module is responsible for defining the gameplay scene.
 
-use std::{cell::Cell, collections::HashMap, f64::consts::PI, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    f64::consts::PI,
+    rc::Rc,
+};
 
 use apricot::{
     app::{App, Scene},
@@ -102,6 +107,7 @@ pub struct Gameplay {
     vab_ui: VabUi,
     maneuver_ui: ManeuverModal,
     turn_progress: Rc<Cell<f32>>,
+    calendar_string: Rc<RefCell<String>>,
 
     // Events and timeline
     event_queue: EventQueue,
@@ -371,6 +377,12 @@ impl Scene for Gameplay {
                 self.gui = self.rebuild_gui(app);
                 self.turn_gui = self.rebuild_turn_gui(app);
             }
+        }
+
+        // Update calendar string
+        let cal = format!("ET: {}", self.current_et.as_calendar());
+        if *self.calendar_string.borrow() != cal {
+            *self.calendar_string.borrow_mut() = cal;
         }
 
         self.control(app);
@@ -857,6 +869,7 @@ impl Gameplay {
             vab_ui: VabUi::new(),
             maneuver_ui: ManeuverModal::new(),
             turn_progress: Rc::new(Cell::new(0.0)),
+            calendar_string: Rc::new(RefCell::new(String::new())),
 
             current_et: EphemerisTime::epoch(),
             animation_start_et: EphemerisTime::epoch(),
@@ -959,7 +972,7 @@ impl Gameplay {
                 )
                 .on_click(TurnMessages::NextTurn),
             ),
-            Box::new(Label::new(format!("ET: {}", self.current_et.as_calendar())).font(font, app)),
+            Box::new(Label::bound(self.calendar_string.clone()).font(font, app)),
         ]
     }
 
