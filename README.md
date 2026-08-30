@@ -10,10 +10,11 @@ A turn-based, event-driven space colony survival strategy game.
 - [ ] Dynamic UI elements
     * progress bar going up as turn animates
     * calendar string changing as turn animates
-    * scrollable containers (gonna be super imporant!)
     * timeline at the bottom which displays upcoming events like transfers and depletion dates, allows user to see, plan, and subscribe to transfer windows
+    * scrollable containers (gonna be super imporant!)
+    * better part cards
 - [ ] station
-    - [ ] station entity with modules/components
+    - [ ] station entity with modules/components (start off hovering this! no factory/vab!)
     - [ ] life support: power, O2, water, food. With time-to-zero ticker prominently displayed
         * Solar panels and batteries as module payload slots, should probably start power-positive, but just barely
         * O2, H2 tank modules, and a water converter? Or would it be more likely to store the water as a liquid/solid, and use electrolysis to separate it out?
@@ -22,9 +23,8 @@ A turn-based, event-driven space colony survival strategy game.
     - [ ] crew population, can assign roles, or send back to "waiting assignment"
         * consume O2, water, food. When they're at stations, the station likely consumes power
         * can unlock automation to free up the crew for other stuff
-    - [ ] fabricator module: small version of the factory, can only make small parts
-        * I guess also acts like a VAB? Build parts/modules, put them in inventory (should be limited!), then those parts can be used to craft larger parts/full on other craft
-        * docking port modules, for the probes/outpost landers that you build
+    - [ ] fabricator module: small version of the factory, part-size/complexity limited. Upgradable
+    - [ ] assembly bay module: like the VAB, craft-size limited. Upgradable
     - [ ] low gain comms module (S band?), high gain comms module (X band?), unimplemented for now
     - [ ] radiator module, unimplemented for now
     - [ ] lose the game if the station dies

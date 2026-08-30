@@ -1284,52 +1284,6 @@ impl Gameplay {
             widgets.push(Box::new(
                 Container::new(build_orders).padding(vec2(0.0, 0.0)),
             ));
-
-            let locked_parts: Vec<Box<dyn Widget<CommandMessages>>> = self
-                .parts
-                .all()
-                // TODO: Filter against what this factory can build, SWAPC wise
-                .map(|part| {
-                    Box::new(
-                        Container::new(vec![
-                            Box::new(
-                                Container::new(vec![Box::new(
-                                    Label::new(part.name.clone())
-                                        .font(font_small_bold, app)
-                                        .color(STYLE.text_disabled),
-                                )])
-                                .flow(Flow::Vertical)
-                                .padding(vec2(0.0, 4.0))
-                                .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0)),
-                            ),
-                            Box::new(
-                                Container::new(vec![Box::new(
-                                    Label::new("LOCKED")
-                                        .font(font, app)
-                                        .color(STYLE.text_disabled),
-                                )])
-                                .padding(vec2(0.0, 0.0))
-                                .fixed_width(vec2(WIDTH * 0.2, 10.0))
-                                .cross_align(Align::End)
-                                .flow(Flow::Vertical),
-                            ),
-                        ])
-                        .border(STYLE.border_primary, 1.0)
-                        .cross_align(Align::Center)
-                        .flow(Flow::Horizontal),
-                    ) as Box<dyn Widget<CommandMessages>>
-                })
-                .collect();
-            if !locked_parts.is_empty() {
-                widgets.push(Box::new(
-                    Label::new("LOCKED")
-                        .font(font_small_bold, app)
-                        .color(STYLE.text_disabled),
-                ));
-                widgets.push(Box::new(
-                    Container::new(locked_parts).padding(vec2(0.0, 0.0)),
-                ));
-            }
         }
 
         widgets
