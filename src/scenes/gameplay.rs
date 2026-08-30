@@ -10,7 +10,7 @@ use apricot::{
     opengl::create_program,
     ray::Ray,
     rectangle::Rectangle,
-    render_core::{LinePathComponent, ModelComponent},
+    render_core::{LinePathComponent, ModelComponent, RenderContext},
     shadow_map::DirectionalLightSource,
     sphere::Sphere,
 };
@@ -83,6 +83,7 @@ pub struct Gameplay {
     selection: SelectionState,
     hovered: Option<Entity>,
     selected_tile: Option<(Entity, usize, LinePathComponent)>,
+    clicked_tile_key: Option<(Entity, usize)>,
     hovered_tile: Option<(Entity, usize, LinePathComponent)>,
 
     /// All the parts, loaded from the toml
@@ -389,8 +390,8 @@ impl Scene for Gameplay {
             self.mouse_hover_system(app, false);
             self.tile_select_system(app);
             self.mouse_hover_system(app, true);
-            self.sync_selected_tile(app);
         }
+        self.sync_selected_tile(app);
         self.line_path_system(app);
         self.sync_models(app);
         self.tech_tree.update(&self.world);
@@ -470,8 +471,8 @@ impl Scene for Gameplay {
                 let relative_pos = hovered_world_pos - self.camera_3d.world_pos;
                 match self.world_to_screen(relative_pos, app) {
                     Some(screen_pos)
-                    // !self.is_occluded(hovered, relative_pos) && 
-                        if self.apparent_radius_px(radius, relative_pos.norm(), app) < 2.0 =>
+                        if self.apparent_radius_px(radius, relative_pos.norm(), app) < 2.0
+                            && !self.is_occluded(hovered, relative_pos) =>
                     {
                         let width = 16.0;
 
@@ -859,6 +860,7 @@ impl Gameplay {
             selection: SelectionState::new(crafts, bodies, buildings),
             hovered: None,
             selected_tile: None,
+            clicked_tile_key: None,
             hovered_tile: None,
 
             parts,
@@ -1959,50 +1961,28 @@ impl Gameplay {
 
         // If the tile is hovered, and selected, make the tile's occupant hovered and selected
         if let Some((entity, tile_index, _)) = &pick {
-            let hovered = {
+            let occupant = {
                 let tile_map = self.world.get::<&TileMap>(*entity).unwrap();
-                tile_map.occupant(*tile_index as u32).unwrap_or(*entity)
+                tile_map.occupant(*tile_index as u32)
             };
 
-            self.hovered = Some(hovered);
+            if let Some(occupant) = occupant {
+                self.hovered = Some(occupant)
+            }
+
             if app.mouse_left_clicked && !app.is_click_consumed() {
-                self.selection.set_selected(hovered, app.seconds as f64);
-                app.consume_click();
-                self.gui = self.rebuild_gui(app);
+                self.clicked_tile_key = Some((*entity, *tile_index));
 
-                if let Some((_, _, mut lp)) = self.selected_tile.take() {
-                    lp.queue_deletion(&app.renderer);
+                if let Some(occupant) = occupant {
+                    self.selection.set_selected(occupant, app.seconds as f64);
+                    app.consume_click();
+                    self.gui = self.rebuild_gui(app)
                 }
-
-                self.selected_tile = pick.clone().map(|(e, i, v)| {
-                    let mut line_path = LinePathComponent::new(v);
-                    line_path.color = vec4(1.0, 1.0, 1.0, 1.0);
-                    line_path.width = 5.0;
-                    line_path.fade = false;
-                    (e, i, line_path)
-                });
             }
         }
 
-        let unchanged = matches!(
-            (&self.hovered_tile, &pick),
-            (Some((e, i, _)), Some((ne, ni, _))) if e == ne && i == ni
-        );
-        if unchanged {
-            return;
-        }
-
         // rebuild the line path component if the hovered tile has changed
-        if let Some((_, _, mut lp)) = self.hovered_tile.take() {
-            lp.queue_deletion(&app.renderer);
-        }
-        self.hovered_tile = pick.map(|(e, i, v)| {
-            let mut line_path = LinePathComponent::new(v);
-            line_path.color = vec4(1.0, 1.0, 1.0, 0.45);
-            line_path.width = 5.0;
-            line_path.fade = false;
-            (e, i, line_path)
-        });
+        Self::sync_tile_path(&mut self.hovered_tile, pick, 0.45, &app.renderer);
     }
 
     /// Returns the selected entity, the tile index for that entity, and the tile vertices for a tile if it's
@@ -2069,12 +2049,7 @@ impl Gameplay {
             .filter_map(|(i, tri)| tri.raycast(&local_ray).map(|t| (i, t)))
             .min_by(|a, b| a.1.total_cmp(&b.1))?;
 
-        let tri = tile_map.tris[i] * r;
-        let tri_corners: [f32; 9] = tri.into();
-
-        let mut vertices = Vec::with_capacity(12);
-        vertices.extend_from_slice(&tri_corners);
-        vertices.extend_from_slice(&tri_corners[0..3]);
+        let vertices = self.tile_outline_vertices(body_entity, i)?;
 
         Some((body_entity, i, vertices))
     }
@@ -2324,8 +2299,8 @@ impl Gameplay {
                     .map(|b| b.body_radius)
                     .unwrap_or(0.0);
 
-                if !self.is_occluded(entity, relative_pos)
-                    && self.apparent_radius_px(radius, relative_pos.norm(), app) < 2.0
+                if self.apparent_radius_px(radius, relative_pos.norm(), app) < 2.0
+                    && !self.is_occluded(entity, relative_pos)
                 {
                     app.renderer.fill_rect(rect);
                 }
@@ -2365,29 +2340,72 @@ impl Gameplay {
         (radius / dist) / (fov_rad as f64 / 2.0).tan() * (app.window_size.y as f64 / 2.0)
     }
 
-    fn sync_selected_tile(&mut self, app: &App) {
-        let Some((body, index, _)) = &self.selected_tile else {
-            return;
+    fn sync_tile_path(
+        slot: &mut Option<(Entity, usize, LinePathComponent)>,
+        want: Option<(Entity, usize, Vec<f32>)>,
+        alpha: f32,
+        renderer: &RenderContext,
+    ) {
+        let same = match (&*slot, &want) {
+            (Some((e, i, _)), Some((ne, ni, _))) => e == ne && i == ni,
+            (None, None) => true,
+            _ => false,
         };
-
-        let still_valid = match self.selection.selected_entity() {
-            Some(sel) => {
-                sel == *body
-                    || self
-                        .world
-                        .get::<&TileMap>(*body)
-                        .ok()
-                        .and_then(|tm| tm.occupant(*index as u32))
-                        == Some(sel)
-            }
-            None => false,
-        };
-
-        if !still_valid {
-            if let Some((_, _, mut lp)) = self.selected_tile.take() {
-                lp.queue_deletion(&app.renderer);
-            }
+        if same {
+            return; // same tile as last frame, keep the buffer we already have
         }
+
+        if let Some((_, _, mut lp)) = slot.take() {
+            lp.queue_deletion(renderer);
+        }
+
+        *slot = want.map(|(e, i, v)| {
+            let mut line_path = LinePathComponent::new(v);
+            line_path.color = vec4(1.0, 1.0, 1.0, alpha);
+            line_path.width = 5.0;
+            line_path.fade = false;
+            (e, i, line_path)
+        });
+    }
+
+    fn selected_tile_key(&self) -> Option<(Entity, usize)> {
+        let sel = self.selection.selected_entity()?;
+
+        // a selected building resolves to the tile it stands on
+        if let (Ok(tile), Ok(parent)) = (
+            self.world.get::<&SurfaceTile>(sel),
+            self.world.get::<&Parent>(sel),
+        ) {
+            return Some((parent.id, tile.index as usize));
+        }
+
+        // otherwise a clicked bare tile stays lit while its body is selected
+        self.clicked_tile_key.filter(|(body, _)| *body == sel)
+    }
+
+    fn sync_selected_tile(&mut self, app: &App) {
+        let key = self.selected_tile_key();
+
+        if key.is_none() {
+            // clear the clicked tile
+            self.clicked_tile_key = None;
+        }
+
+        let want = key.and_then(|(b, i)| self.tile_outline_vertices(b, i).map(|v| (b, i, v)));
+        Self::sync_tile_path(&mut self.selected_tile, want, 1.0, &app.renderer);
+    }
+
+    fn tile_outline_vertices(&self, body: Entity, index: usize) -> Option<Vec<f32>> {
+        let mut q = self.world.query_one::<(&Body, &TileMap)>(body).ok()?;
+        let (b, tile_map) = q.get()?;
+
+        let r = b.body_radius as f32 * 1.002;
+        let corners: [f32; 9] = (*tile_map.tris.get(index)? * r).into();
+
+        let mut v = Vec::with_capacity(12);
+        v.extend_from_slice(&corners);
+        v.extend_from_slice(&corners[0..3]);
+        Some(v)
     }
 }
 

@@ -1432,6 +1432,8 @@ Bulge
 Deform
 Stretch
 Horizon
+Vis
+Viva
 Altitude
 Albedo
 Stefan
