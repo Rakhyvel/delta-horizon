@@ -48,9 +48,8 @@ pub enum Event {
         part_id: String,
     },
 
-    Payday {
-        revenue: u32,
-    },
+    /// Monthly quanta event, so you can't just warp to the end of time if there's nothing going on
+    Background,
 }
 
 pub struct EventQueue {

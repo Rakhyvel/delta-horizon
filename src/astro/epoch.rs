@@ -60,7 +60,7 @@ impl EphemerisTime {
     }
 
     pub fn epoch() -> Self {
-        let dt = chrono::NaiveDate::from_ymd_opt(1998, 12, 3)
+        let dt = chrono::NaiveDate::from_ymd_opt(0, 1, 1)
             .unwrap()
             .and_hms_opt(0, 0, 0)
             .unwrap();

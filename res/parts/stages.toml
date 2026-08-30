@@ -1,96 +1,42 @@
-# TODO:
-# - small solid kick stages (Juno !, Scout)
-# - hypergolic (restartable?) upper stages (agena, fregat, delta-P, briz-M)
-# - hydrolox upper stages (Centaur)
-# - kerolox core stages
-# - NERVA stages?
-# - EP
-
-
-## SOLID FUEL STAGES ###
-
 [[parts]]
-id = 'algol'
-name = 'Algol'
-desc = 'Solid first stage'
-dry_mass_kg = 1650.0
-build_time_days = 7.0
-
+id = 'vernier'
+name = 'Vernier Pack'
+desc = 'Cold gas thrusters. Barely a stage'
+dry_mass_kg = 12.0
 [parts.fuel]
-max_fuel_mass_kg = 9950.0
-isp = 236.0
-thrust_kn = 560.0
-solid = true
-
-[parts.cost]
-funds = 1_500
+max_fuel_mass_kg = 8.0
+isp = 65.0
+thrust_kn = 0.05
 
 
 [[parts]]
-id = 'altair'
-name = 'Altair'
-desc = 'Solid upper stage'
-dry_mass_kg = 37.0
-build_time_days = 7.0
-
+id = 'monoprop_kick'
+name = 'Monopropellant Kick Stage'
+desc = 'Simple and adorable'
+dry_mass_kg = 28.0
 [parts.fuel]
-max_fuel_mass_kg = 238.0
-isp = 255.0
-thrust_kn = 22.0
-solid = true
+max_fuel_mass_kg = 140.0
+isp = 228.0
+thrust_kn = 0.8
 
-[parts.cost]
-funds = 800
-
-
-## LIQUID FUEL STAGES ##
 
 [[parts]]
-id = 'centaur_upper_stage'
-name = 'Centaur Upper Stage'
-desc = 'hydrolox upper stage'
-requires = 'first-human'
-dry_mass_kg = 2_200.0
-build_time_days = 60.0
-
+id = 'hypergolic_transfer'
+name = 'Hypergolic Transfer Stage'
+desc = 'Dont look at this one funny'
+dry_mass_kg = 190.0
 [parts.fuel]
-max_fuel_mass_kg = 20_000.0
-isp = 450.0
-thrust_kn = 99.0
-solid = false
+max_fuel_mass_kg = 1_100.0
+isp = 320.0
+thrust_kn = 4.5
 
-[parts.cost]
-funds = 60_000
 
 [[parts]]
-id = 'atlas_first_stage'
-name = 'Atlas First Stage'
-desc = 'RP-1 first stage'
-requires = 'first-sat'
-dry_mass_kg = 25_000.0
-build_time_days = 90.0
-
+id = 'hypergolic_descent'
+name = 'Hypergolic Descent Stage'
+desc = 'Dissolve anything in your way'
+dry_mass_kg = 900.0
 [parts.fuel]
-max_fuel_mass_kg = 300_000.0
-isp = 265.0
-thrust_kn = 3_800.0
-solid = false
-
-[parts.cost]
-funds = 80_000
-
-[[parts]]
-id = 'ion_cruise_stage'
-name = 'Ion Cruise Stage'
-requires = 'planet-orbit'
-dry_mass_kg = 500.0
-build_time_days = 120.0
-
-[parts.fuel]
-max_fuel_mass_kg = 400.0
-isp = 3100.0
-thrust_kn = 0.092
-solid = false
-
-[parts.cost]
-funds = 200_000
+max_fuel_mass_kg = 6_000.0
+isp = 311.0
+thrust_kn = 45.0

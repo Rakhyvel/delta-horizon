@@ -16,16 +16,10 @@ use apricot::{
 };
 use hecs::{Entity, World};
 use nalgebra_glm::{vec2, vec3, vec4, DVec3, Vec2, Vec3};
-use num_format::{Locale, ToFormattedString};
 use sdl2::keyboard::Scancode::{self};
 
 use crate::{
-    astro::{
-        epoch::EphemerisTime,
-        maneuver::sphere_of_influence,
-        state::State,
-        units::{METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR, SUN_MU},
-    },
+    astro::{epoch::EphemerisTime, maneuver::sphere_of_influence, state::State, units::SUN_MU},
     components::{
         craft::{replace_line_path, AssociatedEntity, Command, Stage},
         factory::{spawn_factory, Factory},
@@ -60,7 +54,6 @@ use crate::{
         icosphere,
     },
     generation::solar_system_gen::{self},
-    scenes::tech_tree::TechTree,
     ui::{
         container::Container,
         texture_button::TextureButton,
@@ -108,10 +101,6 @@ pub struct Gameplay {
     gui: Anchor<CommandMessages>,
     vab_ui: VabUi,
     maneuver_ui: ManeuverModal,
-
-    // Resources
-    funds: u32,
-    tech_tree: TechTree,
 
     // Events and timeline
     event_queue: EventQueue,
@@ -313,9 +302,7 @@ impl Scene for Gameplay {
                 match msg {
                     CommandMessages::FactoryCommand { part_id } => {
                         if let Some(selected) = self.selection.selected_entity() {
-                            let part = self.parts.get(&part_id).expect("should be a valid part");
-                            self.funds -= part.cost.funds;
-
+                            // TODO: Subtract parts from inventory
                             self.world
                                 .get::<&mut Factory>(selected)
                                 .unwrap()
@@ -399,7 +386,6 @@ impl Scene for Gameplay {
         self.sync_selected_tile(app);
         self.line_path_system(app);
         self.sync_models(app);
-        self.tech_tree.update(&self.world);
 
         // Delete anything we want deleted
         app.renderer.flush_deletion_queue();
@@ -811,11 +797,9 @@ impl Gameplay {
 
         let mut event_queue = EventQueue::new();
         event_queue.push(
-            EphemerisTime::epoch() + EphemerisTime::from_years(0.25),
-            Event::Payday { revenue: 15_000 },
+            EphemerisTime::epoch() + EphemerisTime::from_days(30.0),
+            Event::Background,
         );
-
-        let tech_tree = TechTree::new(bodies[habitable_planet], sun_entity);
 
         Self {
             world,
@@ -870,9 +854,6 @@ impl Gameplay {
             turn_gui,
             vab_ui: VabUi::new(),
             maneuver_ui: ManeuverModal::new(),
-
-            funds: 75_000,
-            tech_tree,
 
             current_et: EphemerisTime::epoch(),
             animation_start_et: EphemerisTime::epoch(),
@@ -959,7 +940,6 @@ impl Gameplay {
     fn build_footer_widgets(&self, app: &App) -> Vec<Box<dyn Widget<TurnMessages>>> {
         let font = app.renderer.get_font_id_from_name("font").unwrap();
 
-        let formatted_funds = (self.funds as i64).to_formatted_string(&Locale::en);
         vec![
             Box::new(
                 TextureButton::new(
@@ -977,7 +957,6 @@ impl Gameplay {
                 .on_click(TurnMessages::NextTurn),
             ),
             Box::new(Label::new(format!("ET: {}", self.current_et.as_calendar())).font(font, app)),
-            Box::new(Label::new(format!("${}", formatted_funds)).font(font, app)),
         ]
     }
 
@@ -1259,38 +1238,21 @@ impl Gameplay {
             let build_orders: Vec<Box<dyn Widget<CommandMessages>>> = self
                 .parts
                 .all()
-                .filter(|part| self.tech_tree.is_available(part))
+                // TODO: Filter against what this factory can build, SWAPC wise
                 .map(|part| {
-                    let can_afford = part.cost.funds <= self.funds;
-                    let formatted_funds = (part.cost.funds as i64).to_formatted_string(&Locale::en);
+                    let can_afford = true; // TODO: Check against inventory's parts
                     Box::new(
                         Container::new(vec![
                             Box::new(
-                                Container::new(vec![
-                                    Box::new(
-                                        Label::new(part.name.clone())
-                                            .font(font_small_bold, app)
-                                            .color(if can_afford {
-                                                STYLE.text_primary
-                                            } else {
-                                                STYLE.text_disabled
-                                            }),
-                                    ),
-                                    Box::new(
-                                        Label::new(format!(
-                                            "${}   {}d",
-                                            formatted_funds, part.build_time_days
-                                        ))
-                                        .font(font, app)
-                                        .color(
-                                            if can_afford {
-                                                STYLE.text_primary
-                                            } else {
-                                                STYLE.negative
-                                            },
-                                        ),
-                                    ),
-                                ])
+                                Container::new(vec![Box::new(
+                                    Label::new(part.name.clone())
+                                        .font(font_small_bold, app)
+                                        .color(if can_afford {
+                                            STYLE.text_primary
+                                        } else {
+                                            STYLE.text_disabled
+                                        }),
+                                )])
                                 .flow(Flow::Vertical)
                                 .padding(vec2(0.0, 4.0))
                                 .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0)),
@@ -1326,24 +1288,16 @@ impl Gameplay {
             let locked_parts: Vec<Box<dyn Widget<CommandMessages>>> = self
                 .parts
                 .all()
-                .filter(|part| !self.tech_tree.is_available(part))
+                // TODO: Filter against what this factory can build, SWAPC wise
                 .map(|part| {
-                    let req = part.requires.as_deref().unwrap_or("unknown");
                     Box::new(
                         Container::new(vec![
                             Box::new(
-                                Container::new(vec![
-                                    Box::new(
-                                        Label::new(part.name.clone())
-                                            .font(font_small_bold, app)
-                                            .color(STYLE.text_disabled),
-                                    ),
-                                    Box::new(
-                                        Label::new(format!("Requires: {}", req))
-                                            .font(font, app)
-                                            .color(STYLE.text_disabled),
-                                    ),
-                                ])
+                                Container::new(vec![Box::new(
+                                    Label::new(part.name.clone())
+                                        .font(font_small_bold, app)
+                                        .color(STYLE.text_disabled),
+                                )])
                                 .flow(Flow::Vertical)
                                 .padding(vec2(0.0, 4.0))
                                 .fixed_width(vec2(WIDTH * 0.8 - 24.0, 10.0)),
@@ -1709,7 +1663,6 @@ impl Gameplay {
                 new_soi_radius,
             } => {
                 self.selection.set_selected(craft, app.seconds as f64);
-                self.tech_tree.on_soi_change(new_parent, &self.world);
 
                 let new_parent_world_pos =
                     self.world.get::<&WorldPosition>(new_parent).unwrap().pos;
@@ -1745,35 +1698,10 @@ impl Gameplay {
             } => {
                 self.selection.set_selected(craft, app.seconds as f64);
 
-                let old_v = self
-                    .world
-                    .get::<&State>(craft)
-                    .ok()
-                    .map(|s| s.v)
-                    .unwrap_or(DVec3::zeros());
-                let actual_dv = { self.world.get::<&mut Craft>(craft).unwrap().burn(dv) }
-                    / METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR;
-                if actual_dv <= 1e-9 {
-                    println!(
-                        "Burn for {:?} aborted, no propellant! (wanted {}, can you believe that?!)",
-                        craft, dv
-                    );
-                    return;
-                }
-                let dv_vec = new_orbit.v - old_v;
-                let actual_orbit = if dv_vec.norm() > 1e-12 {
-                    State {
-                        v: old_v + dv_vec.normalize() * actual_dv,
-                        ..new_orbit
-                    }
-                } else {
-                    new_orbit
-                };
-
                 println!(
                     "Burn firing, r={:?} v={:?} at {}",
-                    actual_orbit.r,
-                    actual_orbit.v,
+                    new_orbit.r,
+                    new_orbit.v,
                     self.current_et.as_calendar()
                 );
                 let parent = self.world.get::<&Parent>(craft).unwrap().id;
@@ -1789,16 +1717,20 @@ impl Gameplay {
                         },
                         Parent { id: parent },
                         LinePathComponent::new(
-                            actual_orbit
+                            new_orbit
                                 .generate_orbit_vertices(8192, parent_mu, soi_radius)
                                 .unwrap(),
                         ),
                         AssociatedEntity { associate: craft },
                     )),
                 );
+                {
+                    let mut craft_component = self.world.get::<&mut Craft>(craft).unwrap();
+                    craft_component.burn(dv);
+                }
                 self.world.remove_one::<State>(craft).ok();
                 self.world
-                    .insert(craft, (actual_orbit, Parent { id: parent }))
+                    .insert(craft, (new_orbit, Parent { id: parent }))
                     .unwrap();
             }
             Event::Launch { craft } => {
@@ -1849,13 +1781,11 @@ impl Gameplay {
                     f.current_job = None;
                 }
             }
-            Event::Payday { revenue } => {
-                self.funds += revenue;
-
+            Event::Background => {
                 // Schedule the next quarterly payout
                 self.event_queue.push(
-                    self.current_et + EphemerisTime::from_years(0.25),
-                    Event::Payday { revenue },
+                    self.current_et + EphemerisTime::from_days(30.0),
+                    Event::Background,
                 );
             }
         }

@@ -95,10 +95,10 @@ impl Factory {
         &mut self,
         part_id: String,
         current_et: EphemerisTime,
-        registry: &PartRegistry,
+        _registry: &PartRegistry,
     ) -> Result<(), String> {
-        let part = registry.get(&part_id).ok_or("unknown part")?;
-        let completion_et = current_et + EphemerisTime::from_years(part.build_time_days / 365.0);
+        let build_time_days = 1.0; // TODO: Maybe re-add to part
+        let completion_et = current_et + EphemerisTime::from_years(build_time_days / 365.0);
         self.current_job = Some(FactoryJob {
             part_id,
             order_et: current_et,
