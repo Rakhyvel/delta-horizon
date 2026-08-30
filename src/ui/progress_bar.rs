@@ -1,3 +1,5 @@
+use std::{cell::Cell, rc::Rc};
+
 use crate::ui::{msg::MsgQueue, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
 use nalgebra_glm::{vec4, Vec2, Vec4};
@@ -6,7 +8,7 @@ pub struct ProgressBar {
     /// The rectangle defining the button's position and size
     rect: Rectangle,
     /// How filled the progress bar is, [0, 1]
-    progress: f32,
+    progress: Rc<Cell<f32>>,
     background_color: Vec4,
     fill_color: Vec4,
     border: Option<(nalgebra_glm::Vec4, f32)>, // color, width
@@ -19,7 +21,7 @@ impl ProgressBar {
                 pos: Vec2::zeros(),
                 size,
             },
-            progress: 0.0,
+            progress: Rc::new(Cell::new(0.0)),
             background_color: vec4(1.0, 0.0, 1.0, 1.0),
             fill_color: vec4(1.0, 0.0, 1.0, 1.0),
             border: None,
@@ -41,7 +43,12 @@ impl ProgressBar {
         self
     }
 
-    pub fn progress(mut self, progress: f32) -> Self {
+    pub fn progress(self, progress: f32) -> Self {
+        self.progress.set(progress);
+        self
+    }
+
+    pub fn bind(mut self, progress: Rc<Cell<f32>>) -> Self {
         self.progress = progress;
         self
     }
@@ -57,7 +64,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for ProgressBar {
 
         // Draw filled
         let mut filled_rect = self.rect;
-        filled_rect.size.x *= self.progress;
+        filled_rect.size.x *= self.progress.get();
         app.renderer.set_color(self.fill_color);
         app.renderer.fill_rect(filled_rect);
 

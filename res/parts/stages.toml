@@ -39,4 +39,4 @@ dry_mass_kg = 900.0
 [parts.fuel]
 max_fuel_mass_kg = 6_000.0
 isp = 311.0
-thrust_kn = 45.0
+thrust_kn = 450.0

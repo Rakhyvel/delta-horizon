@@ -6,9 +6,8 @@ A turn-based, event-driven space colony survival strategy game.
 - [x] Procedurally generated solar system
 - [x] Delta-V graph
 - [x] Stages/payloads
-    - [x] solid rockets should fire for their entire duration (making them very imprecise!)
 - [ ] Dynamic UI elements
-    * progress bar going up as turn animates
+    x progress bar going up as turn animates
     * calendar string changing as turn animates
     * timeline at the bottom which displays upcoming events like transfers and depletion dates, allows user to see, plan, and subscribe to transfer windows
     * scrollable containers (gonna be super imporant!)

@@ -1,6 +1,6 @@
 //! This module is responsible for defining the gameplay scene.
 
-use std::{collections::HashMap, f64::consts::PI};
+use std::{cell::Cell, collections::HashMap, f64::consts::PI, rc::Rc};
 
 use apricot::{
     app::{App, Scene},
@@ -101,6 +101,7 @@ pub struct Gameplay {
     gui: Anchor<CommandMessages>,
     vab_ui: VabUi,
     maneuver_ui: ManeuverModal,
+    turn_progress: Rc<Cell<f32>>,
 
     // Events and timeline
     event_queue: EventQueue,
@@ -377,6 +378,7 @@ impl Scene for Gameplay {
         self.landed_system();
         self.select_system();
         self.camera_update(app);
+        self.lerp_factory_progress();
         if !modal_open {
             self.hovered = None;
             self.mouse_hover_system(app, false);
@@ -854,6 +856,7 @@ impl Gameplay {
             turn_gui,
             vab_ui: VabUi::new(),
             maneuver_ui: ManeuverModal::new(),
+            turn_progress: Rc::new(Cell::new(0.0)),
 
             current_et: EphemerisTime::epoch(),
             animation_start_et: EphemerisTime::epoch(),
@@ -1218,7 +1221,7 @@ impl Gameplay {
                         .background_color(STYLE.bg_primary)
                         .fill_color(STYLE.accent)
                         .border(STYLE.border_primary, 1.0)
-                        .progress(job.progress(self.current_et) as f32),
+                        .bind(self.turn_progress.clone()),
                 ) as Box<dyn Widget<CommandMessages>>,
                 Box::new(
                     Label::new(format!("Completion: {}", job.completion_et.as_calendar()))
@@ -2167,6 +2170,21 @@ impl Gameplay {
         self.camera_3d.world_pos =
             (rot_matrix * nalgebra_glm::vec4(self.distance, 0., 0., 0.)).xyz() + offset;
         self.camera_3d.sync(offset);
+    }
+
+    fn lerp_factory_progress(&self) {
+        let selected = match self.selection.selected_entity() {
+            Some(f) => f,
+            None => return,
+        };
+        let factory = match self.world.get::<&Factory>(selected) {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+
+        if let Some(job) = &factory.current_job {
+            self.turn_progress.set(job.progress(self.current_et) as f32);
+        }
     }
 
     fn world_to_screen(&self, relative_pos: DVec3, app: &App) -> Option<Vec2> {
