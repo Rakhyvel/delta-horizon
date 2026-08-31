@@ -34,7 +34,7 @@ use crate::{
         vab::{spawn_vab, Vab},
     },
     container,
-    generation::lexicon::Lexicon,
+    generation::{lexicon::Lexicon, polygon},
     scenes::{
         events::{Event, EventQueue},
         maneuver::ManeuverModal,
@@ -49,6 +49,7 @@ use crate::{
         progress_bar::ProgressBar,
         style::STYLE,
         text_button::TextButton,
+        timeline::{MarkKind, Timeline, TimelineMark},
     },
 };
 
@@ -108,10 +109,12 @@ pub struct Gameplay {
     maneuver_ui: ManeuverModal,
     turn_progress: Rc<Cell<f32>>,
     calendar_string: Rc<RefCell<String>>,
+    marks: Rc<RefCell<Vec<TimelineMark>>>,
+    marks_version: u64,
 
     // Events and timeline
     event_queue: EventQueue,
-    current_et: EphemerisTime,
+    current_et: Rc<Cell<EphemerisTime>>,
     animation_start_et: EphemerisTime,
     animation_target_et: EphemerisTime,
     animation_start_real: f64,
@@ -127,7 +130,7 @@ enum TurnMessages {
 
 #[derive(Clone)]
 enum CommandMessages {
-    FactoryCommand { part_id: String },
+    FactoryCommand { part_id: u64 },
     OpenVab,
     OpenManeuver,
 }
@@ -272,10 +275,10 @@ impl Scene for Gameplay {
                 {
                     let mut inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
                     inventory
-                        .take(&self.vab_ui.payload.clone().unwrap().id)
+                        .take(self.vab_ui.payload.as_ref().unwrap().id_hash())
                         .unwrap();
                     for stage in &self.vab_ui.stages {
-                        inventory.take(&stage.id).unwrap()
+                        inventory.take(stage.id_hash()).unwrap()
                     }
                 }
 
@@ -295,7 +298,10 @@ impl Scene for Gameplay {
             }
         }
 
-        if let Some(result) = self.maneuver_ui.update(self.current_et, &self.world, app) {
+        if let Some(result) = self
+            .maneuver_ui
+            .update(self.current_et.get(), &self.world, app)
+        {
             if let Some(selected) = self.selection.selected_entity() {
                 let command = result.into_command();
                 self.world.get::<&mut Craft>(selected).unwrap().command = Some(command);
@@ -313,7 +319,7 @@ impl Scene for Gameplay {
                             self.world
                                 .get::<&mut Factory>(selected)
                                 .unwrap()
-                                .start_job(part_id, self.current_et, &self.parts)
+                                .start_job(part_id, self.current_et.get(), &self.parts)
                                 .expect("you wouldnt give a fake part would you");
                             self.gui = self.rebuild_gui(app);
                         }
@@ -327,8 +333,12 @@ impl Scene for Gameplay {
                     }
                     CommandMessages::OpenManeuver => {
                         if let Some(selected) = self.selection.selected_entity() {
-                            self.maneuver_ui
-                                .show(selected, self.current_et, &self.world, app);
+                            self.maneuver_ui.show(
+                                selected,
+                                self.current_et.get(),
+                                &self.world,
+                                app,
+                            );
                         }
                     }
                 }
@@ -340,14 +350,14 @@ impl Scene for Gameplay {
                         if !self.is_animating() {
                             self.schedule_events();
                             // Handle any events already at the current time before advancing
-                            let due_now = self.event_queue.pop_due(self.current_et);
+                            let due_now = self.event_queue.pop_due(self.current_et.get());
                             for event in due_now {
                                 self.handle_event(event, app);
                             }
                             if let Some((&next_event_time, _)) =
                                 self.event_queue.events.iter().next()
                             {
-                                self.animation_start_et = self.current_et;
+                                self.animation_start_et = self.current_et.get();
                                 self.animation_target_et = next_event_time;
                                 self.animation_start_real = app.seconds as f64;
                             }
@@ -363,14 +373,15 @@ impl Scene for Gameplay {
             let eased = t;
 
             // Interpolate ET between start and target
-            self.current_et = self
-                .animation_start_et
-                .lerp(self.animation_target_et, eased);
+            self.current_et.set(
+                self.animation_start_et
+                    .lerp(self.animation_target_et, eased),
+            );
 
             // Animation finished
             if t >= 1.0 {
-                self.current_et = self.animation_target_et;
-                let due = self.event_queue.pop_due(self.current_et);
+                self.current_et.set(self.animation_target_et);
+                let due = self.event_queue.pop_due(self.current_et.get());
                 for event in due {
                     self.handle_event(event, app);
                 }
@@ -380,7 +391,7 @@ impl Scene for Gameplay {
         }
 
         // Update calendar string
-        let cal = format!("ET: {}", self.current_et.as_calendar());
+        let cal = format!("ET: {}", self.current_et.get().as_calendar());
         if *self.calendar_string.borrow() != cal {
             *self.calendar_string.borrow_mut() = cal;
         }
@@ -400,6 +411,10 @@ impl Scene for Gameplay {
         self.sync_selected_tile(app);
         self.line_path_system(app);
         self.sync_models(app);
+        if self.event_queue.version() != self.marks_version {
+            self.marks_version = self.event_queue.version();
+            *self.marks.borrow_mut() = self.build_marks();
+        }
 
         // Delete anything we want deleted
         app.renderer.flush_deletion_queue();
@@ -620,6 +635,31 @@ impl Gameplay {
             sub: ico_80.tile_tris,
             large: ico_320.tile_tris,
         };
+
+        for (i, name) in ["triangle", "square", "pentagon", "hexagon"]
+            .iter()
+            .enumerate()
+        {
+            let sides = i + 3;
+            let (indices, pos, normals, uvs) = polygon::ngon_mesh(sides as u32);
+            app.renderer
+                .add_mesh_from_verts(indices, vec![&pos, &normals, &uvs], Some(name));
+        }
+
+        for (i, name) in [
+            "triangle-outline",
+            "square-outline",
+            "pentagon-outline",
+            "hexagon-outline",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let sides = i + 3;
+            let (indices, pos, normals, uvs) = polygon::ngon_ring_mesh(sides as u32, 0.875);
+            app.renderer
+                .add_mesh_from_verts(indices, vec![&pos, &normals, &uvs], Some(name));
+        }
 
         // Setup the texture manager
         app.renderer
@@ -870,8 +910,10 @@ impl Gameplay {
             maneuver_ui: ManeuverModal::new(),
             turn_progress: Rc::new(Cell::new(0.0)),
             calendar_string: Rc::new(RefCell::new(String::new())),
+            marks: Rc::new(RefCell::new(vec![])),
+            marks_version: event_queue.version(),
 
-            current_et: EphemerisTime::epoch(),
+            current_et: Rc::new(Cell::new(EphemerisTime::epoch())),
             animation_start_et: EphemerisTime::epoch(),
             animation_target_et: EphemerisTime::epoch(),
             animation_start_real: 0.0,
@@ -882,7 +924,7 @@ impl Gameplay {
     }
 
     fn is_animating(&self) -> bool {
-        self.current_et < self.animation_target_et
+        self.current_et.get() < self.animation_target_et
     }
 
     /// Changes various game state based on user mouse and keyboard input
@@ -914,7 +956,7 @@ impl Gameplay {
                 .min(PI / 2.0 - control_speed);
         }
 
-        let zoom_factor = 0.9f64.powf(app.mouse_wheel as f64);
+        let zoom_factor = 0.95f64.powf(app.mouse_wheel as f64);
 
         self.distance = (self.distance * zoom_factor).clamp(min_distance, max_distance);
     }
@@ -946,8 +988,12 @@ impl Gameplay {
         turn_widgets.extend(self.build_footer_widgets(app));
 
         let mut anchor = Anchor::new(
-            Box::new(Container::new(turn_widgets).cross_align(Align::End)),
-            AnchorPoint::BottomRight,
+            Box::new(
+                Container::new(turn_widgets)
+                    .cross_align(Align::End)
+                    .flow(Flow::Horizontal),
+            ),
+            AnchorPoint::BottomLeft,
         );
         anchor.reposition(app);
         anchor
@@ -956,15 +1002,10 @@ impl Gameplay {
     fn build_footer_widgets(&self, app: &App) -> Vec<Box<dyn Widget<TurnMessages>>> {
         let font = app.renderer.get_font_id_from_name("font").unwrap();
 
-        vec![
+        let turn_controls = Container::new(vec![
             Box::new(
                 TextureButton::new(
-                    Rectangle::new(
-                        app.window_size.x as f32 - 100.0,
-                        app.window_size.y as f32 - 120.0,
-                        90.0,
-                        90.0,
-                    ),
+                    Rectangle::new(0.0, 0.0, 90.0, 90.0),
                     app.renderer.get_texture_id_from_name("next-turn").unwrap(),
                     app.renderer
                         .get_texture_id_from_name("next-turn-hover")
@@ -973,6 +1014,18 @@ impl Gameplay {
                 .on_click(TurnMessages::NextTurn),
             ),
             Box::new(Label::bound(self.calendar_string.clone()).font(font, app)),
+        ])
+        .flow(Flow::Vertical)
+        .cross_align(Align::End);
+
+        let remaining = app.window_size.x as f32 - turn_controls.size().x - 24.0;
+
+        vec![
+            Box::new(
+                Timeline::new(self.current_et.clone(), remaining, self.marks.clone())
+                    .use_style(&STYLE),
+            ),
+            Box::new(turn_controls),
         ]
     }
 
@@ -1033,7 +1086,7 @@ impl Gameplay {
                     .color(STYLE.accent),
             ));
             for (burn_label, et) in command.burn_schedule() {
-                let done = self.current_et >= et;
+                let done = self.current_et.get() >= et;
                 widgets.push(Box::new(
                     Container::new(vec![
                         Box::new(Label::new(burn_label).font(font_small_bold, app).color(
@@ -1220,10 +1273,7 @@ impl Gameplay {
         ];
 
         if let Some(job) = &factory.current_job {
-            let part = self
-                .parts
-                .get(&job.part_id)
-                .expect("should be a valid part");
+            let part = self.parts.get(job.part_id).expect("should be a valid part");
 
             widgets.extend(vec![
                 Box::new(Label::new("STATUS").font(font_small_bold, app)),
@@ -1281,7 +1331,7 @@ impl Gameplay {
                                     )
                                     .use_style(&STYLE)
                                     .on_click(CommandMessages::FactoryCommand {
-                                        part_id: part.id.clone(),
+                                        part_id: part.id_hash(),
                                     })
                                     .active(can_afford),
                                 )])
@@ -1329,7 +1379,7 @@ impl Gameplay {
             .parts
             .all()
             .filter_map(|part| {
-                let count = inventory.parts.get(&part.id).copied().unwrap_or(0);
+                let count = inventory.parts.get(&part.id_hash()).copied().unwrap_or(0);
                 if count == 0 {
                     return None;
                 }
@@ -1598,7 +1648,7 @@ impl Gameplay {
             }
         }
 
-        let factories: Vec<(Entity, String, EphemerisTime)> = self
+        let factories: Vec<(Entity, u64, EphemerisTime)> = self
             .world
             .query::<(&mut Factory,)>()
             .iter()
@@ -1606,7 +1656,7 @@ impl Gameplay {
                 if let Some(job) = &mut factory.current_job {
                     if !job.scheduled {
                         job.scheduled = true;
-                        return Some((entity, job.part_id.clone(), job.completion_et));
+                        return Some((entity, job.part_id, job.completion_et));
                     }
                 }
                 None
@@ -1672,7 +1722,7 @@ impl Gameplay {
                     "Burn firing, r={:?} v={:?} at {}",
                     new_orbit.r,
                     new_orbit.v,
-                    self.current_et.as_calendar()
+                    self.current_et.get().as_calendar()
                 );
                 let parent = self.world.get::<&Parent>(craft).unwrap().id;
                 let parent_world_pos = self.world.get::<&WorldPosition>(parent).unwrap().pos;
@@ -1709,7 +1759,7 @@ impl Gameplay {
                 println!(
                     "Launch event firing for {:?} at {}",
                     craft,
-                    self.current_et.as_calendar()
+                    self.current_et.get().as_calendar()
                 );
                 let parent_id = self.world.get::<&Parent>(craft).unwrap().id;
                 self.world.remove_one::<Landed>(craft).ok();
@@ -1725,7 +1775,7 @@ impl Gameplay {
                     let parent_id = self.world.get::<&Parent>(craft).unwrap().id;
                     let parent_body_mu = self.world.get::<&Body>(parent_id).unwrap().mu;
                     craft_state
-                        .propagate(self.current_et, parent_body_mu)
+                        .propagate(self.current_et.get(), parent_body_mu)
                         .unwrap()
                         .r
                 };
@@ -1744,7 +1794,7 @@ impl Gameplay {
 
                 let parent = self.world.get::<&Parent>(factory).unwrap().id;
                 let mut part_inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
-                part_inventory.add(part_id.as_str(), 1);
+                part_inventory.add(part_id, 1);
 
                 // clear job so that factory becomes idle
                 if let Ok(mut f) = self.world.get::<&mut Factory>(factory) {
@@ -1754,7 +1804,7 @@ impl Gameplay {
             Event::Background => {
                 // Schedule the next quarterly payout
                 self.event_queue.push(
-                    self.current_et + EphemerisTime::from_days(30.0),
+                    self.current_et.get() + EphemerisTime::from_days(30.0),
                     Event::Background,
                 );
             }
@@ -1784,7 +1834,7 @@ impl Gameplay {
             }
         }
 
-        let et = self.current_et;
+        let et = self.current_et.get();
 
         // Kick off from roots
         for root in roots {
@@ -1851,6 +1901,40 @@ impl Gameplay {
                 &app.renderer.get_model_aabb(model),
                 &vec3(0.0f32, 0.0, 0.0),
             );
+        }
+    }
+
+    fn build_marks(&self) -> Vec<TimelineMark> {
+        self.event_queue
+            .events
+            .iter()
+            .flat_map(|(et, events)| {
+                let t = *et;
+                events.iter().filter_map(move |event| {
+                    Some(TimelineMark {
+                        t,
+                        kind: MarkKind::from_event(event)?,
+                        craft_name: self.craft_name_from_event(event),
+                    })
+                })
+            })
+            .collect()
+    }
+
+    fn craft_name_from_event(&self, event: &Event) -> String {
+        match event {
+            Event::SoiChange { craft, .. }
+            | Event::Burn { craft, .. }
+            | Event::Launch { craft }
+            | Event::Land { craft } => {
+                let scene_obj = self.world.get::<&SceneObject>(*craft).unwrap();
+                scene_obj.name.clone()
+            }
+
+            // No real craft name
+            Event::CompleteCommand { .. } | Event::FactoryComplete { .. } | Event::Background => {
+                String::from("")
+            }
         }
     }
 
@@ -2085,7 +2169,7 @@ impl Gameplay {
                     mean_anomaly_map.insert(entity, 0.0);
                 } else {
                     let mean_anomaly_0 = assoc_state.mean_anomaly(mu); // M at assoc_state.t = vertex 0
-                    let state_now = assoc_state.propagate(self.current_et, mu).unwrap();
+                    let state_now = assoc_state.propagate(self.current_et.get(), mu).unwrap();
                     let mean_anomaly = state_now.mean_anomaly(mu);
                     mean_anomaly_map.insert(entity, mean_anomaly - mean_anomaly_0);
                 }
@@ -2196,7 +2280,8 @@ impl Gameplay {
         };
 
         if let Some(job) = &factory.current_job {
-            self.turn_progress.set(job.progress(self.current_et) as f32);
+            self.turn_progress
+                .set(job.progress(self.current_et.get()) as f32);
         }
     }
 

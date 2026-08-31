@@ -4,6 +4,7 @@ use hecs::Entity;
 
 use crate::astro::{epoch::EphemerisTime, state::State};
 
+#[derive(Clone, Copy)]
 pub enum Event {
     /// At this event, the `craft`'s parent changes from its own parent to `new_parent`, with the `new_craft_orbit`, relative to the new parent.
     SoiChange {
@@ -39,13 +40,11 @@ pub enum Event {
     },
 
     /// At this event, the craft's command is cleared (maneuver sequence finished)
-    CompleteCommand {
-        craft: Entity,
-    },
+    CompleteCommand { craft: Entity },
 
     FactoryComplete {
         factory: Entity,
-        part_id: String,
+        part_id: u64, // hash of the part id
     },
 
     /// Monthly quanta event, so you can't just warp to the end of time if there's nothing going on
@@ -54,17 +53,24 @@ pub enum Event {
 
 pub struct EventQueue {
     pub events: BTreeMap<EphemerisTime, Vec<Event>>,
+    version: u64,
 }
 
 impl EventQueue {
     pub fn new() -> Self {
         Self {
             events: BTreeMap::new(),
+            version: 0,
         }
+    }
+
+    pub fn version(&self) -> u64 {
+        self.version
     }
 
     pub fn push(&mut self, time: EphemerisTime, event: Event) {
         self.events.entry(time).or_default().push(event);
+        self.version += 1
     }
 
     /// Pop all events up to and including `current_time`
@@ -72,6 +78,7 @@ impl EventQueue {
         let future = self
             .events
             .split_off(&(current_time + EphemerisTime::new(1)));
+        self.version += 1;
         std::mem::replace(&mut self.events, future)
             .into_values()
             .flatten()

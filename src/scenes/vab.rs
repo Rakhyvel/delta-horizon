@@ -30,15 +30,15 @@ pub struct VabUi {
     pub stages: Vec<PartDef>,
     pub payload: Option<PartDef>,
 
-    available_parts: HashMap<String, u32>,
+    available_parts: HashMap<u64, u32>,
     registry: PartRegistry,
 }
 
 #[derive(Clone, Debug)]
 enum VabMessages {
-    AddToStack(String),
+    AddToStack(u64),
     RemoveFromStack,
-    SetPayload(String),
+    SetPayload(u64),
     UnsetPayload,
     Build,
     Close,
@@ -60,14 +60,14 @@ impl VabUi {
             println!("{msg:?}");
             match msg {
                 VabMessages::AddToStack(stage_id) => {
-                    let stage = self.registry.get(&stage_id).unwrap();
+                    let stage = self.registry.get(stage_id).unwrap();
                     self.stages.push(stage.clone());
                     let count = self.available_parts.get(&stage_id).unwrap();
                     self.available_parts.insert(stage_id, count - 1);
                     self.rebuild_modal(app);
                 }
                 VabMessages::SetPayload(payload_id) => {
-                    let payload = self.registry.get(&payload_id).unwrap();
+                    let payload = self.registry.get(payload_id).unwrap();
                     self.payload = Some(payload.clone());
                     let count = self.available_parts.get(&payload_id).unwrap();
                     self.available_parts.insert(payload_id, count - 1);
@@ -75,12 +75,12 @@ impl VabUi {
                 }
                 VabMessages::RemoveFromStack => {
                     let stage = self.stages.pop().unwrap();
-                    let count = self.available_parts.get(&stage.id).unwrap();
-                    self.available_parts.insert(stage.id, count + 1);
+                    let count = self.available_parts.get(&stage.id_hash()).unwrap();
+                    self.available_parts.insert(stage.id_hash(), count + 1);
                     self.rebuild_modal(app);
                 }
                 VabMessages::UnsetPayload => {
-                    let old_id = self.payload.clone().unwrap().id;
+                    let old_id = self.payload.clone().unwrap().id_hash();
                     self.payload = None;
                     self.available_parts.insert(old_id, 1);
                     self.rebuild_modal(app);
@@ -312,7 +312,7 @@ impl VabUi {
             .registry
             .all()
             .filter_map(|part| {
-                let count = self.available_parts.get(&part.id).unwrap_or(&0);
+                let count = self.available_parts.get(&part.id_hash()).unwrap_or(&0);
                 if part.fuel.is_some() {
                     return None;
                 }
@@ -337,7 +337,7 @@ impl VabUi {
                                     "+",
                                 )
                                 .use_style(&STYLE)
-                                .on_click(VabMessages::SetPayload(part.id.clone()))
+                                .on_click(VabMessages::SetPayload(part.id_hash()))
                                 .active(have_some),
                             )])
                             .padding(vec2(0.0, 0.0))
@@ -356,7 +356,7 @@ impl VabUi {
             .registry
             .all()
             .filter_map(|part| {
-                let count = self.available_parts.get(&part.id).unwrap_or(&0);
+                let count = self.available_parts.get(&part.id_hash()).unwrap_or(&0);
                 let _ = part.fuel?;
 
                 let have_some = *count > 0;
@@ -379,7 +379,7 @@ impl VabUi {
                                     "+",
                                 )
                                 .use_style(&STYLE)
-                                .on_click(VabMessages::AddToStack(part.id.clone()))
+                                .on_click(VabMessages::AddToStack(part.id_hash()))
                                 .active(have_some),
                             )])
                             .padding(vec2(0.0, 0.0))
@@ -404,7 +404,7 @@ impl VabUi {
 
     pub fn payload(&self) -> Option<Payload> {
         self.registry
-            .get(&self.payload.clone()?.id)
+            .get(self.payload.as_ref()?.id_hash())
             .map(|part| part.instantiate_payload())
     }
 
@@ -413,7 +413,7 @@ impl VabUi {
             .iter()
             .map(|stage_def| {
                 self.registry
-                    .get(&stage_def.id)
+                    .get(stage_def.id_hash())
                     .map(|part| part.instantiate_stage())
             })
             .collect()

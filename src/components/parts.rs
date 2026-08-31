@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use crate::components::craft::{Payload, Stage};
 
@@ -32,7 +35,7 @@ struct PartFile {
 
 #[derive(Clone)]
 pub struct PartRegistry {
-    parts: HashMap<String, PartDef>,
+    parts: HashMap<u64, PartDef>,
 }
 
 impl PartRegistry {
@@ -51,7 +54,9 @@ impl PartRegistry {
                 let text = std::fs::read_to_string(&path).unwrap();
                 let file: PartFile = toml::from_str(&text).unwrap();
                 for part in file.parts {
-                    parts.insert(part.id.clone(), part);
+                    let mut hasher = DefaultHasher::new();
+                    part.id.hash(&mut hasher);
+                    parts.insert(hasher.finish(), part);
                 }
             }
         }
@@ -59,8 +64,8 @@ impl PartRegistry {
         Self { parts }
     }
 
-    pub fn get(&self, id: &str) -> Option<&PartDef> {
-        self.parts.get(id)
+    pub fn get(&self, id: u64) -> Option<&PartDef> {
+        self.parts.get(&id)
     }
 
     pub fn all(&self) -> impl Iterator<Item = &PartDef> {
@@ -85,5 +90,11 @@ impl PartDef {
             name: self.name.clone(),
             dry_mass: self.dry_mass_kg,
         }
+    }
+
+    pub fn id_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.id.hash(&mut hasher);
+        hasher.finish()
     }
 }

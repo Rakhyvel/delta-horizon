@@ -1,6 +1,6 @@
 use std::ops::{Add, AddAssign, Div, Mul, Sub};
 
-use chrono::{Datelike, Timelike};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 
 use crate::astro::units::{SECONDS_PER_DAY, SECONDS_PER_YEAR};
 
@@ -42,12 +42,20 @@ impl EphemerisTime {
         Self(start + ((end - start) as f64 * t) as i64)
     }
 
-    pub fn as_calendar(&self) -> String {
+    pub fn ceil_to(self, step: Self) -> Self {
+        let (t, s) = (self.0, step.0.max(1));
+        Self(((t + s - 1).div_euclid(s)) * s)
+    }
+
+    fn as_datetime(&self) -> DateTime<Utc> {
         let secs = self.0 / 1_000_000;
         let micros = self.0.rem_euclid(1_000_000) * 1000; // always positive
 
-        let dt = chrono::DateTime::from_timestamp(secs, micros as u32).unwrap();
+        chrono::DateTime::from_timestamp(secs, micros as u32).unwrap()
+    }
 
+    pub fn as_calendar(&self) -> String {
+        let dt = self.as_datetime();
         format!(
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
             dt.year(),
@@ -57,6 +65,19 @@ impl EphemerisTime {
             dt.minute(),
             dt.second()
         )
+    }
+
+    pub fn short_month_name(&self) -> String {
+        let dt = self.as_datetime();
+        [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ][dt.month() as usize - 1]
+            .to_string()
+    }
+
+    pub fn day_of_month(&self) -> String {
+        let dt = self.as_datetime();
+        format!("{:02}", dt.day())
     }
 
     pub fn epoch() -> Self {

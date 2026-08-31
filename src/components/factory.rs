@@ -22,7 +22,7 @@ pub struct Factory {
 
 #[derive(Debug)]
 pub struct FactoryJob {
-    pub part_id: String,
+    pub part_id: u64,
     pub order_et: EphemerisTime,
     pub completion_et: EphemerisTime,
     pub scheduled: bool,
@@ -93,7 +93,7 @@ pub fn spawn_factory(
 impl Factory {
     pub fn start_job(
         &mut self,
-        part_id: String,
+        part_id: u64,
         current_et: EphemerisTime,
         _registry: &PartRegistry,
     ) -> Result<(), String> {

@@ -28,7 +28,7 @@ A turn-based, event-driven space colony survival strategy game.
     - [ ] radiator module, unimplemented for now
     - [ ] lose the game if the station dies
     - [ ] win the game if you can beam a message back to earth?
-- [ ] body rotation
+- [ ] body rotation, axial tilt
 - [ ] terrain displacement
 - [ ] Science
     - each tile has hidden parameters: ore content, global+local temp, radiation, etc. The instruments below refine the estimates of the parameters. Don't make the players do the actual math or whatever, just show them overlays for "ilmetite: belief +- margin"
@@ -76,7 +76,8 @@ A turn-based, event-driven space colony survival strategy game.
     - [ ] craft should crash if they crash and don't have landing gear or parachutes+body atmos
     - [ ] craft should burn up if they enter atmosphere without heat shielding of some kind
     - [ ] tug payloads that transport fuel, raw materials or other craft
-    - [ ] planetary atmospheres
+    - [ ] local biomes, informed by actual local conditions (rotation, tilt, lattitude)
+    - [ ] planetary atmospheres, clouds, tile detail
     - [ ] asteroids
     - [ ] make actual building models, and rotate them to their tile's normal
     - [ ] show more info about stages, their dv, their resources, maybe a little model sprite, in VAB and factory
