@@ -10,21 +10,37 @@ pub enum Flow {
 
 /// How widgets are position on the flow-axis
 pub enum Align {
-    // left or top
+    /// pack at beginning, padding between children
     Start,
+    /// pack together, centered in the available space
     Center,
-    // right or bottom
+    /// pack at end, padding between children
     End,
+}
+
+/// How widgets are position on the flow-axis
+pub enum Justify {
+    /// pack at beginning, padding between children
+    Start,
+    /// pack together, centered in the available space
+    Center,
+    /// pack at end, padding between children
+    End,
+    /// distribute leftover evenly, including the ends
+    SpaceAround,
 }
 
 pub struct Container<Msg> {
     rect: Rectangle,
     children: Vec<Box<dyn Widget<Msg>>>,
     flow: Flow,
+    /// Alignment on the main axis
+    justify: Justify,
     /// Alignment on the perpendicular axis
     cross_align: Align,
     fixed_width: bool,
     fixed_height: bool,
+    min_size: Vec2,
     padding: Vec2,
     background: Option<nalgebra_glm::Vec4>,
     border: Option<(nalgebra_glm::Vec4, f32)>, // color, width
@@ -36,9 +52,11 @@ impl<Msg: Clone + 'static> Container<Msg> {
             rect: Rectangle::new(0.0, 0.0, 0.0, 0.0),
             children,
             flow: Flow::Vertical,
+            justify: Justify::Start,
             cross_align: Align::Start,
             fixed_width: false,
             fixed_height: false,
+            min_size: Vec2::zeros(),
             padding: vec2(8.0, 8.0),
             background: None,
             border: None,
@@ -77,6 +95,12 @@ impl<Msg: Clone + 'static> Container<Msg> {
     pub fn fixed_width(mut self, size: Vec2) -> Self {
         self.rect.size = size;
         self.fixed_width = true;
+        self.layout(self.rect.pos);
+        self
+    }
+
+    pub fn min_size(mut self, min: Vec2) -> Self {
+        self.min_size = min;
         self.layout(self.rect.pos);
         self
     }
@@ -161,46 +185,36 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
             .fold(Vec2::zeros(), |acc, s| nalgebra_glm::max2(&acc, s));
         let additive_content_size = child_sizes.iter().fold(Vec2::zeros(), |acc, s| acc + *s);
 
-        // Compute spacer
-        let mut spacer = if self.fixed_width || self.fixed_height {
-            // For fixed-size, the spacer is the space between the elements, to keep them centered
-            if self.children.is_empty() {
-                Vec2::zeros()
-            } else {
-                (self.rect.size - additive_content_size) / (self.children.len() as f32 + 1.0)
-            }
-        } else {
-            // For non-fixed size, just use the padding
-            self.padding
+        let main_is_fixed = match self.flow {
+            Flow::Vertical => self.fixed_height,
+            Flow::Horizontal => self.fixed_width,
         };
-        match self.flow {
-            Flow::Vertical => spacer.x = 0.0,
-            Flow::Horizontal => spacer.y = 0.0,
-        }
-        if spacer.x < 0.0 {
-            spacer.x = 0.0;
-        }
-        if spacer.y < 0.0 {
-            spacer.y = 0.0;
-        }
+        let n = self.children.len() as f32;
+        let (main_size, additive_main) = match self.flow {
+            Flow::Vertical => (self.rect.size.y, additive_content_size.y),
+            Flow::Horizontal => (self.rect.size.x, additive_content_size.x),
+        };
+        let gap = match self.flow {
+            Flow::Vertical => self.padding.y,
+            Flow::Horizontal => self.padding.x,
+        };
 
-        // Second pass to place children
-        let mut main_offset = match self.flow {
-            Flow::Vertical => {
-                if self.fixed_height {
-                    spacer.y
-                } else {
-                    0.0
-                }
-            }
-            Flow::Horizontal => {
-                if self.fixed_width {
-                    spacer.x
-                } else {
-                    0.0
+        let (lead, between) = if !main_is_fixed {
+            (0.0, gap)
+        } else {
+            let leftover = (main_size - additive_main - gap * (n - 1.0)).max(0.0);
+            match self.justify {
+                Justify::Start => (0.0, gap),
+                Justify::Center => (leftover / 2.0, gap),
+                Justify::End => (leftover, gap),
+                Justify::SpaceAround => {
+                    let s = ((main_size - additive_main) / (n + 1.0)).max(0.0);
+                    (s, s)
                 }
             }
         };
+
+        let mut main_offset = lead;
         let mut working_size = Vec2::zeros();
 
         for (child, child_size) in self.children.iter_mut().zip(child_sizes.iter()) {
@@ -208,14 +222,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
             let cross_size_available = match self.flow {
                 Flow::Vertical => {
                     if self.fixed_width {
-                        self.rect.size.x
+                        self.rect.size.x - self.padding.x * 2.0
                     } else {
                         max_content_size.x
                     }
                 }
                 Flow::Horizontal => {
                     if self.fixed_height {
-                        self.rect.size.y
+                        self.rect.size.y - self.padding.y * 2.0
                     } else {
                         max_content_size.y
                     }
@@ -241,13 +255,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
             // Advance main axis and accumulate working size
             match self.flow {
                 Flow::Vertical => {
-                    main_offset += spacer.y + child_size.y;
+                    main_offset += between + child_size.y;
                     working_size.x = max_content_size.x;
-                    working_size.y += spacer.y + child_size.y;
+                    working_size.y += between + child_size.y;
                 }
                 Flow::Horizontal => {
-                    main_offset += spacer.x + child_size.x;
-                    working_size.x += spacer.x + child_size.x;
+                    main_offset += between + child_size.x;
+                    working_size.x += between + child_size.x;
                     working_size.y = max_content_size.y;
                 }
             }
@@ -257,13 +271,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
             self.rect.size.x = match self.flow {
                 Flow::Vertical => working_size.x + self.padding.x * 2.0,
                 Flow::Horizontal => working_size.x + self.padding.x,
-            };
+            }
+            .max(self.min_size.x);
         }
         if !self.fixed_height {
             self.rect.size.y = match self.flow {
                 Flow::Vertical => working_size.y + self.padding.y,
                 Flow::Horizontal => working_size.y + self.padding.y * 2.0,
-            };
+            }
+            .max(self.min_size.y);
         }
     }
 }

@@ -10,7 +10,7 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
     x progress bar going up as turn animates
     x calendar string changing as turn animates
     x timeline at the bottom which displays upcoming events
-    * scrollable containers (gonna be super imporant!)
+    x scrollable containers (gonna be super imporant!)
 - [ ] station
     - [ ] station entity with modules/components (start off hovering this! no factory/vab!)
         - station cores have slots for modules, shown in the context menu

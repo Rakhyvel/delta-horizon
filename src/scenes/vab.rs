@@ -6,10 +6,10 @@ use crate::{
         inventory::PartInventory,
         parts::{PartDef, PartRegistry},
     },
-    ui::{container::Container, style::STYLE, vrule::VRule},
+    ui::{container::Container, scroll_container::ScrollContainer, style::STYLE, vrule::VRule},
 };
 use apricot::{app::App, font::FontId, rectangle::Rectangle};
-use nalgebra_glm::vec2;
+use nalgebra_glm::{vec2, Vec2};
 
 use crate::{
     container,
@@ -215,6 +215,7 @@ impl VabUi {
                 ])
                 .border(STYLE.border_primary, 1.0)
                 .cross_align(Align::Center)
+                .min_size(vec2(WIDTH, 69.0))
                 .flow(Flow::Horizontal),
             ));
         } else {
@@ -227,15 +228,17 @@ impl VabUi {
                 .border(STYLE.border_primary, 1.0)
                 .fixed_width(vec2(WIDTH, 10.0))
                 .cross_align(Align::Center)
+                .min_size(vec2(WIDTH, 69.0))
                 .flow(Flow::Horizontal),
             ));
         }
 
         // Stages from top to bottom (last in vec = bottom stage = burns first)
+        let mut stages_widgets: Vec<Box<dyn Widget<VabMessages>>> = vec![];
         for (i, stage) in self.stages.iter().enumerate() {
             let stage_num = self.stages.len() - i;
             let is_bottom = i == self.stages.len() - 1;
-            widgets.push(Box::new(
+            stages_widgets.push(Box::new(
                 Container::new(vec![
                     Box::new(
                         Container::new(vec![
@@ -275,10 +278,15 @@ impl VabUi {
                         .color(STYLE.text_disabled),
                 )])
                 .border(STYLE.border_primary, 1.0)
-                .fixed_width(vec2(WIDTH, 10.0))
+                .min_size(Vec2::new(WIDTH, 300.0))
                 .cross_align(Align::Center)
                 .flow(Flow::Horizontal),
             ));
+        } else {
+            widgets.push(Box::new(ScrollContainer::new(
+                Vec2::new(WIDTH, 300.0),
+                Box::new(Container::new(stages_widgets).padding(vec2(0.0, 8.0))),
+            )))
         }
 
         widgets
@@ -395,9 +403,15 @@ impl VabUi {
             .collect();
 
         widgets.push(Box::new(Label::new("Payloads:").font(font_small_bold, app)));
-        widgets.extend(payloads);
+        widgets.push(Box::new(ScrollContainer::new(
+            Vec2::new(WIDTH, 150.0),
+            Box::new(Container::new(payloads).padding(vec2(0.0, 8.0))),
+        )));
         widgets.push(Box::new(Label::new("Stages:").font(font_small_bold, app)));
-        widgets.extend(stages);
+        widgets.push(Box::new(ScrollContainer::new(
+            Vec2::new(WIDTH, 150.0),
+            Box::new(Container::new(stages).padding(vec2(0.0, 8.0))),
+        )));
 
         widgets
     }

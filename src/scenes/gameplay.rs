@@ -47,6 +47,7 @@ use crate::{
         hrule::HRule,
         label::Label,
         progress_bar::ProgressBar,
+        scroll_container::ScrollContainer,
         style::STYLE,
         text_button::TextButton,
         timeline::{MarkKind, Timeline, TimelineMark},
@@ -970,9 +971,11 @@ impl Gameplay {
                 .min(PI / 2.0 - control_speed);
         }
 
-        let zoom_factor = 0.95f64.powf(app.mouse_wheel as f64);
-
-        self.distance = (self.distance * zoom_factor).clamp(min_distance, max_distance);
+        if !app.is_wheel_consumed() {
+            app.consume_wheel();
+            let zoom_factor = 0.95f64.powf(app.mouse_wheel as f64);
+            self.distance = (self.distance * zoom_factor).clamp(min_distance, max_distance);
+        }
     }
 
     fn rebuild_gui(&self, app: &App) -> Anchor<CommandMessages> {
@@ -982,17 +985,25 @@ impl Gameplay {
             widgets.extend(self.build_selection_widgets(selected, app));
         }
 
+        const MARGIN: f32 = 16.0;
+
+        let panel_h = (app.window_size.y as f32 - MARGIN * 3.0 - Timeline::HEIGHT).max(0.0);
+
         let mut anchor = Anchor::new(
-            Box::new(
-                Container::new(widgets)
-                    .cross_align(Align::Start)
-                    .background_color(STYLE.bg_primary)
-                    .border(STYLE.border_primary, 1.0)
-                    .padding(vec2(8.0, 8.0)),
-            ),
+            Box::new(ScrollContainer::new(
+                Vec2::new(300.0, panel_h),
+                Box::new(
+                    Container::new(widgets)
+                        .cross_align(Align::Start)
+                        .background_color(STYLE.bg_primary)
+                        .border(STYLE.border_primary, 1.0)
+                        .padding(vec2(8.0, 8.0))
+                        .min_size(Vec2::new(300.0, panel_h)),
+                ),
+            )),
             AnchorPoint::TopRight,
         )
-        .margin(vec2(16.0, 16.0));
+        .margin(vec2(MARGIN, MARGIN));
         anchor.reposition(app);
         anchor
     }

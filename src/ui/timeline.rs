@@ -24,6 +24,8 @@ pub struct Timeline {
 }
 
 impl Timeline {
+    pub const HEIGHT: f32 = 80.0;
+
     pub fn new(
         start: Rc<Cell<EphemerisTime>>,
         thickness: f32,
@@ -32,7 +34,7 @@ impl Timeline {
         Self {
             baseline_color: vec4(0.0, 0.0, 0.0, 1.0),
             now_color: vec4(0.0, 0.0, 0.0, 1.0),
-            rect: Rectangle::new(0.0, 0.0, thickness, 80.0),
+            rect: Rectangle::new(0.0, 0.0, thickness, Self::HEIGHT),
             start,
             span_years: 1.0 / 12.0,
             marks,

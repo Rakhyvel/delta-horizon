@@ -6,6 +6,7 @@ pub(crate) mod label;
 pub(crate) mod modal;
 pub(crate) mod msg;
 pub(crate) mod progress_bar;
+pub(crate) mod scroll_container;
 pub(crate) mod style;
 pub(crate) mod text_button;
 pub(crate) mod texture_button;
