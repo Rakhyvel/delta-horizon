@@ -517,13 +517,27 @@ impl Scene for Gameplay {
             }
         }
 
-        for (selected, _, line_path) in [&self.selected_tile, &self.hovered_tile]
+        let (view_matrix, proj_matrix) = self.camera_3d.inner.view_proj_matrices();
+        for (selected, index, line_path) in [&self.selected_tile, &self.hovered_tile]
             .into_iter()
             .flatten()
         {
             let world_pos = self.world.get::<&WorldPosition>(*selected).unwrap().pos;
             let relative_pos = world_pos - self.camera_3d.world_pos;
-            let (view_matrix, proj_matrix) = self.camera_3d.inner.view_proj_matrices();
+
+            let d = relative_pos.norm();
+            let r = self.world.get::<&Body>(*selected).unwrap().body_radius;
+            let to_camera = -relative_pos / d;
+
+            let tile_dir = self
+                .world
+                .get::<&TileMap>(*selected)
+                .unwrap()
+                .tile_offset(*index as u32, 1.0);
+
+            if tile_dir.dot(&to_camera) <= r / d {
+                continue;
+            }
 
             app.renderer.draw_line_path_at(
                 line_path,
@@ -2391,6 +2405,7 @@ impl Gameplay {
             line_path.color = vec4(1.0, 1.0, 1.0, alpha);
             line_path.width = 5.0;
             line_path.fade = false;
+            line_path.depth_test = false;
             (e, i, line_path)
         });
     }

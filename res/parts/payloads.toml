@@ -4,15 +4,8 @@ name = "Traveller"
 dry_mass_kg = 1.47
 build_time_days = 7
 
-[parts.cost]
-funds = 5_000
-
 [[parts]]
 id = "capsule"
 name = "Capsule"
 dry_mass_kg = 1370
 build_time_days = 7
-requires = 'first-sat'
-
-[parts.cost]
-funds = 35_000

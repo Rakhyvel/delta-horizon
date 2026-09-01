@@ -21,13 +21,6 @@ pub struct FuelSpec {
     pub thrust_kn: f64,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(dead_code)]
-pub struct ResourceCost {
-    #[serde(default)]
-    pub funds: u32,
-}
-
 #[derive(serde::Deserialize)]
 struct PartFile {
     parts: Vec<PartDef>,
