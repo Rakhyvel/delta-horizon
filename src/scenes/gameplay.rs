@@ -21,17 +21,18 @@ use apricot::{
 };
 use hecs::{Entity, World};
 use nalgebra_glm::{vec2, vec3, vec4, DVec3, Vec2, Vec3};
-use sdl2::keyboard::Scancode::{self};
+use sdl2::keyboard::Scancode;
 
 use crate::{
     astro::{epoch::EphemerisTime, maneuver::sphere_of_influence, state::State, units::SUN_MU},
     components::{
-        craft::{replace_line_path, AssociatedEntity, Command, Stage},
-        factory::{spawn_factory, Factory},
+        craft::{replace_line_path, spawn_orbiting_craft, AssociatedEntity, Command, Stage},
+        factory::Factory,
         inventory::PartInventory,
+        module::{SolarPanel, StationModule},
         parts::PartRegistry,
+        station::Station,
         tile::{SurfaceTile, TileMap, TileSets},
-        vab::{spawn_vab, Vab},
     },
     container,
     generation::{lexicon::Lexicon, polygon},
@@ -43,6 +44,7 @@ use crate::{
     },
     ui::{
         anchor::{Anchor, AnchorPoint},
+        bind::Binding,
         container::{Align, Flow},
         hrule::HRule,
         label::Label,
@@ -106,6 +108,8 @@ pub struct Gameplay {
 
     turn_gui: Anchor<TurnMessages>,
     gui: Anchor<CommandMessages>,
+    gui_built_for: Option<(Entity, u32)>,
+    gui_bindings: Vec<Binding>,
     vab_ui: VabUi,
     maneuver_ui: ManeuverModal,
     turn_progress: Rc<Cell<f32>>,
@@ -130,10 +134,40 @@ enum TurnMessages {
 }
 
 #[derive(Clone)]
-enum CommandMessages {
+pub enum CommandMessages {
+    #[allow(unused)]
     FactoryCommand { part_id: u64 },
+    #[allow(unused)]
     OpenVab,
+    #[allow(unused)]
     OpenManeuver,
+}
+
+#[derive(Default)]
+struct Section {
+    pub widgets: Vec<Box<dyn Widget<CommandMessages>>>,
+    pub bindings: Vec<Binding>,
+}
+
+impl Section {
+    fn push(&mut self, w: impl Widget<CommandMessages> + 'static) {
+        self.widgets.push(Box::new(w));
+    }
+
+    fn merge(&mut self, other: Section) {
+        self.widgets.extend(other.widgets);
+        self.bindings.extend(other.bindings);
+    }
+
+    fn into_card(self) -> Section {
+        let c = Container::new(self.widgets)
+            .fixed_width(vec2(280.0, 0.0))
+            .border(STYLE.border_primary, 1.0);
+        Section {
+            widgets: vec![Box::new(c)],
+            bindings: self.bindings,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -306,7 +340,6 @@ impl Scene for Gameplay {
             if let Some(selected) = self.selection.selected_entity() {
                 let command = result.into_command();
                 self.world.get::<&mut Craft>(selected).unwrap().command = Some(command);
-                self.gui = self.rebuild_gui(app);
             }
         }
 
@@ -322,7 +355,6 @@ impl Scene for Gameplay {
                                 .unwrap()
                                 .start_job(part_id, self.current_et.get(), &self.parts)
                                 .expect("you wouldnt give a fake part would you");
-                            self.gui = self.rebuild_gui(app);
                         }
                     }
                     CommandMessages::OpenVab => {
@@ -369,7 +401,7 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 0.75;
+            const TURN_TIME: f64 = 1.75;
             let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
             let eased = t;
 
@@ -386,7 +418,6 @@ impl Scene for Gameplay {
                 for event in due {
                     self.handle_event(event, app);
                 }
-                self.gui = self.rebuild_gui(app);
                 self.turn_gui = self.rebuild_turn_gui(app);
             }
         }
@@ -416,6 +447,7 @@ impl Scene for Gameplay {
             self.marks_version = self.event_queue.version();
             *self.marks.borrow_mut() = self.build_marks();
         }
+        self.sync_panel(app);
 
         // Delete anything we want deleted
         app.renderer.flush_deletion_queue();
@@ -748,16 +780,17 @@ impl Gameplay {
         );
 
         let mut bodies = vec![sun_entity];
-        let crafts = vec![];
-        let mut buildings = vec![];
+        let mut crafts = vec![];
+        let buildings = vec![];
 
         let (_lexicon, _node_count) = Lexicon::create("res/names.txt", "res/names.lex");
         let lexicon = Lexicon::read("res/names.lex");
 
         let parts = PartRegistry::load_from_dir("res/parts");
 
-        let mut habitable_planet = 0;
-        let mut num_planets = 0;
+        let mut starter_planet = 0;
+        let mut most_moons = 0;
+        let mut avg_moon_dist = 0.0;
         let planets = solar_system_gen::generate();
         for system in planets {
             let name = lexicon.generate_word(7);
@@ -776,15 +809,15 @@ impl Gameplay {
                 &app.renderer,
                 &mut bvh,
             );
-            num_planets += 1;
-            if num_planets == 3 {
-                habitable_planet = bodies.len();
-            }
 
+            let body_id = bodies.len();
             bodies.push(planet_entity);
 
-            for moon in system.moons {
+            let mut total_moon_dist = 0.0;
+
+            for moon in &system.moons {
                 let name = lexicon.generate_word(10);
+                total_moon_dist += moon.1.r.norm();
                 println!("Moon: {}", name);
                 let moon_entity = spawn_body(
                     moon.0,
@@ -801,37 +834,64 @@ impl Gameplay {
                 );
                 bodies.push(moon_entity);
             }
+
+            if system.moons.len() > most_moons {
+                starter_planet = body_id;
+                most_moons = system.moons.len();
+                avg_moon_dist = total_moon_dist / most_moons as f64;
+            }
         }
 
-        let factory = spawn_factory(
-            SceneObject {
-                bvh_node_id: None,
-                name: String::from("factory"),
-            },
-            Parent {
-                id: bodies[habitable_planet],
-            },
-            0,
-            &mut world,
-            &app.renderer,
-            &mut bvh,
-        );
-        buildings.push(factory);
+        let station_parent = bodies[starter_planet];
+        let parent_mu = world.get::<&Body>(station_parent).unwrap().mu;
 
-        let vab = spawn_vab(
+        let station_payload = parts
+            .all()
+            .find(|p| p.id == "station_core")
+            .unwrap()
+            .instantiate_payload();
+
+        let station = spawn_orbiting_craft(
+            station_payload,
+            vec![],
             SceneObject {
                 bvh_node_id: None,
-                name: String::from("vehicle assembly building"),
+                name: String::from("Station"),
             },
-            Parent {
-                id: bodies[habitable_planet],
-            },
-            3,
+            Parent { id: station_parent },
+            State::from_kepler(
+                avg_moon_dist,
+                0.2,
+                0.15,
+                1.5,
+                0.15,
+                0.15,
+                EphemerisTime::new(0),
+                parent_mu,
+            ),
             &mut world,
             &app.renderer,
             &mut bvh,
         );
-        buildings.push(vab);
+        world
+            .insert_one(
+                station,
+                Station {
+                    charge_kwh: 120.0,
+                    capacity_kwh: 500.0,
+                    modules_gen: 0,
+                },
+            )
+            .unwrap();
+        world.spawn((
+            StationModule { slot: 0 },
+            SolarPanel { rated_kw: 4.0 },
+            Parent { id: station },
+        ));
+        crafts.push(station);
+
+        let mut selection = SelectionState::new(crafts, bodies, buildings);
+        selection.set_selected(station, app.seconds as f64 - 1.0);
 
         let gui = Anchor::<CommandMessages>::new(
             Box::new(container![].at(vec2(100.0, 100.0))),
@@ -866,7 +926,7 @@ impl Gameplay {
 
         let mut event_queue = EventQueue::new();
         event_queue.push(
-            EphemerisTime::epoch() + EphemerisTime::from_days(30.0),
+            EphemerisTime::epoch() + EphemerisTime::from_days(14.0),
             Event::Background,
         );
 
@@ -879,7 +939,7 @@ impl Gameplay {
                     vec3(0.0, 0.0, 0.0),
                     vec3(0.0, 0.0, 1.0),
                     ProjectionKind::Perspective {
-                        fov_rad: 37.0f32.to_radians(),
+                        fov_rad: 67.0f32.to_radians(),
                         far: 10000000.0,
                     },
                     4.0 / 3.0,
@@ -906,7 +966,7 @@ impl Gameplay {
                 1024,
             ),
 
-            selection: SelectionState::new(crafts, bodies, buildings),
+            selection,
             hovered: None,
             selected_tile: None,
             clicked_tile_key: None,
@@ -920,6 +980,8 @@ impl Gameplay {
             prev_tab_state: false,
 
             gui,
+            gui_built_for: None,
+            gui_bindings: vec![],
             turn_gui,
             vab_ui: VabUi::new(),
             maneuver_ui: ManeuverModal::new(),
@@ -953,7 +1015,6 @@ impl Gameplay {
             } else {
                 self.selection.next(app.seconds as f64);
             }
-            self.gui = self.rebuild_gui(app);
         }
         self.prev_tab_state = curr_tab_state;
 
@@ -978,11 +1039,15 @@ impl Gameplay {
         }
     }
 
-    fn rebuild_gui(&self, app: &App) -> Anchor<CommandMessages> {
+    fn rebuild_gui(&mut self, app: &App) -> (Anchor<CommandMessages>, Vec<Binding>) {
         let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
+        let mut bindings = vec![];
         let selected = self.selection.selected_entity();
+
         if let Some(selected) = selected {
-            widgets.extend(self.build_selection_widgets(selected, app));
+            let section = self.build_selection_widgets(selected, app);
+            widgets = section.widgets;
+            bindings = section.bindings;
         }
 
         const MARGIN: f32 = 16.0;
@@ -1005,7 +1070,7 @@ impl Gameplay {
         )
         .margin(vec2(MARGIN, MARGIN));
         anchor.reposition(app);
-        anchor
+        (anchor, bindings)
     }
 
     fn rebuild_turn_gui(&mut self, app: &App) -> Anchor<TurnMessages> {
@@ -1054,26 +1119,19 @@ impl Gameplay {
         ]
     }
 
-    fn build_selection_widgets(
-        &self,
-        selected: Entity,
-        app: &App,
-    ) -> Vec<Box<dyn Widget<CommandMessages>>> {
-        let mut widgets: Vec<Box<dyn Widget<CommandMessages>>> = vec![];
+    fn build_selection_widgets(&self, selected: Entity, app: &App) -> Section {
+        let mut out = Section::default();
 
-        if self.world.get::<&Craft>(selected).is_ok() {
-            widgets.extend(self.build_craft_info(selected, app));
+        if self.world.get::<&Station>(selected).is_ok() {
+            out.merge(self.station_section(selected, app));
         } else if self.world.get::<&Body>(selected).is_ok() {
-            widgets.extend(self.build_body_info(selected, app));
-        } else if self.world.get::<&Factory>(selected).is_ok() {
-            widgets.extend(self.build_factory_info(selected, app));
-        } else if self.world.get::<&Vab>(selected).is_ok() {
-            widgets.extend(self.build_vab_info(selected, app));
+            out.merge(self.body_section(selected, app));
         }
 
-        widgets
+        out
     }
 
+    #[allow(unused)]
     fn build_craft_info(
         &self,
         selected: Entity,
@@ -1200,11 +1258,9 @@ impl Gameplay {
         widgets
     }
 
-    fn build_body_info(
-        &self,
-        selected: Entity,
-        app: &App,
-    ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+    fn body_section(&self, selected: Entity, app: &App) -> Section {
+        let mut out = Section::default();
+
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         let scene_object = self.world.get::<&SceneObject>(selected).unwrap();
         let body = self.world.get::<&Body>(selected).unwrap();
@@ -1274,9 +1330,11 @@ impl Gameplay {
             }
         }));
 
-        widgets
+        out.widgets = widgets;
+        out
     }
 
+    #[allow(unused)]
     fn build_factory_info(
         &self,
         selected: Entity,
@@ -1380,6 +1438,7 @@ impl Gameplay {
         widgets
     }
 
+    #[allow(unused)]
     fn build_vab_info(&self, selected: Entity, app: &App) -> Vec<Box<dyn Widget<CommandMessages>>> {
         const WIDTH: f32 = 280.0;
 
@@ -1460,6 +1519,120 @@ impl Gameplay {
         ));
 
         widgets
+    }
+
+    fn station_section(&self, station: Entity, app: &App) -> Section {
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+        let font_big = app.renderer.get_font_id_from_name("font-big").unwrap();
+
+        let mut out = Section::default();
+
+        // The name of the station
+        let name = self
+            .world
+            .get::<&SceneObject>(station)
+            .map(|n| n.name.clone())
+            .unwrap_or_else(|_| "Station".into());
+        out.push(Label::new(name).font(font_big, app));
+
+        // Station info
+        let charge = Rc::new(RefCell::new(String::new()));
+        out.push(
+            Label::bound(charge.clone())
+                .font(font, app)
+                .color(STYLE.text_primary),
+        );
+        out.bindings.push(Binding::new({
+            let charge = charge.clone();
+            let last = Cell::new(f32::NAN);
+            move |world: &World| {
+                let Ok(s) = world.get::<&Station>(station) else {
+                    return;
+                };
+                if s.charge_kwh != last.get() {
+                    last.set(s.charge_kwh);
+                    *charge.borrow_mut() =
+                        format!("{:.0} / {:.0} kWh", s.charge_kwh, s.capacity_kwh);
+                }
+            }
+        }));
+
+        out.merge(self.module_list(station, app));
+        out
+    }
+
+    fn module_list(&self, station: Entity, app: &App) -> Section {
+        let mut modules: Vec<(u32, Entity)> = self
+            .world
+            .query::<(&StationModule, &Parent)>()
+            .iter()
+            .filter(|(_, (_, p))| p.id == station)
+            .map(|(e, (m, _))| (m.slot, e))
+            .collect();
+        modules.sort_by_key(|(slot, _)| *slot);
+
+        let mut out = Section::default();
+
+        for (_, module) in modules {
+            out.merge(self.module_section(module, app).into_card());
+        }
+        out
+    }
+
+    fn module_section(&self, module: Entity, app: &App) -> Section {
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
+
+        if self.world.get::<&SolarPanel>(module).is_ok() {
+            return self.solar_panel_section(module, app);
+        }
+
+        let mut out = Section::default();
+        out.push(Label::new("Unknown module!!!").font(font_small_bold, app));
+        out
+    }
+
+    fn solar_panel_section(&self, module: Entity, app: &App) -> Section {
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+        let text = Rc::new(RefCell::new(String::new()));
+
+        let mut out = Section::default();
+
+        out.push(Label::new("Solar Panel Array").font(font_small_bold, app));
+        out.push(Label::bound(text.clone()).font(font, app));
+
+        out.bindings.push(Binding::new({
+            let text = text.clone();
+            let last = Cell::new(f32::NAN);
+            move |world: &World| {
+                let Ok(panel) = world.get::<&SolarPanel>(module) else {
+                    return;
+                };
+                let kw = panel.output_kw();
+                if kw != last.get() {
+                    last.set(kw);
+                    *text.borrow_mut() = format!("{kw:.1} kW")
+                }
+            }
+        }));
+
+        out
+    }
+
+    fn gui_structure_key(&self) -> Option<(Entity, u32)> {
+        let sel = self.selection.selected_entity()?;
+        let gen = self
+            .world
+            .get::<&Station>(sel)
+            .map(|s| s.modules_gen)
+            .unwrap_or(0);
+        Some((sel, gen))
     }
 
     fn schedule_events(&mut self) {
@@ -1829,7 +2002,7 @@ impl Gameplay {
             Event::Background => {
                 // Schedule the next quarterly payout
                 self.event_queue.push(
-                    self.current_et.get() + EphemerisTime::from_days(30.0),
+                    self.current_et.get() + EphemerisTime::from_days(14.0),
                     Event::Background,
                 );
             }
@@ -2005,7 +2178,6 @@ impl Gameplay {
                 if let Some(occupant) = occupant {
                     self.selection.set_selected(occupant, app.seconds as f64);
                     app.consume_click();
-                    self.gui = self.rebuild_gui(app)
                 }
             }
         }
@@ -2119,7 +2291,6 @@ impl Gameplay {
                 if app.mouse_left_clicked && !app.is_click_consumed() {
                     self.selection.set_selected(entity, app.seconds as f64);
                     app.consume_click();
-                    self.gui = self.rebuild_gui(app);
                 }
                 break;
             }
@@ -2250,6 +2421,7 @@ impl Gameplay {
                 line.color.w = 0.36606;
                 line.width = 1.0;
             }
+            line.depth_test = false;
 
             line.color.w *= proximity_alphas.get(&entity).unwrap();
 
@@ -2446,6 +2618,20 @@ impl Gameplay {
 
         let want = key.and_then(|(b, i)| self.tile_outline_vertices(b, i).map(|v| (b, i, v)));
         Self::sync_tile_path(&mut self.selected_tile, want, 1.0, &app.renderer);
+    }
+
+    fn sync_panel(&mut self, app: &App) {
+        let key = self.gui_structure_key();
+        if key != self.gui_built_for {
+            self.gui_built_for = key;
+            let (gui, bindings) = self.rebuild_gui(app);
+            self.gui = gui;
+            self.gui_bindings = bindings;
+        }
+
+        for binding in &self.gui_bindings {
+            binding.sync(&self.world);
+        }
     }
 
     fn tile_outline_vertices(&self, body: Entity, index: usize) -> Option<Vec<f32>> {

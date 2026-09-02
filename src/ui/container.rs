@@ -23,10 +23,13 @@ pub enum Justify {
     /// pack at beginning, padding between children
     Start,
     /// pack together, centered in the available space
+    #[allow(unused)]
     Center,
     /// pack at end, padding between children
+    #[allow(unused)]
     End,
     /// distribute leftover evenly, including the ends
+    #[allow(unused)]
     SpaceAround,
 }
 

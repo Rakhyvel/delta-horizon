@@ -1,17 +1,7 @@
-use std::{
-    cell::{Cell, RefCell},
-    f32::consts::FRAC_PI_2,
-    rc::Rc,
-};
+use apricot::{app::App, rectangle::Rectangle};
+use nalgebra_glm::Vec2;
 
-use apricot::{app::App, rectangle::Rectangle, render_core::MeshId};
-use nalgebra_glm::{vec2, vec4, Vec2, Vec4};
-
-use crate::{
-    astro::epoch::EphemerisTime,
-    scenes::events::Event,
-    ui::{msg::MsgQueue, style::Style, widget::Widget},
-};
+use crate::ui::{msg::MsgQueue, widget::Widget};
 
 pub struct ScrollContainer<Msg> {
     rect: Rectangle,

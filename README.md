@@ -6,15 +6,11 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
 - [x] Procedurally generated solar system
 - [x] Delta-V graph
 - [x] Stages/payloads
-- [ ] Dynamic UI elements
-    x progress bar going up as turn animates
-    x calendar string changing as turn animates
-    x timeline at the bottom which displays upcoming events
-    x scrollable containers (gonna be super imporant!)
+- [x] Dynamic UI elements
 - [ ] station
-    - [ ] station entity with modules/components (start off hovering this! no factory/vab!)
-        - station cores have slots for modules, shown in the context menu
-        - has builtin batteries
+    - [x] station entity with modules/components (start off hovering this! no factory/vab!)
+        x station cores have slots for modules, shown in the context menu
+        x has builtin batteries
     - [ ] life support: power, O2, water. With time-to-zero ticker prominently displayed
         * Solar array as module payload slots, should probably start power-positive, but just barely
         * water tanks

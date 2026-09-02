@@ -1,4 +1,5 @@
 pub(crate) mod anchor;
+pub(crate) mod bind;
 pub(crate) mod container;
 pub(crate) mod dropdown;
 pub(crate) mod hrule;

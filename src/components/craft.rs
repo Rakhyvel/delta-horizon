@@ -12,6 +12,7 @@ use crate::{
         escape::EscapePlan,
         landing::LandingPlan,
         launch::LaunchPlan,
+        state::State,
         transfer::{FlybyPlan, TransferPlan},
         units::LITTLE_G,
     },
@@ -39,10 +40,12 @@ pub struct Payload {
 
 #[derive(Clone)]
 pub struct Stage {
+    #[allow(unused)]
     pub name: String,
 
-    pub dry_mass: f64,      // [kg]
-    pub fuel_mass: f64,     // [kg]
+    pub dry_mass: f64,  // [kg]
+    pub fuel_mass: f64, // [kg]
+    #[allow(unused)]
     pub max_fuel_mass: f64, // [kg]
 
     pub thrust_kn: f64, // [kN]
@@ -63,6 +66,7 @@ pub enum Command {
 }
 
 impl Command {
+    #[allow(unused)]
     pub fn label(&self) -> &'static str {
         match self {
             Command::Transfer { .. } => "Transfer",
@@ -73,6 +77,7 @@ impl Command {
         }
     }
 
+    #[allow(unused)]
     pub fn burn_schedule(&self) -> Vec<(&'static str, EphemerisTime)> {
         match self {
             Command::Transfer { plan, .. } => vec![
@@ -154,6 +159,87 @@ pub fn spawn_landed_craft(
             ),
         )
         .unwrap();
+
+    craft_entity
+}
+
+pub fn spawn_orbiting_craft(
+    payload: Payload,
+    stages_stack: Vec<Stage>,
+    mut scene_obj: SceneObject,
+    parent: Parent,
+    state: State,
+    world: &mut World,
+    renderer: &RenderContext,
+    bvh: &mut BVH<Entity>,
+) -> Entity {
+    let craft_mesh = renderer.get_mesh_id_from_name("cone").unwrap();
+
+    let position: DVec3 = vec3(0., 0., 0.);
+    let scale_vec: DVec3 = vec3(0.01, 0.01, 0.01);
+
+    let texture_id = renderer.get_texture_id_from_name("europa").unwrap();
+
+    let craft_entity = world.spawn((
+        WorldPosition { pos: position },
+        ModelComponent::new(
+            craft_mesh,
+            texture_id,
+            nalgebra_glm::convert(position),
+            nalgebra_glm::convert(scale_vec),
+        ),
+    ));
+
+    let bvh_node_id = bvh.insert(
+        craft_entity,
+        renderer
+            .get_mesh_aabb(craft_mesh)
+            .scale(nalgebra_glm::convert(scale_vec))
+            .translate(nalgebra_glm::convert(position)),
+    );
+
+    scene_obj.bvh_node_id = Some(bvh_node_id);
+
+    world
+        .insert(
+            craft_entity,
+            (
+                scene_obj,
+                parent,
+                state,
+                Craft {
+                    stages_stack,
+                    payload,
+                    command: None,
+                    command_scheduled: false,
+                    line_path_entity: None,
+                },
+            ),
+        )
+        .unwrap();
+
+    let parent_mu = world.get::<&Body>(parent.id).unwrap().mu;
+    let parent_world_pos = world.get::<&WorldPosition>(parent.id).unwrap().pos;
+
+    replace_line_path(
+        world,
+        renderer,
+        craft_entity,
+        Some((
+            WorldPosition {
+                pos: parent_world_pos,
+            },
+            parent,
+            LinePathComponent::new(
+                state
+                    .generate_orbit_vertices(8192, parent_mu, None)
+                    .unwrap(),
+            ),
+            AssociatedEntity {
+                associate: craft_entity,
+            },
+        )),
+    );
 
     craft_entity
 }

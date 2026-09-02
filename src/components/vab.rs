@@ -12,8 +12,10 @@ use crate::components::{
     tile::{SurfaceTile, TileMap},
 };
 
+#[allow(unused)]
 pub struct Vab {}
 
+#[allow(unused)]
 pub fn spawn_vab(
     mut scene_obj: SceneObject,
     parent: Parent,

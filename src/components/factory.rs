@@ -28,6 +28,7 @@ pub struct FactoryJob {
     pub scheduled: bool,
 }
 
+#[allow(unused)]
 pub fn spawn_factory(
     mut scene_obj: SceneObject,
     parent: Parent,

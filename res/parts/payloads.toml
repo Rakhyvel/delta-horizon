@@ -1,4 +1,10 @@
 [[parts]]
+id = "station_core"
+name = "Station Core"
+dry_mass_kg = 1.47
+build_time_days = 7
+
+[[parts]]
 id = "first_probe"
 name = "Traveller"
 dry_mass_kg = 1.47

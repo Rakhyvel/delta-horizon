@@ -91,18 +91,18 @@ pub fn generate() -> Vec<BodySystem> {
         // if !has_habitable(&planets) {
         //     continue;
         // }
-        // if !all_moons_small(&planets) {
-        //     continue;
-        // }
-        // if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 1) {
-        //     continue;
-        // }
-        // if !has_planet(&planets, &[Category::MiniNeptune, Category::GasGiant], 3) {
-        //     continue;
-        // }
-        // if !no_stripped(&planets) {
-        //     continue;
-        // }
+        if !all_moons_small(&planets) {
+            continue;
+        }
+        if !has_planet(&planets, &[Category::SubEarth, Category::EarthLike], 1) {
+            continue;
+        }
+        if !has_planet(&planets, &[Category::MiniNeptune, Category::GasGiant], 3) {
+            continue;
+        }
+        if !no_stripped(&planets) {
+            continue;
+        }
         if planets.len() < 7 {
             continue;
         }
@@ -407,7 +407,7 @@ fn calculate_temperature(orbital_radius_au: f64, atmos_pressure: f64) -> f64 {
 }
 
 fn compute_spacing(rng: &mut impl Rng, orbital_radius_au: f64, radius: f64) -> f64 {
-    let base = rng.gen_range(1.1..1.4);
+    let base = rng.gen_range(0.55..0.95);
     let radius_boost = 1.0 + 0.1 * radius.powf(0.25);
 
     orbital_radius_au * base * radius_boost
