@@ -45,6 +45,7 @@ pub struct Container<Msg> {
     fixed_height: bool,
     min_size: Vec2,
     padding: Vec2,
+    gap: f32,
     background: Option<nalgebra_glm::Vec4>,
     border: Option<(nalgebra_glm::Vec4, f32)>, // color, width
 }
@@ -61,17 +62,12 @@ impl<Msg: Clone + 'static> Container<Msg> {
             fixed_height: false,
             min_size: Vec2::zeros(),
             padding: vec2(8.0, 8.0),
+            gap: 8.0,
             background: None,
             border: None,
         };
         retval.layout(retval.rect.pos);
         retval
-    }
-
-    pub fn at(mut self, pos: Vec2) -> Self {
-        self.rect.pos = pos;
-        self.layout(self.rect.pos);
-        self
     }
 
     pub fn flow(mut self, flow: Flow) -> Self {
@@ -110,6 +106,12 @@ impl<Msg: Clone + 'static> Container<Msg> {
 
     pub fn padding(mut self, padding: Vec2) -> Self {
         self.padding = padding;
+        self.layout(self.rect.pos);
+        self
+    }
+
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.gap = gap;
         self.layout(self.rect.pos);
         self
     }
@@ -197,10 +199,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
             Flow::Vertical => (self.rect.size.y, additive_content_size.y),
             Flow::Horizontal => (self.rect.size.x, additive_content_size.x),
         };
-        let gap = match self.flow {
-            Flow::Vertical => self.padding.y,
-            Flow::Horizontal => self.padding.x,
-        };
+        let gap = self.gap;
 
         let (lead, between) = if !main_is_fixed {
             (0.0, gap)
@@ -218,7 +217,6 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
         };
 
         let mut main_offset = lead;
-        let mut working_size = Vec2::zeros();
 
         for (child, child_size) in self.children.iter_mut().zip(child_sizes.iter()) {
             // Cross axis: how to position perpendicular to flow
@@ -259,30 +257,30 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
             match self.flow {
                 Flow::Vertical => {
                     main_offset += between + child_size.y;
-                    working_size.x = max_content_size.x;
-                    working_size.y += between + child_size.y;
                 }
                 Flow::Horizontal => {
                     main_offset += between + child_size.x;
-                    working_size.x += between + child_size.x;
-                    working_size.y = max_content_size.y;
                 }
             }
         }
 
+        // Size ourselves from the children we just placed
+        let gaps = (n - 1.0).max(0.0) * gap;
+        let (main_extent, cross_extent) = match self.flow {
+            Flow::Vertical => (additive_content_size.y + gaps, max_content_size.x),
+            Flow::Horizontal => (additive_content_size.x + gaps, max_content_size.y),
+        };
+
+        let (extent_x, extent_y) = match self.flow {
+            Flow::Vertical => (cross_extent, main_extent),
+            Flow::Horizontal => (main_extent, cross_extent),
+        };
+
         if !self.fixed_width {
-            self.rect.size.x = match self.flow {
-                Flow::Vertical => working_size.x + self.padding.x * 2.0,
-                Flow::Horizontal => working_size.x + self.padding.x,
-            }
-            .max(self.min_size.x);
+            self.rect.size.x = (extent_x + self.padding.x * 2.0).max(self.min_size.x);
         }
         if !self.fixed_height {
-            self.rect.size.y = match self.flow {
-                Flow::Vertical => working_size.y + self.padding.y,
-                Flow::Horizontal => working_size.y + self.padding.y * 2.0,
-            }
-            .max(self.min_size.y);
+            self.rect.size.y = (extent_y + self.padding.y * 2.0).max(self.min_size.y);
         }
     }
 }

@@ -56,11 +56,6 @@ impl<Msg> TextButton<Msg> {
         self
     }
 
-    pub fn border(mut self, color: nalgebra_glm::Vec4, width: f32) -> Self {
-        self.border = Some((color, width));
-        self
-    }
-
     pub fn use_style(mut self, style: &Style) -> Self {
         self.text_color = style.text_primary;
         self.inactive_text_color = style.text_disabled;

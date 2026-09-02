@@ -11,11 +11,12 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
     - [x] station entity with modules/components (start off hovering this! no factory/vab!)
         x station cores have slots for modules, shown in the context menu
         x has builtin batteries
-    - [ ] life support: power, O2, water. With time-to-zero ticker prominently displayed
-        * Solar array as module payload slots, should probably start power-positive, but just barely
-        * water tanks
-        * H2 and O2 tanks, electrolysis module
-    - [ ] crew: consume O2 and water, die if they run out
+    - [x] life support: power, O2, water
+        x Solar array as module payload slots, should probably start power-positive, but just barely
+        x water tanks
+        x H2 and O2 tanks, electrolysis module
+    - [ ] crew: consume O2 and water
+    - [ ] display time-to-zero (and time-to-fill)
     - [ ] fabricator module: converts feedstock into parts
     - [ ] assembly bay module: combines parts into spacecraft
     - [ ] lose the game if the station dies

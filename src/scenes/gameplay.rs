@@ -20,7 +20,7 @@ use apricot::{
     sphere::Sphere,
 };
 use hecs::{Entity, World};
-use nalgebra_glm::{vec2, vec3, vec4, DVec3, Vec2, Vec3};
+use nalgebra_glm::{vec2, vec3, vec4, DVec3, I32Vec2, Vec2, Vec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
@@ -31,7 +31,8 @@ use crate::{
         inventory::PartInventory,
         parts::PartRegistry,
         station::{
-            station_charge_at, station_net_kw, station_r_au, SolarPanel, Station, StationModule,
+            station_charge_at, station_net_kw, station_r_au, station_resource_mass_flow,
+            tank_resource_mass, Resource, SolarPanel, Station, StationModule, Tank,
         },
         tile::{SurfaceTile, TileMap, TileSets},
     },
@@ -66,7 +67,6 @@ use crate::{
     generation::solar_system_gen::{self},
     ui::{
         container::Container,
-        texture_button::TextureButton,
         widget::{recv_msgs, Widget},
     },
 };
@@ -110,6 +110,7 @@ pub struct Gameplay {
     turn_gui: Anchor<TurnMessages>,
     gui: Anchor<CommandMessages>,
     gui_built_for: Option<(Entity, u32)>,
+    gui_built_window: I32Vec2,
     gui_bindings: Vec<Binding>,
     vab_ui: VabUi,
     maneuver_ui: ManeuverModal,
@@ -420,7 +421,6 @@ impl Scene for Gameplay {
                 for event in due {
                     self.handle_event(event, app);
                 }
-                self.turn_gui = self.rebuild_turn_gui(app);
             }
         }
 
@@ -891,38 +891,40 @@ impl Gameplay {
             SolarPanel { rated_kw: 100.0 },
             Parent { id: station },
         ));
+        world.spawn((
+            StationModule { slot: 1 },
+            Tank {
+                capacity_kg: 1000.0,
+                mass_kg: 500.0,
+                mass_et: EphemerisTime::epoch(),
+                resource: Resource::Water,
+            },
+            Parent { id: station },
+        ));
+        world.spawn((
+            StationModule { slot: 2 },
+            Tank {
+                capacity_kg: 1000.0,
+                mass_kg: 500.0,
+                mass_et: EphemerisTime::epoch(),
+                resource: Resource::Oxygen,
+            },
+            Parent { id: station },
+        ));
+        world.spawn((
+            StationModule { slot: 3 },
+            Tank {
+                capacity_kg: 1000.0,
+                mass_kg: 500.0,
+                mass_et: EphemerisTime::epoch(),
+                resource: Resource::Hydrogen,
+            },
+            Parent { id: station },
+        ));
         crafts.push(station);
 
         let mut selection = SelectionState::new(crafts, bodies, buildings);
         selection.set_selected(station, app.seconds as f64 - 1.0);
-
-        let gui = Anchor::<CommandMessages>::new(
-            Box::new(container![].at(vec2(100.0, 100.0))),
-            AnchorPoint::CenterRight,
-        );
-
-        let turn_gui = Anchor::<TurnMessages>::new(
-            Box::new(container![
-                TextureButton::new(
-                    Rectangle::new(
-                        app.window_size.x as f32 - 100.0,
-                        app.window_size.y as f32 - 120.0,
-                        90.0,
-                        90.0,
-                    ),
-                    app.renderer.get_texture_id_from_name("next-turn").unwrap(),
-                    app.renderer
-                        .get_texture_id_from_name("next-turn-hover")
-                        .unwrap(),
-                )
-                .on_click(TurnMessages::NextTurn),
-                TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Click me!")
-                    .use_style(&STYLE)
-                    .border(STYLE.border_primary, 1.0)
-                    .on_click(TurnMessages::NextTurn),
-            ]),
-            AnchorPoint::BottomRight,
-        );
 
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         app.renderer.set_font(font);
@@ -933,7 +935,7 @@ impl Gameplay {
             Event::Background,
         );
 
-        Self {
+        let mut retval = Self {
             world,
             camera_3d: high_precision::Camera {
                 world_pos: vec3(1.0, 1.0, 1.0),
@@ -982,10 +984,11 @@ impl Gameplay {
             distance: 20.0,
             prev_tab_state: false,
 
-            gui,
+            gui: Anchor::new(Box::new(container![]), AnchorPoint::TopRight),
             gui_built_for: None,
+            gui_built_window: I32Vec2::zeros(),
             gui_bindings: vec![],
-            turn_gui,
+            turn_gui: Anchor::new(Box::new(container![]), AnchorPoint::BottomLeft),
             vab_ui: VabUi::new(),
             maneuver_ui: ManeuverModal::new(),
             turn_progress: Rc::new(Cell::new(0.0)),
@@ -1000,7 +1003,14 @@ impl Gameplay {
             event_queue,
 
             starbox: Starbox::new(9000, vec3(1.0, 2.0, 4.0), 0.4),
-        }
+        };
+
+        *retval.calendar_string.borrow_mut() =
+            format!("ET: {}", EphemerisTime::epoch().as_calendar());
+
+        retval.sync_panel(app);
+
+        retval
     }
 
     fn is_animating(&self) -> bool {
@@ -1055,7 +1065,8 @@ impl Gameplay {
 
         const MARGIN: f32 = 16.0;
 
-        let panel_h = (app.window_size.y as f32 - MARGIN * 3.0 - Timeline::HEIGHT).max(0.0);
+        let footer_h = self.turn_gui.size().y;
+        let panel_h = (app.window_size.y as f32 - MARGIN * 3.0 - footer_h).max(0.0);
 
         let mut anchor = Anchor::new(
             Box::new(ScrollContainer::new(
@@ -1079,15 +1090,19 @@ impl Gameplay {
     fn rebuild_turn_gui(&mut self, app: &App) -> Anchor<TurnMessages> {
         let mut turn_widgets: Vec<Box<dyn Widget<TurnMessages>>> = vec![];
         turn_widgets.extend(self.build_footer_widgets(app));
+        const MARGIN: f32 = 16.0;
 
         let mut anchor = Anchor::new(
             Box::new(
                 Container::new(turn_widgets)
-                    .cross_align(Align::End)
+                    .padding(vec2(0.0, 0.0))
+                    .gap(MARGIN)
+                    .cross_align(Align::Start)
                     .flow(Flow::Horizontal),
             ),
-            AnchorPoint::BottomLeft,
-        );
+            AnchorPoint::BottomRight,
+        )
+        .margin(vec2(MARGIN, MARGIN));
         anchor.reposition(app);
         anchor
     }
@@ -1097,21 +1112,19 @@ impl Gameplay {
 
         let turn_controls = Container::new(vec![
             Box::new(
-                TextureButton::new(
-                    Rectangle::new(0.0, 0.0, 90.0, 90.0),
-                    app.renderer.get_texture_id_from_name("next-turn").unwrap(),
-                    app.renderer
-                        .get_texture_id_from_name("next-turn-hover")
-                        .unwrap(),
-                )
-                .on_click(TurnMessages::NextTurn),
+                TextButton::new(Rectangle::new(0.0, 0.0, 280.0, 44.0), "NEXT TURN")
+                    .use_style_accented(&STYLE)
+                    .on_click(TurnMessages::NextTurn),
             ),
             Box::new(Label::bound(self.calendar_string.clone()).font(font, app)),
         ])
+        .background_color(STYLE.bg_primary)
+        .border(STYLE.border_primary, 1.0)
         .flow(Flow::Vertical)
-        .cross_align(Align::End);
+        .cross_align(Align::Center)
+        .fixed_size(Vec2::new(300.0, Timeline::HEIGHT));
 
-        let remaining = app.window_size.x as f32 - 300.0 - 24.0;
+        let remaining = app.window_size.x as f32 - turn_controls.size().x - 16.0 - 32.0;
 
         vec![
             Box::new(
@@ -1618,6 +1631,8 @@ impl Gameplay {
 
         if self.world.get::<&SolarPanel>(module).is_ok() {
             return self.solar_panel_section(module, app);
+        } else if self.world.get::<&Tank>(module).is_ok() {
+            return self.tank_section(module, app);
         }
 
         let mut out = Section::default();
@@ -1635,7 +1650,7 @@ impl Gameplay {
 
         let mut out = Section::default();
 
-        out.push(Label::new("Solar Panel Array").font(font_small_bold, app));
+        out.push(Label::new("SOLAR PANEL ARRAY").font(font_small_bold, app));
         out.push(Label::bound(text.clone()).font(font, app));
 
         out.bindings.push(Binding::new({
@@ -1651,6 +1666,73 @@ impl Gameplay {
                 if kw != last.get() {
                     last.set(kw);
                     *text.borrow_mut() = format!("{kw:+.2} kW")
+                }
+            }
+        }));
+
+        out
+    }
+
+    fn tank_section(&self, module: Entity, app: &App) -> Section {
+        const WIDTH: f32 = 280.0;
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+
+        let mut out = Section::default();
+
+        // Tank info
+        let tank = self.world.get::<&Tank>(module).unwrap();
+
+        out.push(
+            Label::new(format!("{} TANK", tank.resource.long_name().to_uppercase()))
+                .font(font_small_bold, app),
+        );
+
+        let mass = Rc::new(RefCell::new(String::new()));
+        let mass_percentage = Rc::new(Cell::new(0.0));
+        let et = self.current_et.clone();
+
+        out.push(
+            Label::bound(mass.clone())
+                .font(font, app)
+                .color(STYLE.text_primary),
+        );
+        // TODO: If mass-positive, report when full. If mass-negative, report when empty in red.
+        out.push(
+            ProgressBar::new(vec2(WIDTH - 8.0 * 2.0, 12.0))
+                .background_color(STYLE.bg_primary)
+                .fill_color(STYLE.accent)
+                .border(STYLE.border_primary, 1.0)
+                .bind(mass_percentage.clone()),
+        );
+
+        out.bindings.push(Binding::new({
+            let mass = mass.clone();
+            let last_m = Cell::new(f32::NAN);
+            let last_mdot = Cell::new(f32::NAN);
+            move |world: &World| {
+                let station = world.get::<&Parent>(module).unwrap().id;
+                let Ok(t) = world.get::<&Tank>(module) else {
+                    return;
+                };
+
+                let m = tank_resource_mass(world, module, et.get());
+                let mdot = station_resource_mass_flow(world, station, t.resource);
+
+                if m != last_m.get() || mdot != last_mdot.get() {
+                    last_m.set(m);
+                    last_mdot.set(mdot);
+                    *mass.borrow_mut() = format!(
+                        "{}: {:.0}/{:.0} kg ({:+.2} kg/s)",
+                        t.resource.short_name(),
+                        m,
+                        t.capacity_kg,
+                        mdot
+                    );
+                    mass_percentage.set(m / t.capacity_kg);
                 }
             }
         }));
@@ -2654,6 +2736,12 @@ impl Gameplay {
     }
 
     fn sync_panel(&mut self, app: &App) {
+        if app.window_size != self.gui_built_window {
+            self.gui_built_window = app.window_size;
+            self.turn_gui = self.rebuild_turn_gui(app);
+            self.gui_built_for = None;
+        }
+
         let key = self.gui_structure_key();
         if key != self.gui_built_for {
             self.gui_built_for = key;

@@ -46,6 +46,10 @@ impl EphemerisTime {
         (self.0 as f64) / ET_PER_HOUR
     }
 
+    pub fn as_secs(self) -> f64 {
+        (self.0 as f64) / ET_PER_SECOND
+    }
+
     pub fn lerp(self, other: Self, t: f64) -> Self {
         let start = self.0;
         let end = other.0;
