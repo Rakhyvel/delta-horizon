@@ -29,9 +29,10 @@ use crate::{
         craft::{replace_line_path, spawn_orbiting_craft, AssociatedEntity, Command, Stage},
         factory::Factory,
         inventory::PartInventory,
-        module::{SolarPanel, StationModule},
         parts::PartRegistry,
-        station::Station,
+        station::{
+            station_charge_at, station_net_kw, station_r_au, SolarPanel, Station, StationModule,
+        },
         tile::{SurfaceTile, TileMap, TileSets},
     },
     container,
@@ -401,9 +402,10 @@ impl Scene for Gameplay {
         }
 
         if self.is_animating() {
-            const TURN_TIME: f64 = 1.75;
-            let t = ((app.seconds as f64 - self.animation_start_real) / TURN_TIME).min(1.0);
-            let eased = t;
+            let days = (self.animation_target_et - self.animation_start_et).as_days();
+            let turn_time = (0.5 + 1.7 * (days + 1.0).log10()).clamp(0.6, 2.5);
+            let t = ((app.seconds as f64 - self.animation_start_real) / turn_time).min(1.0);
+            let eased = 1.0 - (1.0 - t).powi(3);
 
             // Interpolate ET between start and target
             self.current_et.set(
@@ -879,13 +881,14 @@ impl Gameplay {
                 Station {
                     charge_kwh: 120.0,
                     capacity_kwh: 500.0,
+                    charge_et: EphemerisTime::epoch(),
                     modules_gen: 0,
                 },
             )
             .unwrap();
         world.spawn((
             StationModule { slot: 0 },
-            SolarPanel { rated_kw: 4.0 },
+            SolarPanel { rated_kw: 100.0 },
             Parent { id: station },
         ));
         crafts.push(station);
@@ -1108,7 +1111,7 @@ impl Gameplay {
         .flow(Flow::Vertical)
         .cross_align(Align::End);
 
-        let remaining = app.window_size.x as f32 - turn_controls.size().x - 24.0;
+        let remaining = app.window_size.x as f32 - 300.0 - 24.0;
 
         vec![
             Box::new(
@@ -1522,7 +1525,12 @@ impl Gameplay {
     }
 
     fn station_section(&self, station: Entity, app: &App) -> Section {
+        const WIDTH: f32 = 280.0;
         let font = app.renderer.get_font_id_from_name("font").unwrap();
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
         let font_big = app.renderer.get_font_id_from_name("font-big").unwrap();
 
         let mut out = Section::default();
@@ -1534,30 +1542,53 @@ impl Gameplay {
             .map(|n| n.name.clone())
             .unwrap_or_else(|_| "Station".into());
         out.push(Label::new(name).font(font_big, app));
+        out.push(HRule::new(STYLE.border_primary, 1.0, WIDTH));
 
         // Station info
         let charge = Rc::new(RefCell::new(String::new()));
+        let charge_percentage = Rc::new(Cell::new(0.0));
+        let et = self.current_et.clone();
         out.push(
             Label::bound(charge.clone())
                 .font(font, app)
                 .color(STYLE.text_primary),
         );
+        // TODO: If power-positive, report when full. If power-negative, report when empty in red.
+        out.push(
+            ProgressBar::new(vec2(WIDTH, 12.0))
+                .background_color(STYLE.bg_primary)
+                .fill_color(STYLE.accent)
+                .border(STYLE.border_primary, 1.0)
+                .bind(charge_percentage.clone()),
+        );
+
         out.bindings.push(Binding::new({
             let charge = charge.clone();
-            let last = Cell::new(f32::NAN);
+            let last_p = Cell::new(f32::NAN);
+            let last_q = Cell::new(f32::NAN);
             move |world: &World| {
                 let Ok(s) = world.get::<&Station>(station) else {
                     return;
                 };
-                if s.charge_kwh != last.get() {
-                    last.set(s.charge_kwh);
+
+                let p = station_net_kw(world, station);
+                let q = station_charge_at(world, station, et.get());
+
+                if p != last_p.get() || q != last_q.get() {
+                    last_p.set(p);
+                    last_q.set(q);
                     *charge.borrow_mut() =
-                        format!("{:.0} / {:.0} kWh", s.charge_kwh, s.capacity_kwh);
+                        format!("Charge: {:.0}/{:.0} kWh ({:+.2} kW)", q, s.capacity_kwh, p);
+                    charge_percentage.set(q / s.capacity_kwh);
                 }
             }
         }));
 
+        // All the modules now
+        out.push(HRule::new(STYLE.border_primary, 1.0, WIDTH));
+        out.push(Label::new("MODULES").font(font_small_bold, app));
         out.merge(self.module_list(station, app));
+
         out
     }
 
@@ -1611,13 +1642,15 @@ impl Gameplay {
             let text = text.clone();
             let last = Cell::new(f32::NAN);
             move |world: &World| {
+                let station = world.get::<&Parent>(module).unwrap().id;
+                let r_au = station_r_au(world, station);
                 let Ok(panel) = world.get::<&SolarPanel>(module) else {
                     return;
                 };
-                let kw = panel.output_kw();
+                let kw = panel.output_kw(r_au);
                 if kw != last.get() {
                     last.set(kw);
-                    *text.borrow_mut() = format!("{kw:.1} kW")
+                    *text.borrow_mut() = format!("{kw:+.2} kW")
                 }
             }
         }));
