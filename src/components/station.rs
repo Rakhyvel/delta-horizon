@@ -14,6 +14,8 @@ pub struct Station {
     /// When `charge_kwh` was committed
     pub charge_et: EphemerisTime,
 
+    pub num_crew: usize,
+
     /// bumped whenever a module is added or removed
     pub modules_gen: u32,
 }
@@ -55,20 +57,32 @@ pub fn station_charge_at(world: &World, station: Entity, t: EphemerisTime) -> f3
 }
 
 /// Gets the total station-wide mass flow for a resource
-pub fn station_resource_mass_flow(_world: &World, _station: Entity, _r: Resource) -> f32 {
-    // TODO: Accumulate producers of a resource
-    // TODO: Decumulate consumers of a resource
+pub fn station_resource_mass_flow(world: &World, station: Entity, r: Resource) -> f32 {
+    let Ok(s) = world.get::<&Station>(station) else {
+        return 0.0;
+    };
 
-    0.0
+    // Accumulate producers of a resource
+    const O2_PER_CREW_DAY: f32 = -0.84;
+    const WATER_PER_CREW_DAY: f32 = -3.5;
+    match r {
+        Resource::Water => s.num_crew as f32 * WATER_PER_CREW_DAY,
+        Resource::Oxygen => s.num_crew as f32 * O2_PER_CREW_DAY,
+        Resource::Hydrogen => 0.0,
+    }
+
+    // TODO: Decumulate consumers of a resource
 }
 
 /// Interpolates the mass for a specific tank
 pub fn tank_resource_mass(world: &World, module: Entity, t: EphemerisTime) -> f32 {
-    let Ok(s) = world.get::<&Tank>(module) else {
+    let station = world.get::<&Parent>(module).unwrap().id;
+    let Ok(tank) = world.get::<&Tank>(module) else {
         return 0.0;
     };
-    let dt_hours = (t - s.mass_et).as_secs() as f32;
-    (s.mass_kg + station_net_kw(world, module) * dt_hours).clamp(0.0, s.capacity_kg)
+    let dt_hours = (t - tank.mass_et).as_days() as f32;
+    (tank.mass_kg + station_resource_mass_flow(world, station, tank.resource) * dt_hours)
+        .clamp(0.0, tank.capacity_kg)
 }
 
 /// Joins a module to a station

@@ -114,6 +114,9 @@ pub struct Gameplay {
     gui_bindings: Vec<Binding>,
     vab_ui: VabUi,
     maneuver_ui: ManeuverModal,
+
+    // RCs for GUI
+    turn_button_enabled: Rc<Cell<bool>>,
     turn_progress: Rc<Cell<f32>>,
     calendar_string: Rc<RefCell<String>>,
     marks: Rc<RefCell<Vec<TimelineMark>>>,
@@ -424,11 +427,12 @@ impl Scene for Gameplay {
             }
         }
 
-        // Update calendar string
+        // Update GUI stuff
         let cal = format!("ET: {}", self.current_et.get().as_calendar());
         if *self.calendar_string.borrow() != cal {
             *self.calendar_string.borrow_mut() = cal;
         }
+        self.turn_button_enabled.set(!self.is_animating());
 
         self.control(app);
         self.orbit_system();
@@ -882,6 +886,7 @@ impl Gameplay {
                     charge_kwh: 120.0,
                     capacity_kwh: 500.0,
                     charge_et: EphemerisTime::epoch(),
+                    num_crew: 4,
                     modules_gen: 0,
                 },
             )
@@ -931,7 +936,7 @@ impl Gameplay {
 
         let mut event_queue = EventQueue::new();
         event_queue.push(
-            EphemerisTime::epoch() + EphemerisTime::from_days(14.0),
+            EphemerisTime::epoch() + EphemerisTime::from_days(34.0),
             Event::Background,
         );
 
@@ -981,7 +986,7 @@ impl Gameplay {
 
             phi: 2.5,
             theta: -PI / 4.0,
-            distance: 20.0,
+            distance: 1000.0,
             prev_tab_state: false,
 
             gui: Anchor::new(Box::new(container![]), AnchorPoint::TopRight),
@@ -991,6 +996,8 @@ impl Gameplay {
             turn_gui: Anchor::new(Box::new(container![]), AnchorPoint::BottomLeft),
             vab_ui: VabUi::new(),
             maneuver_ui: ManeuverModal::new(),
+
+            turn_button_enabled: Rc::new(Cell::new(false)),
             turn_progress: Rc::new(Cell::new(0.0)),
             calendar_string: Rc::new(RefCell::new(String::new())),
             marks: Rc::new(RefCell::new(vec![])),
@@ -1114,6 +1121,7 @@ impl Gameplay {
             Box::new(
                 TextButton::new(Rectangle::new(0.0, 0.0, 280.0, 44.0), "NEXT TURN")
                     .use_style_accented(&STYLE)
+                    .bound_active(self.turn_button_enabled.clone())
                     .on_click(TurnMessages::NextTurn),
             ),
             Box::new(Label::bound(self.calendar_string.clone()).font(font, app)),
@@ -1726,7 +1734,7 @@ impl Gameplay {
                     last_m.set(m);
                     last_mdot.set(mdot);
                     *mass.borrow_mut() = format!(
-                        "{}: {:.0}/{:.0} kg ({:+.2} kg/s)",
+                        "{}: {:.0}/{:.0} kg ({:+.2} kg/day)",
                         t.resource.short_name(),
                         m,
                         t.capacity_kg,
@@ -2117,7 +2125,7 @@ impl Gameplay {
             Event::Background => {
                 // Schedule the next quarterly payout
                 self.event_queue.push(
-                    self.current_et.get() + EphemerisTime::from_days(14.0),
+                    self.current_et.get() + EphemerisTime::from_days(34.0),
                     Event::Background,
                 );
             }
@@ -2530,7 +2538,7 @@ impl Gameplay {
             line.color = STYLE.accent;
 
             if selected && !self.selection.is_animating(app.seconds as f64) {
-                line.color.w = 0.8;
+                line.color.w = 1.0;
                 line.width = 2.0;
             } else {
                 line.color.w = 0.36606;

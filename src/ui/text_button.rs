@@ -1,3 +1,5 @@
+use std::{cell::Cell, rc::Rc};
+
 use crate::ui::{msg::MsgQueue, style::Style, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
 use nalgebra_glm::{vec4, Vec2, Vec4};
@@ -21,6 +23,8 @@ pub struct TextButton<Msg> {
     on_click: Option<Msg>,
     /// Whether or not the button is active or nah
     active: bool,
+    /// How to get the `active`
+    active_src: Option<Rc<Cell<bool>>>,
     /// Whether the button is hovered or not
     hovered: bool,
 }
@@ -40,6 +44,7 @@ impl<Msg> TextButton<Msg> {
             inactive_border: None,
             on_click: None,
             active: true,
+            active_src: None,
             hovered: false,
         }
     }
@@ -103,10 +108,19 @@ impl<Msg> TextButton<Msg> {
         self.active = active;
         self
     }
+
+    pub fn bound_active(mut self, active_src: Rc<Cell<bool>>) -> Self {
+        self.active_src = Some(active_src);
+        self
+    }
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
+        if let Some(src) = &self.active_src {
+            self.active = src.get();
+        }
+
         self.hovered = self.active && self.rect.contains_point(&app.mouse_pos);
 
         if self.active && self.hovered && !app.is_click_consumed() && app.mouse_left_clicked {
