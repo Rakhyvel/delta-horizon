@@ -56,7 +56,7 @@ pub fn station_charge_at(world: &World, station: Entity, t: EphemerisTime) -> f3
     (s.charge_kwh + station_net_kw(world, station) * dt_hours).clamp(0.0, s.capacity_kwh)
 }
 
-/// Gets the total station-wide mass flow for a resource
+/// Gets the total station-wide mass flow for a resource, in kg/day
 pub fn station_resource_mass_flow(world: &World, station: Entity, r: Resource) -> f32 {
     let Ok(s) = world.get::<&Station>(station) else {
         return 0.0;
@@ -80,8 +80,8 @@ pub fn tank_resource_mass(world: &World, module: Entity, t: EphemerisTime) -> f3
     let Ok(tank) = world.get::<&Tank>(module) else {
         return 0.0;
     };
-    let dt_hours = (t - tank.mass_et).as_days() as f32;
-    (tank.mass_kg + station_resource_mass_flow(world, station, tank.resource) * dt_hours)
+    let dt_days = (t - tank.mass_et).as_days() as f32;
+    (tank.mass_kg + station_resource_mass_flow(world, station, tank.resource) * dt_days)
         .clamp(0.0, tank.capacity_kg)
 }
 

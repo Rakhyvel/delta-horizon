@@ -886,7 +886,7 @@ impl Gameplay {
                     charge_kwh: 120.0,
                     capacity_kwh: 500.0,
                     charge_et: EphemerisTime::epoch(),
-                    num_crew: 4,
+                    num_crew: 6,
                     modules_gen: 0,
                 },
             )
@@ -899,8 +899,8 @@ impl Gameplay {
         world.spawn((
             StationModule { slot: 1 },
             Tank {
-                capacity_kg: 1000.0,
-                mass_kg: 500.0,
+                capacity_kg: 3800.0,
+                mass_kg: 3800.0,
                 mass_et: EphemerisTime::epoch(),
                 resource: Resource::Water,
             },
@@ -909,8 +909,8 @@ impl Gameplay {
         world.spawn((
             StationModule { slot: 2 },
             Tank {
-                capacity_kg: 1000.0,
-                mass_kg: 500.0,
+                capacity_kg: 70.0,
+                mass_kg: 70.0,
                 mass_et: EphemerisTime::epoch(),
                 resource: Resource::Oxygen,
             },
@@ -920,7 +920,7 @@ impl Gameplay {
             StationModule { slot: 3 },
             Tank {
                 capacity_kg: 1000.0,
-                mass_kg: 500.0,
+                mass_kg: 0.0,
                 mass_et: EphemerisTime::epoch(),
                 resource: Resource::Hydrogen,
             },
@@ -1568,19 +1568,24 @@ impl Gameplay {
         // Station info
         let charge = Rc::new(RefCell::new(String::new()));
         let charge_percentage = Rc::new(Cell::new(0.0));
+        let time_to_zero = Rc::new(RefCell::new(String::new()));
         let et = self.current_et.clone();
         out.push(
             Label::bound(charge.clone())
                 .font(font, app)
                 .color(STYLE.text_primary),
         );
-        // TODO: If power-positive, report when full. If power-negative, report when empty in red.
         out.push(
             ProgressBar::new(vec2(WIDTH, 12.0))
                 .background_color(STYLE.bg_primary)
                 .fill_color(STYLE.accent)
                 .border(STYLE.border_primary, 1.0)
                 .bind(charge_percentage.clone()),
+        );
+        out.push(
+            Label::bound(time_to_zero.clone())
+                .font(font, app)
+                .color(STYLE.text_primary),
         );
 
         out.bindings.push(Binding::new({
@@ -1601,6 +1606,17 @@ impl Gameplay {
                     *charge.borrow_mut() =
                         format!("Charge: {:.0}/{:.0} kWh ({:+.2} kW)", q, s.capacity_kwh, p);
                     charge_percentage.set(q / s.capacity_kwh);
+
+                    if q == 0.0 {
+                        *time_to_zero.borrow_mut() = String::from("Empty");
+                    } else if p < 0.0 {
+                        *time_to_zero.borrow_mut() = format!("{:.1} days until empty", -p / q);
+                    } else if p > 0.0 && q < s.capacity_kwh {
+                        *time_to_zero.borrow_mut() =
+                            format!("{:.1} days until full", (s.capacity_kwh - p) / q);
+                    } else {
+                        *time_to_zero.borrow_mut() = String::from("Full");
+                    }
                 }
             }
         }));
@@ -1701,6 +1717,7 @@ impl Gameplay {
 
         let mass = Rc::new(RefCell::new(String::new()));
         let mass_percentage = Rc::new(Cell::new(0.0));
+        let time_to_zero = Rc::new(RefCell::new(String::new()));
         let et = self.current_et.clone();
 
         out.push(
@@ -1708,13 +1725,17 @@ impl Gameplay {
                 .font(font, app)
                 .color(STYLE.text_primary),
         );
-        // TODO: If mass-positive, report when full. If mass-negative, report when empty in red.
         out.push(
             ProgressBar::new(vec2(WIDTH - 8.0 * 2.0, 12.0))
                 .background_color(STYLE.bg_primary)
                 .fill_color(STYLE.accent)
                 .border(STYLE.border_primary, 1.0)
                 .bind(mass_percentage.clone()),
+        );
+        out.push(
+            Label::bound(time_to_zero.clone())
+                .font(font, app)
+                .color(STYLE.text_primary),
         );
 
         out.bindings.push(Binding::new({
@@ -1741,6 +1762,16 @@ impl Gameplay {
                         mdot
                     );
                     mass_percentage.set(m / t.capacity_kg);
+                    if m == 0.0 {
+                        *time_to_zero.borrow_mut() = String::from("Empty");
+                    } else if mdot < 0.0 {
+                        *time_to_zero.borrow_mut() = format!("{:.1} days until empty", -m / mdot);
+                    } else if mdot > 0.0 && m < t.capacity_kg {
+                        *time_to_zero.borrow_mut() =
+                            format!("{:.1} days until full", (t.capacity_kg - m) / mdot);
+                    } else {
+                        *time_to_zero.borrow_mut() = String::from("Full");
+                    }
                 }
             }
         }));

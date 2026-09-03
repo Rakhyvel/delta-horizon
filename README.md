@@ -15,8 +15,8 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
         x Solar array as module payload slots, should probably start power-positive, but just barely
         x water tanks
         x H2 and O2 tanks, electrolysis module
-    - [ ] crew: consume O2 and water
-    - [ ] display time-to-zero (and time-to-fill)
+    - [x] crew: consume O2 and water
+    - [x] display time-to-zero (and time-to-fill)
     - [ ] fabricator module: converts feedstock into parts
     - [ ] assembly bay module: combines parts into spacecraft
     - [ ] lose the game if the station dies
