@@ -40,6 +40,7 @@ impl Label {
     }
 
     pub fn font(mut self, font_id: FontId, app: &App) -> Self {
+        // TODO: Take &'static str, lookup font by name?
         self.font_id = Some(font_id);
         let font = app.renderer.get_font_from_id(font_id).unwrap();
         let size = font.measure(&self.label);

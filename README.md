@@ -18,7 +18,17 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
     - [x] crew: consume O2 and water
     - [x] display time-to-zero (and time-to-fill)
     - [ ] fabricator module: converts feedstock into parts
+        x metal as a part
+        x recipe data in the toml
+        x affordability function, shortfalls()
+        x modal shell with cards, read-only
+        * build button
+        * commits on Next Turn, not build
+        * gui_structure_key includes job state
+        * replace build button with progress bar, "Done by ... " text
+        * Energy as a continuous draw
     - [ ] assembly bay module: combines parts into spacecraft
+    - [ ] can build new modules
     - [ ] lose the game if the station dies
 - [ ] Science
     - [ ] body rotation, axial tilt

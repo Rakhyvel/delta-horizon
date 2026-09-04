@@ -1,17 +1,16 @@
 [[parts]]
 id = "station_core"
 name = "Station Core"
-dry_mass_kg = 1.47
-build_time_days = 7
+desc = "Core of the station."
+dry_mass_kg = 676767676767.0
+energy_kwh = 100000.0
+
 
 [[parts]]
-id = "first_probe"
-name = "Traveller"
-dry_mass_kg = 1.47
-build_time_days = 7
-
-[[parts]]
-id = "capsule"
-name = "Capsule"
-dry_mass_kg = 1370
-build_time_days = 7
+id = "metal"
+name = "Metal"
+desc = "Boring hunk of metal."
+dry_mass_kg = 100.0
+inputs = {} # TODO: Ilmetite ore
+resources = {}
+energy_kwh = 300.0 # way too little but just go with it

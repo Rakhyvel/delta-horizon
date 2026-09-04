@@ -40,6 +40,7 @@ use crate::{
     generation::{lexicon::Lexicon, polygon},
     scenes::{
         events::{Event, EventQueue},
+        fabricator::{FabricatorAction, FabricatorUi},
         maneuver::ManeuverModal,
         starbox::Starbox,
         vab::VabUi,
@@ -112,6 +113,7 @@ pub struct Gameplay {
     gui_built_for: Option<(Entity, u32)>,
     gui_built_window: I32Vec2,
     gui_bindings: Vec<Binding>,
+    fabricator_ui: FabricatorUi,
     vab_ui: VabUi,
     maneuver_ui: ManeuverModal,
 
@@ -140,8 +142,14 @@ enum TurnMessages {
 
 #[derive(Clone)]
 pub enum CommandMessages {
+    OpenFabricator {
+        fabricator_entity: Entity,
+    },
     #[allow(unused)]
-    FactoryCommand { part_id: u64 },
+    FactoryCommand {
+        part_id: u64,
+        factory_entity: Entity,
+    },
     #[allow(unused)]
     OpenVab,
     #[allow(unused)]
@@ -294,7 +302,19 @@ impl SelectionState {
 impl Scene for Gameplay {
     /// Update the scene every tick
     fn update(&mut self, app: &App) {
-        let modal_open = self.vab_ui.is_shown() || self.maneuver_ui.is_shown();
+        let modal_open =
+            self.fabricator_ui.is_shown() || self.vab_ui.is_shown() || self.maneuver_ui.is_shown();
+
+        if let Some(FabricatorAction {
+            fabricator,
+            part_id,
+        }) = self
+            .fabricator_ui
+            .update(&self.world, &self.parts, self.current_et.get(), app)
+        {
+            let mut factory = self.world.get::<&mut Factory>(fabricator).unwrap();
+            factory.pending_job = Some(part_id)
+        }
 
         if self.vab_ui.update(app) {
             if let Some(selected) = self.selection.selected_entity() {
@@ -352,15 +372,24 @@ impl Scene for Gameplay {
             // Handle all the messages from UI
             for msg in recv_msgs(app, &mut self.gui) {
                 match msg {
-                    CommandMessages::FactoryCommand { part_id } => {
-                        if let Some(selected) = self.selection.selected_entity() {
-                            // TODO: Subtract parts from inventory
-                            self.world
-                                .get::<&mut Factory>(selected)
-                                .unwrap()
-                                .start_job(part_id, self.current_et.get(), &self.parts)
-                                .expect("you wouldnt give a fake part would you");
-                        }
+                    CommandMessages::OpenFabricator { fabricator_entity } => {
+                        self.fabricator_ui.show(
+                            &self.world,
+                            fabricator_entity,
+                            &self.parts,
+                            self.current_et.get(),
+                            app,
+                        );
+                    }
+                    CommandMessages::FactoryCommand {
+                        part_id,
+                        factory_entity,
+                    } => {
+                        self.world
+                            .get::<&mut Factory>(factory_entity)
+                            .unwrap()
+                            .start_job(part_id, self.current_et.get(), &self.parts)
+                            .expect("you wouldnt give a fake part would you");
                     }
                     CommandMessages::OpenVab => {
                         if let Some(selected) = self.selection.selected_entity() {
@@ -589,6 +618,7 @@ impl Scene for Gameplay {
         // Draw GUI
         self.gui.render(app);
         self.turn_gui.render(app);
+        self.fabricator_ui.render(app);
         self.vab_ui.render(app);
         self.maneuver_ui.render(app);
     }
@@ -880,15 +910,20 @@ impl Gameplay {
             &mut bvh,
         );
         world
-            .insert_one(
+            .insert(
                 station,
-                Station {
-                    charge_kwh: 120.0,
-                    capacity_kwh: 500.0,
-                    charge_et: EphemerisTime::epoch(),
-                    num_crew: 6,
-                    modules_gen: 0,
-                },
+                (
+                    Station {
+                        charge_kwh: 120.0,
+                        capacity_kwh: 500.0,
+                        charge_et: EphemerisTime::epoch(),
+                        num_crew: 6,
+                        modules_gen: 0,
+                    },
+                    PartInventory {
+                        parts: HashMap::new(),
+                    },
+                ),
             )
             .unwrap();
         world.spawn((
@@ -926,6 +961,14 @@ impl Gameplay {
             },
             Parent { id: station },
         ));
+        world.spawn((
+            StationModule { slot: 4 },
+            Factory {
+                current_job: None,
+                pending_job: None,
+            },
+            Parent { id: station },
+        ));
         crafts.push(station);
 
         let mut selection = SelectionState::new(crafts, bodies, buildings);
@@ -936,7 +979,7 @@ impl Gameplay {
 
         let mut event_queue = EventQueue::new();
         event_queue.push(
-            EphemerisTime::epoch() + EphemerisTime::from_days(34.0),
+            EphemerisTime::epoch() + EphemerisTime::from_days(9.0),
             Event::Background,
         );
 
@@ -994,6 +1037,7 @@ impl Gameplay {
             gui_built_window: I32Vec2::zeros(),
             gui_bindings: vec![],
             turn_gui: Anchor::new(Box::new(container![]), AnchorPoint::BottomLeft),
+            fabricator_ui: FabricatorUi::new(),
             vab_ui: VabUi::new(),
             maneuver_ui: ManeuverModal::new(),
 
@@ -1439,6 +1483,7 @@ impl Gameplay {
                                     .use_style(&STYLE)
                                     .on_click(CommandMessages::FactoryCommand {
                                         part_id: part.id_hash(),
+                                        factory_entity: self.selection.selected_entity().unwrap(),
                                     })
                                     .active(can_afford),
                                 )])
@@ -1610,10 +1655,11 @@ impl Gameplay {
                     if q == 0.0 {
                         *time_to_zero.borrow_mut() = String::from("Empty");
                     } else if p < 0.0 {
-                        *time_to_zero.borrow_mut() = format!("{:.1} days until empty", -p / q);
+                        *time_to_zero.borrow_mut() =
+                            format!("{:.1} days until empty", q / -p / 24.0);
                     } else if p > 0.0 && q < s.capacity_kwh {
                         *time_to_zero.borrow_mut() =
-                            format!("{:.1} days until full", (s.capacity_kwh - p) / q);
+                            format!("{:.1} days until full", (s.capacity_kwh - q) / p / 24.0);
                     } else {
                         *time_to_zero.borrow_mut() = String::from("Full");
                     }
@@ -1657,6 +1703,8 @@ impl Gameplay {
             return self.solar_panel_section(module, app);
         } else if self.world.get::<&Tank>(module).is_ok() {
             return self.tank_section(module, app);
+        } else if self.world.get::<&Factory>(module).is_ok() {
+            return self.fabricator_section(module, app);
         }
 
         let mut out = Section::default();
@@ -1775,6 +1823,36 @@ impl Gameplay {
                 }
             }
         }));
+
+        out
+    }
+
+    fn fabricator_section(&self, module: Entity, app: &App) -> Section {
+        const WIDTH: f32 = 280.0;
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
+        let _font = app.renderer.get_font_id_from_name("font").unwrap();
+
+        let mut out = Section::default();
+
+        let parent = self.world.get::<&Parent>(module).unwrap().id;
+        let inventory = self.world.get::<&PartInventory>(parent).unwrap();
+
+        out.push(Label::new(String::from("FABRICATOR")).font(font_small_bold, app));
+        out.push(
+            TextButton::<CommandMessages>::new(
+                Rectangle::new(0.0, 0.0, WIDTH - 8.0 * 2.0, 30.0),
+                "Build...",
+            )
+            .use_style_accented(&STYLE)
+            .on_click(CommandMessages::OpenFabricator {
+                fabricator_entity: module,
+            }),
+        );
+
+        // TODO: If in progress, show the progress. Otherwise, button to open fabricator modal
 
         out
     }
@@ -2156,7 +2234,7 @@ impl Gameplay {
             Event::Background => {
                 // Schedule the next quarterly payout
                 self.event_queue.push(
-                    self.current_et.get() + EphemerisTime::from_days(34.0),
+                    self.current_et.get() + EphemerisTime::from_days(9.0),
                     Event::Background,
                 );
             }

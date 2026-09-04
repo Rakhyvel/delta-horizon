@@ -11,13 +11,16 @@ use crate::{
     components::{
         body::{Body, Parent, SceneObject},
         craft::Landed,
-        parts::PartRegistry,
+        inventory::PartInventory,
+        parts::{PartCost, PartRegistry},
+        station::{station_resource_totals, Resource},
         tile::{SurfaceTile, TileMap},
     },
 };
 
 pub struct Factory {
     pub current_job: Option<FactoryJob>,
+    pub pending_job: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -78,7 +81,10 @@ pub fn spawn_factory(
                 parent,
                 Landed { offset },
                 SurfaceTile { index: tile_index },
-                Factory { current_job: None },
+                Factory {
+                    current_job: None,
+                    pending_job: None,
+                },
             ),
         )
         .unwrap();
@@ -115,4 +121,46 @@ impl FactoryJob {
         (current_et.as_years() - self.order_et.as_years())
             / (self.completion_et.as_years() - self.order_et.as_years())
     }
+}
+
+pub enum CostKind {
+    Part(u64),
+    Resource(Resource),
+}
+
+pub struct CostLine {
+    pub kind: CostKind,
+    pub need: f32,
+    pub have: f32,
+}
+
+pub fn cost_status(
+    world: &World,
+    station: Entity,
+    cost: &PartCost,
+    t: EphemerisTime,
+) -> Vec<CostLine> {
+    let inventory = world.get::<&PartInventory>(station).unwrap();
+
+    let mut line = vec![];
+
+    for (id, need) in &cost.parts {
+        let have = inventory.quantity(*id);
+        line.push(CostLine {
+            kind: CostKind::Part(*id),
+            need: *need as f32,
+            have: have as f32,
+        })
+    }
+
+    for (r, need) in &cost.resources {
+        let (have, _) = station_resource_totals(world, station, *r, t);
+        line.push(CostLine {
+            kind: CostKind::Resource(*r),
+            need: *need,
+            have,
+        });
+    }
+
+    line
 }

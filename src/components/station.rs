@@ -80,9 +80,48 @@ pub fn tank_resource_mass(world: &World, module: Entity, t: EphemerisTime) -> f3
     let Ok(tank) = world.get::<&Tank>(module) else {
         return 0.0;
     };
+
+    let flow = station_resource_mass_flow(world, station, tank.resource);
+
+    let mut capacity = 0.0;
+    let mut q = world.query::<(&StationModule, &Parent, &Tank)>();
+    for (_, (_, parent, other_tank)) in q.iter() {
+        if parent.id == station && other_tank.resource == tank.resource {
+            capacity += tank.capacity_kg;
+        }
+    }
+
+    let share = flow * tank.capacity_kg / capacity;
     let dt_days = (t - tank.mass_et).as_days() as f32;
-    (tank.mass_kg + station_resource_mass_flow(world, station, tank.resource) * dt_days)
-        .clamp(0.0, tank.capacity_kg)
+    (tank.mass_kg + share * dt_days).clamp(0.0, tank.capacity_kg)
+}
+
+pub fn station_resource_totals(
+    world: &World,
+    station: Entity,
+    r: Resource,
+    t: EphemerisTime,
+) -> (f32, f32) {
+    let flow = station_resource_mass_flow(world, station, r);
+
+    let mut capacity = 0.0;
+    let mut tanks: Vec<&Tank> = Vec::new();
+    let mut q = world.query::<(&StationModule, &Parent, &Tank)>();
+    for (_, (_, parent, tank)) in q.iter() {
+        if parent.id == station && tank.resource == r {
+            capacity += tank.capacity_kg;
+            tanks.push(tank);
+        }
+    }
+
+    let mut stored = 0.0;
+    for tank in tanks {
+        let share = flow * tank.capacity_kg / capacity;
+        let dt_days = (t - tank.mass_et).as_days() as f32;
+        stored += (tank.mass_kg + share * dt_days).clamp(0.0, tank.capacity_kg);
+    }
+
+    (stored, capacity)
 }
 
 /// Joins a module to a station
@@ -102,7 +141,8 @@ impl SolarPanel {
 }
 
 // TODO: This doens't belong here!
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Resource {
     Water,
     Oxygen,

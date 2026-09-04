@@ -10,6 +10,10 @@ impl PartInventory {
         *self.parts.entry(part_id).or_insert(0) += count;
     }
 
+    pub fn quantity(&self, part_id: u64) -> u32 {
+        self.parts[&part_id]
+    }
+
     pub fn take(&mut self, part_id: u64) -> Result<(), String> {
         let current = self.parts.get(&part_id).copied().unwrap_or(0);
         if current == 0 {
