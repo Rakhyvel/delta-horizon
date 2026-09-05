@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use apricot::{
     bvh::BVH,
     high_precision::WorldPosition,
@@ -13,7 +15,7 @@ use crate::{
         craft::Landed,
         inventory::PartInventory,
         parts::{PartCost, PartRegistry},
-        station::{station_resource_totals, Resource},
+        station::{station_resource_totals, Resource, StationModule},
         tile::{SurfaceTile, TileMap},
     },
 };
@@ -21,6 +23,7 @@ use crate::{
 pub struct Factory {
     pub current_job: Option<FactoryJob>,
     pub pending_job: Option<u64>,
+    pub power_kw: f32,
 }
 
 #[derive(Debug)]
@@ -84,6 +87,7 @@ pub fn spawn_factory(
                 Factory {
                     current_job: None,
                     pending_job: None,
+                    power_kw: 5.0,
                 },
             ),
         )
@@ -102,10 +106,9 @@ impl Factory {
         &mut self,
         part_id: u64,
         current_et: EphemerisTime,
-        _registry: &PartRegistry,
+        build_time_days: f32,
     ) -> Result<(), String> {
-        let build_time_days = 1.0; // TODO: Maybe re-add to part
-        let completion_et = current_et + EphemerisTime::from_years(build_time_days / 365.0);
+        let completion_et = current_et + EphemerisTime::from_years(build_time_days as f64 / 365.0);
         self.current_job = Some(FactoryJob {
             part_id,
             order_et: current_et,
@@ -138,14 +141,18 @@ pub fn cost_status(
     world: &World,
     station: Entity,
     cost: &PartCost,
+    registry: &PartRegistry,
     t: EphemerisTime,
 ) -> Vec<CostLine> {
     let inventory = world.get::<&PartInventory>(station).unwrap();
 
+    let (parts, resources) = station_reserved(world, station, registry);
+
     let mut line = vec![];
 
     for (id, need) in &cost.parts {
-        let have = inventory.quantity(*id);
+        let reserved = parts.get(id).copied().unwrap_or(0);
+        let have = inventory.quantity(*id).saturating_sub(reserved);
         line.push(CostLine {
             kind: CostKind::Part(*id),
             need: *need as f32,
@@ -154,7 +161,9 @@ pub fn cost_status(
     }
 
     for (r, need) in &cost.resources {
-        let (have, _) = station_resource_totals(world, station, *r, t);
+        let (raw_have, _) = station_resource_totals(world, station, *r, t);
+        let reserved = resources.get(r).copied().unwrap_or(0.0);
+        let have = raw_have - reserved;
         line.push(CostLine {
             kind: CostKind::Resource(*r),
             need: *need,
@@ -163,4 +172,43 @@ pub fn cost_status(
     }
 
     line
+}
+
+pub fn station_reserved(
+    world: &World,
+    station: Entity,
+    registry: &PartRegistry,
+) -> (HashMap<u64, u32>, HashMap<Resource, f32>) {
+    let mut parts = HashMap::new();
+    let mut resources = HashMap::new();
+    for (_, (_, parent, fab)) in world.query::<(&StationModule, &Parent, &Factory)>().iter() {
+        if parent.id != station {
+            continue;
+        }
+        let Some(id) = fab.pending_job else {
+            continue;
+        };
+        let Some(def) = registry.get(id) else {
+            continue;
+        };
+        for (part_id, n) in &def.cost.parts {
+            *parts.entry(*part_id).or_insert(0) += n
+        }
+        for (r, amt) in &def.cost.resources {
+            *resources.entry(*r).or_insert(0.0) += amt;
+        }
+    }
+    (parts, resources)
+}
+
+pub fn projected_completion(
+    world: &World,
+    fab: Entity,
+    registry: &PartRegistry,
+    now: EphemerisTime,
+) -> Option<EphemerisTime> {
+    let f = world.get::<&Factory>(fab).ok()?;
+    let def = registry.get(f.pending_job?)?;
+    let days = def.cost.energy_kwh / f.power_kw / 24.0;
+    Some(now + EphemerisTime::from_years(days as f64 / 365.0))
 }

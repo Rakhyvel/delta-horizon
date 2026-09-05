@@ -63,7 +63,6 @@ pub enum MarkKind {
     Launch,
     Land,
     FactoryComplete,
-    Background,
 }
 
 impl MarkKind {
@@ -74,7 +73,6 @@ impl MarkKind {
             Event::Launch { .. } => Some(MarkKind::Launch),
             Event::Land { .. } => Some(MarkKind::Land),
             Event::FactoryComplete { .. } => Some(MarkKind::FactoryComplete),
-            Event::Background => Some(MarkKind::Background),
 
             Event::CompleteCommand { .. } => None,
         }
@@ -89,7 +87,6 @@ impl MarkKind {
             MarkKind::Land => oklch(MARK_L, MARK_C, 195.0, 1.0),
             MarkKind::SoiChange => oklch(MARK_L, MARK_C, 265.0, 1.0),
             MarkKind::FactoryComplete => oklch(MARK_L, MARK_C, 330.0, 1.0),
-            MarkKind::Background => oklch(0.0, MARK_C, 55.0, 1.0),
         }
     }
 
@@ -100,7 +97,6 @@ impl MarkKind {
             MarkKind::Launch => "Launch",
             MarkKind::Land => "Land",
             MarkKind::FactoryComplete => "Part Complete",
-            MarkKind::Background => "Next Turn",
         }
     }
 
@@ -140,13 +136,6 @@ impl MarkKind {
                     .get_mesh_id_from_name("square-outline")
                     .unwrap(),
                 45.0f32.to_radians(),
-            ),
-            MarkKind::Background => (
-                // special shape
-                app.renderer
-                    .get_mesh_id_from_name("pentagon-outline")
-                    .unwrap(),
-                0.0,
             ),
         }
     }

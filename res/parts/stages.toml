@@ -1,46 +1,24 @@
 [[parts]]
 id = 'pico'
 name = 'Pico'
-desc = 'Cold gas thrusters. Barely a stage.'
+desc = 'Potato with a camera. Gluten free.'
 dry_mass_kg = 12.0
-energy_kwh = 300.0
+energy_kwh = 1800.0
+inputs = {metal = 2}
 [parts.fuel]
 max_fuel_mass_kg = 8.0
-isp = 65.0
+isp = 450.0
 thrust_kn = 0.05
 
 
 [[parts]]
-id = 'dorian'
-name = 'Dorian'
-desc = 'Simple and adorable monopropellant stage.'
-dry_mass_kg = 28.0
-energy_kwh = 300.0
+id = 'dray'
+name = 'Dray'
+desc = 'Work-horse lander. Lands, mines, delivers.'
+dry_mass_kg = 500.0
+energy_kwh = 7200.0
+inputs = {metal = 5}
 [parts.fuel]
-max_fuel_mass_kg = 140.0
-isp = 228.0
-thrust_kn = 0.8
-
-
-[[parts]]
-id = 'velum'
-name = 'Velum'
-desc = "Hypergolic transfer. Don't look at this one funny."
-dry_mass_kg = 190.0
-energy_kwh = 300.0
-[parts.fuel]
-max_fuel_mass_kg = 1_100.0
-isp = 320.0
-thrust_kn = 4.5
-
-
-[[parts]]
-id = 'calder'
-name = 'Calder'
-desc = 'Hypergolic descent stage. Dissolve anything beneath you.'
-dry_mass_kg = 900.0
-energy_kwh = 300.0
-[parts.fuel]
-max_fuel_mass_kg = 6_000.0
-isp = 311.0
-thrust_kn = 450.0
+max_fuel_mass_kg = 400.0
+isp = 450.0
+thrust_kn = 1.0

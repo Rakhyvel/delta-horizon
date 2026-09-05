@@ -278,6 +278,7 @@ impl State {
         let r = self.r.norm();
         let v2 = self.v.dot(&self.v);
         let a = 1.0 / (2.0 / r - v2 / mu); // semi-major axis from vis-viva
+                                           // hey thats a really cool name someone should name a game that
 
         if a <= 0.0 {
             // a < 0 -> hyperbolic, a = 0 -> parabolic (1/a = 0 means v = escape velocity)

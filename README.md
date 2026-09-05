@@ -22,13 +22,14 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
         x recipe data in the toml
         x affordability function, shortfalls()
         x modal shell with cards, read-only
-        * build button
-        * commits on Next Turn, not build
+        x build button
+        x commits on Next Turn, not build
+        x Energy as a continuous draw
         * gui_structure_key includes job state
         * replace build button with progress bar, "Done by ... " text
-        * Energy as a continuous draw
+        * show inventory
     - [ ] assembly bay module: combines parts into spacecraft
-    - [ ] can build new modules
+    - [ ] can build new modules (or just start with electrolysis module?)
     - [ ] lose the game if the station dies
 - [ ] Science
     - [ ] body rotation, axial tilt
@@ -48,36 +49,31 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
     - [ ] surface outpots on tiles (give them solar panels for now)
     - [ ] Ice mining, goes into a cargo hold
     - [ ] station rendevous and docking
-    - [ ] Ilmetite mining, reduction (just give generic "metal" for MVP)
+    - [ ] Ilmetite mining, smelting (just give generic "metal" for MVP)
     - Rules: 
         * Every resource should have a useful role somewhere in the system, and preferably a secondary use that competes with its first.
         * The byproducts of processes are always useful.
         * Natural resources are clustered out in the system, imperfectly overlap, and distributed based on the hidden parameters.
-    - Ores (to be scattered on bodies depending on their conditions):
-        * Ilmetite => Fe
-        * Anorthosite => Al + Si
-        * Ice
-        * CO2
-        * CH4
-        * N2
-        * Ammonia
-        * Uranium
-    - Processes (would have dedicated payloads/components for these):
-        * Ilmetite reduction: FeTiO3 + H2 + (energy) => Fe + TiO2 + H2O
-            - players don't actually get/see TiO2
-        * Anorthosite reduction: CaAl2Si2O8 + (energy) => 2Al + 2SiO2 + CaO + 1.5 O2
-            - players don't actually get/see CaO
-        * Haber-Bosch: N2 + 3H2 => 2NH3 + (heat)
-        * Ammonia decomp: 2NH3 + (energy) => N2 + 3H2
-        * Sabatier: CO2 + 4H2 => CH4 + 2H2O + (heat)
-        * Electrolysis => 2H2O + (energy) => 2H2 + O2
-- [ ] food game loop
-    - [ ] Plant growth (photosynthesis + respiration + protein): CO2 + NH3 + H2O + (energy) => Food + O2
-        - no crop species, no crop rotation, just "food"
+    - Eventual modules:
+        * Electrolysis: H2O + Energy -> H2 + O2
+        * Hydrolox Fuel Cell: H2 + O2 -> H2O + Energy (cleaner, but H2 tanks should be a pain)
+        * Methalox Fuel Cell: CH4 + O2 -> H2O + CO2 + Energy (not as nice with the CO2, but no H2)
+        * Chemistry Lab: Has cartridges for specific processes:
+            * Sabatier: CO2 + H2 -> CH4 + H2O
+            * Methane Pyrolysis: CH4 -> C, H2
+            * CO2 Scrubbing: CaO + CO2 -> CaCO3
+            * Haber Bosch: N2 + H2 -> NH3
+        * Smelter does a bunch of refinements:
+            * TiO2 + Energy -> Ti O2
+            * Al2O3 + Energy -> Al + O2
+            * SiO2 + Energy -> Si + O2
+            * CaCO3 + Energy -> CaO + CO2
+        * Greenhouse: CO2 + H2O + Energy -> Food + O2 (composes maybe too well with methalox fuel cell?)
 - [ ] Misc stuff
     - [ ] timeline zoom (maybe by dragging the baseline?)
     - [ ] mission planner
     - [ ] allow aero capture when payload has heat shield and player has atmospheric instrument readings
+    - [ ] heat management
     - [ ] atmospheric harvesting
         * get H2 from gas giants, NH3 from ice giants, CO2 from venus-worlds
     - [ ] boiloff for cryo fuels, cooling systems which add weight and take power, tradeoff between cryogenics and hypergolic fuels.

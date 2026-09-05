@@ -27,12 +27,13 @@ use crate::{
     astro::{epoch::EphemerisTime, maneuver::sphere_of_influence, state::State, units::SUN_MU},
     components::{
         craft::{replace_line_path, spawn_orbiting_craft, AssociatedEntity, Command, Stage},
-        factory::Factory,
+        factory::{cost_status, projected_completion, Factory},
         inventory::PartInventory,
         parts::PartRegistry,
         station::{
-            station_charge_at, station_net_kw, station_r_au, station_resource_mass_flow,
-            tank_resource_mass, Resource, SolarPanel, Station, StationModule, Tank,
+            station_charge_at, station_net_kw, station_projected_kw, station_r_au,
+            station_resource_mass_flow, take_resource, tank_resource_mass, Resource, SolarPanel,
+            Station, StationModule, Tank,
         },
         tile::{SurfaceTile, TileMap, TileSets},
     },
@@ -77,6 +78,8 @@ pub const QUAD_XY_DATA: &[u8] = include_bytes!("../../res/quad-xy.obj");
 pub const UV_DATA: &[u8] = include_bytes!("../../res/uv-sphere.obj");
 pub const CONE_DATA: &[u8] = include_bytes!("../../res/cone.obj");
 pub const CUBE_DATA: &[u8] = include_bytes!("../../res/cube.obj");
+
+const MAX_TURN_DURATION_DAYS: f64 = 30.0;
 
 /// Struct that contains info about the game state
 pub struct Gameplay {
@@ -313,6 +316,7 @@ impl Scene for Gameplay {
             .update(&self.world, &self.parts, self.current_et.get(), app)
         {
             let mut factory = self.world.get::<&mut Factory>(fabricator).unwrap();
+            self.marks_version += 1;
             factory.pending_job = Some(part_id)
         }
 
@@ -388,7 +392,7 @@ impl Scene for Gameplay {
                         self.world
                             .get::<&mut Factory>(factory_entity)
                             .unwrap()
-                            .start_job(part_id, self.current_et.get(), &self.parts)
+                            .start_job(part_id, self.current_et.get(), 1.0)
                             .expect("you wouldnt give a fake part would you");
                     }
                     CommandMessages::OpenVab => {
@@ -415,19 +419,28 @@ impl Scene for Gameplay {
                 match msg {
                     TurnMessages::NextTurn => {
                         if !self.is_animating() {
+                            self.commit_pending_builds(self.current_et.get());
                             self.schedule_events();
+
                             // Handle any events already at the current time before advancing
                             let due_now = self.event_queue.pop_due(self.current_et.get());
                             for event in due_now {
                                 self.handle_event(event, app);
                             }
-                            if let Some((&next_event_time, _)) =
-                                self.event_queue.events.iter().next()
-                            {
-                                self.animation_start_et = self.current_et.get();
-                                self.animation_target_et = next_event_time;
-                                self.animation_start_real = app.seconds as f64;
-                            }
+
+                            let now = self.current_et.get();
+                            let cap = now + EphemerisTime::from_days(MAX_TURN_DURATION_DAYS);
+                            let target = self
+                                .event_queue
+                                .events
+                                .keys()
+                                .next()
+                                .copied()
+                                .map_or(cap, |t| t.min(cap));
+
+                            self.animation_start_et = now;
+                            self.animation_target_et = target;
+                            self.animation_start_real = app.seconds as f64;
                         }
                     }
                 }
@@ -436,7 +449,7 @@ impl Scene for Gameplay {
 
         if self.is_animating() {
             let days = (self.animation_target_et - self.animation_start_et).as_days();
-            let turn_time = (0.5 + 1.7 * (days + 1.0).log10()).clamp(0.6, 2.5);
+            let turn_time = 0.5 + 2.0 * (days + 1.0).log10();
             let t = ((app.seconds as f64 - self.animation_start_real) / turn_time).min(1.0);
             let eased = 1.0 - (1.0 - t).powi(3);
 
@@ -463,7 +476,6 @@ impl Scene for Gameplay {
         }
         self.turn_button_enabled.set(!self.is_animating());
 
-        self.control(app);
         self.orbit_system();
         self.landed_system();
         self.select_system();
@@ -471,6 +483,7 @@ impl Scene for Gameplay {
         self.lerp_factory_progress();
         if !modal_open {
             self.hovered = None;
+            self.control(app);
             self.mouse_hover_system(app, false);
             self.tile_select_system(app);
             self.mouse_hover_system(app, true);
@@ -871,10 +884,11 @@ impl Gameplay {
                 bodies.push(moon_entity);
             }
 
-            if system.moons.len() > most_moons {
+            // Put us around the warmest third moon
+            if system.moons.len() >= 3 && most_moons == 0 {
                 starter_planet = body_id;
                 most_moons = system.moons.len();
-                avg_moon_dist = total_moon_dist / most_moons as f64;
+                avg_moon_dist = system.moons[2].1.r.norm();
             }
         }
 
@@ -898,7 +912,7 @@ impl Gameplay {
             State::from_kepler(
                 avg_moon_dist,
                 0.2,
-                0.15,
+                0.0,
                 1.5,
                 0.15,
                 0.15,
@@ -966,6 +980,7 @@ impl Gameplay {
             Factory {
                 current_job: None,
                 pending_job: None,
+                power_kw: 5.0,
             },
             Parent { id: station },
         ));
@@ -977,11 +992,7 @@ impl Gameplay {
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         app.renderer.set_font(font);
 
-        let mut event_queue = EventQueue::new();
-        event_queue.push(
-            EphemerisTime::epoch() + EphemerisTime::from_days(9.0),
-            Event::Background,
-        );
+        let event_queue = EventQueue::new();
 
         let mut retval = Self {
             world,
@@ -1642,7 +1653,7 @@ impl Gameplay {
                     return;
                 };
 
-                let p = station_net_kw(world, station);
+                let p = station_projected_kw(world, station);
                 let q = station_charge_at(world, station, et.get());
 
                 if p != last_p.get() || q != last_q.get() {
@@ -1865,6 +1876,61 @@ impl Gameplay {
             .map(|s| s.modules_gen)
             .unwrap_or(0);
         Some((sel, gen))
+    }
+
+    fn commit_pending_builds(&self, now: EphemerisTime) {
+        // Collect the factories
+        let pending: Vec<(Entity, u64)> = self
+            .world
+            .query::<&Factory>()
+            .iter()
+            .filter_map(|(e, f)| f.pending_job.map(|id| (e, id)))
+            .collect();
+
+        for (fab, part_id) in pending {
+            let station = self.world.get::<&Parent>(fab).unwrap().id;
+            let cost = &self.parts.get(part_id).unwrap().cost;
+
+            // Commit the parts subtraction
+            {
+                let mut inv = self.world.get::<&mut PartInventory>(station).unwrap();
+                for (id, n) in &cost.parts {
+                    for _ in 0..*n {
+                        inv.take(*id).unwrap();
+                    }
+                }
+            }
+
+            // Commit the resources subtraction
+            for (r, amount) in &cost.resources {
+                take_resource(&self.world, station, *r, *amount, now);
+            }
+
+            let build_time_days = {
+                let f = self.world.get::<&mut Factory>(fab).unwrap();
+                cost.energy_kwh / f.power_kw / 24.0
+            };
+
+            // Commit at the old rate, before the hob changes it.
+            self.commit_charge(station, now);
+
+            {
+                let mut f = self.world.get::<&mut Factory>(fab).unwrap();
+                f.start_job(part_id, now, build_time_days).unwrap();
+                f.pending_job = None;
+            }
+
+            // update for module ui
+            self.world.get::<&mut Station>(station).unwrap().modules_gen += 1;
+        }
+    }
+
+    /// Call this each time the station's net power changes
+    fn commit_charge(&self, station: Entity, now: EphemerisTime) {
+        let q = station_charge_at(&self.world, station, now);
+        let mut s = self.world.get::<&mut Station>(station).unwrap();
+        s.charge_kwh = q;
+        s.charge_et = now;
     }
 
     fn schedule_events(&mut self) {
@@ -2226,17 +2292,12 @@ impl Gameplay {
                 let mut part_inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
                 part_inventory.add(part_id, 1);
 
+                self.commit_charge(parent, self.current_et.get());
+
                 // clear job so that factory becomes idle
                 if let Ok(mut f) = self.world.get::<&mut Factory>(factory) {
                     f.current_job = None;
                 }
-            }
-            Event::Background => {
-                // Schedule the next quarterly payout
-                self.event_queue.push(
-                    self.current_et.get() + EphemerisTime::from_days(9.0),
-                    Event::Background,
-                );
             }
         }
     }
@@ -2335,7 +2396,8 @@ impl Gameplay {
     }
 
     fn build_marks(&self) -> Vec<TimelineMark> {
-        self.event_queue
+        let mut marks: Vec<TimelineMark> = self
+            .event_queue
             .events
             .iter()
             .flat_map(|(et, events)| {
@@ -2348,7 +2410,23 @@ impl Gameplay {
                     })
                 })
             })
-            .collect()
+            .collect();
+        for (fab, (_, parent, f)) in self
+            .world
+            .query::<(&StationModule, &Parent, &Factory)>()
+            .iter()
+        {
+            let Some(part_id) = f.pending_job else {
+                continue;
+            };
+            marks.push(TimelineMark {
+                t: projected_completion(&self.world, fab, &self.parts, self.current_et.get())
+                    .unwrap(),
+                kind: MarkKind::FactoryComplete,
+                craft_name: String::from("yup"),
+            })
+        }
+        marks
     }
 
     fn craft_name_from_event(&self, event: &Event) -> String {
@@ -2362,9 +2440,7 @@ impl Gameplay {
             }
 
             // No real craft name
-            Event::CompleteCommand { .. } | Event::FactoryComplete { .. } | Event::Background => {
-                String::from("")
-            }
+            Event::CompleteCommand { .. } | Event::FactoryComplete { .. } => String::from(""),
         }
     }
 

@@ -11,7 +11,7 @@ impl PartInventory {
     }
 
     pub fn quantity(&self, part_id: u64) -> u32 {
-        self.parts[&part_id]
+        self.parts.get(&part_id).copied().unwrap_or(0)
     }
 
     pub fn take(&mut self, part_id: u64) -> Result<(), String> {

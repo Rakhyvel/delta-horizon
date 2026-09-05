@@ -15,7 +15,7 @@ use crate::{
     },
     container,
     ui::{
-        container::Container,
+        container::{Align, Container},
         hrule::HRule,
         label::Label,
         modal::Modal,
@@ -93,8 +93,10 @@ impl FabricatorUi {
         t: EphemerisTime,
         app: &App,
     ) {
-        let font = app.renderer.get_font_id_from_name("font").unwrap();
-        let font_big: FontId = app.renderer.get_font_id_from_name("font-big").unwrap();
+        let font_small_bold: FontId = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
 
         self.fabricator = Some(fabricator);
 
@@ -109,7 +111,7 @@ impl FabricatorUi {
 
         let mut cards: Vec<Box<dyn Widget<FabricatorMessages>>> = Vec::new();
         for part in parts {
-            let lines = cost_status(world, station, &part.cost, t);
+            let lines = cost_status(world, station, &part.cost, registry, t);
             cards.push(Box::new(
                 self.build_card(part, &lines, registry, pending, app),
             ));
@@ -118,10 +120,28 @@ impl FabricatorUi {
         const CARD_W: f32 = 300.0;
         const HEIGHT: f32 = 400.0;
 
-        self.modal = Modal::new(Box::new(ScrollContainer::new(
-            vec2(CARD_W + 16.0, HEIGHT),
-            Box::new(Container::new(cards)),
-        )))
+        let close = TextButton::new(Rectangle::new(0.0, 0.0, CARD_W, 30.0), "Close")
+            .use_style(&STYLE)
+            .on_click(FabricatorMessages::Close);
+
+        let children: Vec<Box<dyn Widget<FabricatorMessages>>> = vec![
+            Box::new(Label::new("FABRICATOR").font(font_small_bold, app)),
+            Box::new(HRule::new(STYLE.border_primary, 1.0, CARD_W)),
+            Box::new(ScrollContainer::new(
+                vec2(CARD_W, HEIGHT),
+                Box::new(Container::new(cards).padding(Vec2::zeros()).gap(8.0)),
+            )),
+            Box::new(HRule::new(STYLE.border_primary, 1.0, CARD_W)),
+            Box::new(close),
+        ];
+
+        self.modal = Modal::new(Box::new(
+            Container::new(children)
+                .cross_align(Align::Center)
+                .background_color(STYLE.bg_primary)
+                .border(STYLE.border_primary, 1.0)
+                .padding(vec2(8.0, 8.0)),
+        ))
         .shown(true);
         self.modal.reposition(app);
     }
@@ -173,15 +193,10 @@ impl FabricatorUi {
                         .get(part_id)
                         .map(|p| p.name.as_str())
                         .unwrap_or("???");
-                    format!("{:.0}x {} (have {:.0})", name, line.need, line.have)
+                    format!("{:.0}x {}", line.need, name)
                 }
                 crate::components::factory::CostKind::Resource(r) => {
-                    format!(
-                        "{:.0} kg {} (have {:.0})",
-                        line.need,
-                        r.long_name(),
-                        line.have
-                    )
+                    format!("{:.0} kg {}", line.need, r.long_name())
                 }
             };
             widgets.push(Box::new(Label::new(text).font(font, app).color(

@@ -10,7 +10,7 @@ energy_kwh = 100000.0
 id = "metal"
 name = "Metal"
 desc = "Boring hunk of metal."
-dry_mass_kg = 100.0
+dry_mass_kg = 900.0
 inputs = {} # TODO: Ilmetite ore
-resources = {}
-energy_kwh = 300.0 # way too little but just go with it
+resources = {water = 10.0}
+energy_kwh = 350.0 # way too little but just go with it

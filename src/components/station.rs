@@ -3,7 +3,7 @@ use hecs::{Entity, World};
 
 use crate::{
     astro::{epoch::EphemerisTime, units::EARTH_RADII_PER_AU},
-    components::body::Parent,
+    components::{body::Parent, factory::Factory},
 };
 
 pub struct Station {
@@ -43,8 +43,24 @@ pub fn station_net_kw(world: &World, station: Entity) -> f32 {
         }
     }
 
-    // TODO: subtract consumers
+    // Subtract consumers
+    for (_, (_, parent, fab)) in world.query::<(&StationModule, &Parent, &Factory)>().iter() {
+        if parent.id == station && fab.current_job.is_some() {
+            kw -= fab.power_kw;
+        }
+    }
 
+    kw
+}
+
+/// Net power of the station, in kW, as changes are made for a turn
+pub fn station_projected_kw(world: &World, station: Entity) -> f32 {
+    let mut kw = station_net_kw(world, station);
+    for (_, (_, parent, fab)) in world.query::<(&StationModule, &Parent, &Factory)>().iter() {
+        if parent.id == station && fab.current_job.is_none() && fab.pending_job.is_some() {
+            kw -= fab.power_kw;
+        }
+    }
     kw
 }
 
@@ -87,7 +103,7 @@ pub fn tank_resource_mass(world: &World, module: Entity, t: EphemerisTime) -> f3
     let mut q = world.query::<(&StationModule, &Parent, &Tank)>();
     for (_, (_, parent, other_tank)) in q.iter() {
         if parent.id == station && other_tank.resource == tank.resource {
-            capacity += tank.capacity_kg;
+            capacity += other_tank.capacity_kg;
         }
     }
 
@@ -122,6 +138,32 @@ pub fn station_resource_totals(
     }
 
     (stored, capacity)
+}
+
+pub fn take_resource(world: &World, station: Entity, r: Resource, amount: f32, now: EphemerisTime) {
+    let modules: Vec<Entity> = world
+        .query::<(&StationModule, &Parent, &Tank)>()
+        .iter()
+        .filter(|(_, (_, p, t))| p.id == station && t.resource == r)
+        .map(|(e, _)| e)
+        .collect();
+
+    // Freeze each tank's mass at `now`
+    let masses: Vec<f32> = modules
+        .iter()
+        .map(|m| tank_resource_mass(world, *m, now))
+        .collect();
+    let total: f32 = masses.iter().sum();
+    if total <= 0.0 {
+        return;
+    }
+
+    // draw down proportionally to what each holds
+    for (m, mass) in modules.iter().zip(masses) {
+        let mut t = world.get::<&mut Tank>(*m).unwrap();
+        t.mass_kg = mass - amount * mass / total;
+        t.mass_et = now;
+    }
 }
 
 /// Joins a module to a station
