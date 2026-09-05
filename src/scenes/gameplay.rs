@@ -27,13 +27,12 @@ use crate::{
     astro::{epoch::EphemerisTime, maneuver::sphere_of_influence, state::State, units::SUN_MU},
     components::{
         craft::{replace_line_path, spawn_orbiting_craft, AssociatedEntity, Command, Stage},
-        factory::{cost_status, projected_completion, Factory},
+        factory::{projected_completion, Factory},
         inventory::PartInventory,
         parts::PartRegistry,
         station::{
-            station_charge_at, station_net_kw, station_projected_kw, station_r_au,
-            station_resource_mass_flow, take_resource, tank_resource_mass, Resource, SolarPanel,
-            Station, StationModule, Tank,
+            station_charge_at, station_projected_kw, station_r_au, station_resource_mass_flow,
+            take_resource, tank_resource_mass, Resource, SolarPanel, Station, StationModule, Tank,
         },
         tile::{SurfaceTile, TileMap, TileSets},
     },
@@ -113,7 +112,7 @@ pub struct Gameplay {
 
     turn_gui: Anchor<TurnMessages>,
     gui: Anchor<CommandMessages>,
-    gui_built_for: Option<(Entity, u32)>,
+    gui_built_for: Option<(Entity, u32, u64)>,
     gui_built_window: I32Vec2,
     gui_bindings: Vec<Binding>,
     fabricator_ui: FabricatorUi,
@@ -146,6 +145,9 @@ enum TurnMessages {
 #[derive(Clone)]
 pub enum CommandMessages {
     OpenFabricator {
+        fabricator_entity: Entity,
+    },
+    CancelQueuedFabricator {
         fabricator_entity: Entity,
     },
     #[allow(unused)]
@@ -384,6 +386,11 @@ impl Scene for Gameplay {
                             self.current_et.get(),
                             app,
                         );
+                    }
+                    CommandMessages::CancelQueuedFabricator { fabricator_entity } => {
+                        let mut factory =
+                            self.world.get::<&mut Factory>(fabricator_entity).unwrap();
+                        factory.pending_job = None;
                     }
                     CommandMessages::FactoryCommand {
                         part_id,
@@ -862,11 +869,8 @@ impl Gameplay {
             let body_id = bodies.len();
             bodies.push(planet_entity);
 
-            let mut total_moon_dist = 0.0;
-
             for moon in &system.moons {
                 let name = lexicon.generate_word(10);
-                total_moon_dist += moon.1.r.norm();
                 println!("Moon: {}", name);
                 let moon_entity = spawn_body(
                     moon.0,
@@ -1844,38 +1848,105 @@ impl Gameplay {
             .renderer
             .get_font_id_from_name("font-small-bold")
             .unwrap();
-        let _font = app.renderer.get_font_id_from_name("font").unwrap();
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
 
         let mut out = Section::default();
 
-        let parent = self.world.get::<&Parent>(module).unwrap().id;
-        let inventory = self.world.get::<&PartInventory>(parent).unwrap();
+        let factory = self.world.get::<&Factory>(module).unwrap();
+        let progress = Rc::new(Cell::new(0.0));
 
         out.push(Label::new(String::from("FABRICATOR")).font(font_small_bold, app));
-        out.push(
-            TextButton::<CommandMessages>::new(
-                Rectangle::new(0.0, 0.0, WIDTH - 8.0 * 2.0, 30.0),
-                "Build...",
-            )
-            .use_style_accented(&STYLE)
-            .on_click(CommandMessages::OpenFabricator {
-                fabricator_entity: module,
-            }),
-        );
+
+        if let Some(job) = &factory.current_job {
+            let part_name = &self.parts.get(job.part_id).unwrap().name;
+
+            out.push(Label::new(format!("Building {}", part_name)).font(font, app));
+            out.push(
+                ProgressBar::new(vec2(WIDTH - 8.0 * 2.0, 12.0))
+                    .background_color(STYLE.bg_primary)
+                    .fill_color(STYLE.accent)
+                    .border(STYLE.border_primary, 1.0)
+                    .bind(progress.clone()),
+            );
+            out.push(
+                Label::new(format!("Ready {}", job.completion_et.as_calendar())).font(font, app),
+            );
+            out.bindings.push(Binding::new({
+                let current_et = self.current_et.clone();
+                move |world: &World| {
+                    let factory = world.get::<&Factory>(module).unwrap();
+                    progress.set(
+                        factory
+                            .current_job
+                            .as_ref()
+                            .unwrap()
+                            .progress(current_et.get()) as f32,
+                    );
+                }
+            }))
+        } else if let Some(part_id) = factory.pending_job {
+            let part = self.parts.get(part_id).unwrap();
+
+            let build_time_days = part.cost.energy_kwh / factory.power_kw / 24.0;
+            let completion =
+                self.current_et.get() + EphemerisTime::from_years(build_time_days as f64 / 365.0);
+
+            out.push(Label::new(format!("Queued: {}", part.name)).font(font, app));
+            out.push(Label::new(format!("Ready {}", completion.as_calendar())).font(font, app));
+            out.push(
+                TextButton::<CommandMessages>::new(
+                    Rectangle::new(0.0, 0.0, WIDTH - 8.0 * 2.0, 30.0),
+                    "Cancel",
+                )
+                .use_style(&STYLE)
+                .on_click(CommandMessages::CancelQueuedFabricator {
+                    fabricator_entity: module,
+                }),
+            );
+        } else {
+            out.push(
+                TextButton::<CommandMessages>::new(
+                    Rectangle::new(0.0, 0.0, WIDTH - 8.0 * 2.0, 30.0),
+                    "Build...",
+                )
+                .use_style_accented(&STYLE)
+                .on_click(CommandMessages::OpenFabricator {
+                    fabricator_entity: module,
+                }),
+            );
+        }
 
         // TODO: If in progress, show the progress. Otherwise, button to open fabricator modal
 
         out
     }
 
-    fn gui_structure_key(&self) -> Option<(Entity, u32)> {
+    fn gui_structure_key(&self) -> Option<(Entity, u32, u64)> {
         let sel = self.selection.selected_entity()?;
         let gen = self
             .world
             .get::<&Station>(sel)
             .map(|s| s.modules_gen)
             .unwrap_or(0);
-        Some((sel, gen))
+
+        // Get job state key
+        let mut jobs = 0u64;
+        for (_, (m, p, f)) in self
+            .world
+            .query::<(&StationModule, &Parent, &Factory)>()
+            .iter()
+        {
+            if p.id == sel {
+                let s = match (&f.current_job, f.pending_job) {
+                    (Some(_), _) => 2,
+                    (None, Some(_)) => 1,
+                    _ => 0,
+                };
+                jobs |= (s as u64) << (m.slot.min(31) * 2);
+            }
+        }
+
+        Some((sel, gen, jobs))
     }
 
     fn commit_pending_builds(&self, now: EphemerisTime) {
@@ -2411,12 +2482,12 @@ impl Gameplay {
                 })
             })
             .collect();
-        for (fab, (_, parent, f)) in self
+        for (fab, (_, _, f)) in self
             .world
             .query::<(&StationModule, &Parent, &Factory)>()
             .iter()
         {
-            let Some(part_id) = f.pending_job else {
+            if f.pending_job.is_none() {
                 continue;
             };
             marks.push(TimelineMark {

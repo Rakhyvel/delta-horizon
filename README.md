@@ -25,11 +25,12 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
         x build button
         x commits on Next Turn, not build
         x Energy as a continuous draw
-        * gui_structure_key includes job state
-        * replace build button with progress bar, "Done by ... " text
+        x gui_structure_key includes job state
+        x replace build button with progress bar, "Done by ... " text
         * show inventory
     - [ ] assembly bay module: combines parts into spacecraft
     - [ ] can build new modules (or just start with electrolysis module?)
+    - [ ] force there to be a jupiter-analog
     - [ ] lose the game if the station dies
 - [ ] Science
     - [ ] body rotation, axial tilt
