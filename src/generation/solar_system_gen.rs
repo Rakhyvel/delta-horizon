@@ -110,7 +110,7 @@ pub fn generate() -> Vec<BodySystem> {
     }
 }
 
-fn generate_system(mut rng: &mut impl Rng) -> Vec<BodySystem> {
+fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
     let mut planets: Vec<BodySystem> = vec![];
 
     let mut orbital_radius_au = rng.gen_range(0.1..0.4); // in AU

@@ -11,11 +11,12 @@ use crate::{
     components::{
         body::Parent,
         factory::{cost_status, CostLine, Factory},
+        inventory::PartInventory,
         parts::{PartDef, PartRegistry},
     },
     container,
     ui::{
-        container::{Align, Container},
+        container::{Align, Container, Flow},
         hrule::HRule,
         label::Label,
         modal::Modal,
@@ -25,8 +26,6 @@ use crate::{
         widget::{recv_msgs, Widget},
     },
 };
-
-const WIDTH: f32 = 280.0;
 
 pub struct FabricatorUi {
     modal: Modal<FabricatorMessages>,
@@ -52,13 +51,7 @@ impl FabricatorUi {
         }
     }
 
-    pub fn update(
-        &mut self,
-        world: &World,
-        registry: &PartRegistry,
-        t: EphemerisTime,
-        app: &App,
-    ) -> Option<FabricatorAction> {
+    pub fn update(&mut self, app: &App) -> Option<FabricatorAction> {
         for msg in recv_msgs(app, &mut self.modal) {
             println!("{msg:?}");
             match msg {
@@ -97,10 +90,12 @@ impl FabricatorUi {
             .renderer
             .get_font_id_from_name("font-small-bold")
             .unwrap();
+        let font: FontId = app.renderer.get_font_id_from_name("font").unwrap();
 
         self.fabricator = Some(fabricator);
 
         let station = world.get::<&Parent>(fabricator).unwrap().id;
+        let part_inventory = world.get::<&PartInventory>(station).unwrap();
         let pending = world
             .get::<&Factory>(fabricator)
             .ok()
@@ -117,6 +112,7 @@ impl FabricatorUi {
             ));
         }
 
+        const INVENTROY_W: f32 = 134.0;
         const CARD_W: f32 = 300.0;
         const HEIGHT: f32 = 400.0;
 
@@ -124,13 +120,34 @@ impl FabricatorUi {
             .use_style(&STYLE)
             .on_click(FabricatorMessages::Close);
 
+        let inventory = Box::new(ScrollContainer::new(
+            vec2(INVENTROY_W, HEIGHT),
+            Box::new(
+                Container::new(
+                    registry
+                        .all()
+                        .map(|part| {
+                            let amt = part_inventory.quantity(part.id_hash());
+
+                            Box::new(Label::new(format!("{} x {}", part.name, amt)).font(font, app))
+                                as Box<dyn Widget<FabricatorMessages>>
+                        })
+                        .collect(),
+                )
+                .padding(Vec2::zeros())
+                .gap(8.0),
+            ),
+        ));
+
+        let parts = Box::new(ScrollContainer::new(
+            vec2(CARD_W, HEIGHT),
+            Box::new(Container::new(cards).padding(Vec2::zeros()).gap(8.0)),
+        ));
+
         let children: Vec<Box<dyn Widget<FabricatorMessages>>> = vec![
             Box::new(Label::new("FABRICATOR").font(font_small_bold, app)),
             Box::new(HRule::new(STYLE.border_primary, 1.0, CARD_W)),
-            Box::new(ScrollContainer::new(
-                vec2(CARD_W, HEIGHT),
-                Box::new(Container::new(cards).padding(Vec2::zeros()).gap(8.0)),
-            )),
+            Box::new(Container::new(vec![inventory, parts]).flow(Flow::Horizontal)),
             Box::new(HRule::new(STYLE.border_primary, 1.0, CARD_W)),
             Box::new(close),
         ];

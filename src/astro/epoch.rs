@@ -46,6 +46,7 @@ impl EphemerisTime {
         (self.0 as f64) / ET_PER_HOUR
     }
 
+    #[allow(dead_code)]
     pub fn as_secs(self) -> f64 {
         (self.0 as f64) / ET_PER_SECOND
     }

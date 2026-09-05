@@ -313,9 +313,7 @@ impl Scene for Gameplay {
         if let Some(FabricatorAction {
             fabricator,
             part_id,
-        }) = self
-            .fabricator_ui
-            .update(&self.world, &self.parts, self.current_et.get(), app)
+        }) = self.fabricator_ui.update(app)
         {
             let mut factory = self.world.get::<&mut Factory>(fabricator).unwrap();
             self.marks_version += 1;
