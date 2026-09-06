@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    f32::consts::FRAC_PI_2,
+    f32::consts::{FRAC_PI_2, PI},
     rc::Rc,
 };
 
@@ -63,6 +63,8 @@ pub enum MarkKind {
     Launch,
     Land,
     FactoryComplete,
+    Critical,
+    Good,
 }
 
 impl MarkKind {
@@ -87,6 +89,8 @@ impl MarkKind {
             MarkKind::Land => oklch(MARK_L, MARK_C, 195.0, 1.0),
             MarkKind::SoiChange => oklch(MARK_L, MARK_C, 265.0, 1.0),
             MarkKind::FactoryComplete => oklch(MARK_L, MARK_C, 330.0, 1.0),
+            MarkKind::Critical => oklch(0.6, 0.22, 25.0, 1.0),
+            MarkKind::Good => oklch(MARK_L, MARK_C, 144.0, 1.0),
         }
     }
 
@@ -97,6 +101,8 @@ impl MarkKind {
             MarkKind::Launch => "Launch",
             MarkKind::Land => "Land",
             MarkKind::FactoryComplete => "Part Complete",
+            MarkKind::Critical => "CRITICAL!",
+            MarkKind::Good => "Info",
         }
     }
 
@@ -136,6 +142,20 @@ impl MarkKind {
                     .get_mesh_id_from_name("square-outline")
                     .unwrap(),
                 45.0f32.to_radians(),
+            ),
+            MarkKind::Critical => (
+                // stop-sign
+                app.renderer
+                    .get_mesh_id_from_name("octagon-outline")
+                    .unwrap(),
+                22.5f32.to_radians(),
+            ),
+            MarkKind::Good => (
+                // triangle pointing up
+                app.renderer
+                    .get_mesh_id_from_name("triangle-outline")
+                    .unwrap(),
+                FRAC_PI_2,
             ),
         }
     }

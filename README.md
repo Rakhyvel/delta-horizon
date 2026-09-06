@@ -27,10 +27,10 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
         x Energy as a continuous draw
         x gui_structure_key includes job state
         x replace build button with progress bar, "Done by ... " text
-        * show inventory
-    - [ ] assembly bay module: combines parts into spacecraft
-    - [ ] can build new modules (or just start with electrolysis module?)
+        x show inventory
     - [ ] force there to be a jupiter-analog
+    - [ ] assembly bay module: combines parts into spacecraft
+    - [ ] can build new modules (x or just start with electrolysis module?)
     - [ ] lose the game if the station dies
 - [ ] Science
     - [ ] body rotation, axial tilt
@@ -94,3 +94,4 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
     - [ ] make actual building models, and rotate them to their tile's normal
     - [ ] show more info about stages, their dv, their resources, maybe a little model sprite, in VAB and factory
     - [ ] show how many stages we have in inventory in the factory
+    - [ ] "kernel boot screen" type loading screen, TUI-esque main menu, like you're interfacing with the "Autonomous Colony Management System" that the player is for the game

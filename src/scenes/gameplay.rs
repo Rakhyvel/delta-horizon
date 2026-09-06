@@ -29,10 +29,11 @@ use crate::{
         craft::{replace_line_path, spawn_orbiting_craft, AssociatedEntity, Command, Stage},
         factory::{projected_completion, Factory},
         inventory::PartInventory,
-        parts::PartRegistry,
+        parts::{id_hash, PartRegistry},
         station::{
-            station_charge_at, station_projected_kw, station_r_au, station_resource_mass_flow,
-            take_resource, tank_resource_mass, Resource, SolarPanel, Station, StationModule, Tank,
+            commit_station, next_reservoir_limits, resource_store_amount, station_r_au,
+            station_resource_amount_flow, take_resource, Electrolyzer, Resource, ResourceStore,
+            SolarPanel, Station, StationModule,
         },
         tile::{SurfaceTile, TileMap, TileSets},
     },
@@ -56,6 +57,7 @@ use crate::{
         style::STYLE,
         text_button::TextButton,
         timeline::{MarkKind, Timeline, TimelineMark},
+        toggle::Toggle,
     },
 };
 
@@ -124,7 +126,7 @@ pub struct Gameplay {
     turn_progress: Rc<Cell<f32>>,
     calendar_string: Rc<RefCell<String>>,
     marks: Rc<RefCell<Vec<TimelineMark>>>,
-    marks_version: u64,
+    marks_key: (u64, u64),
 
     // Events and timeline
     event_queue: EventQueue,
@@ -149,6 +151,9 @@ pub enum CommandMessages {
     },
     CancelQueuedFabricator {
         fabricator_entity: Entity,
+    },
+    ToggleElectrolyzer {
+        electrolyzer_entity: Entity,
     },
     #[allow(unused)]
     FactoryCommand {
@@ -316,7 +321,6 @@ impl Scene for Gameplay {
         }) = self.fabricator_ui.update(app)
         {
             let mut factory = self.world.get::<&mut Factory>(fabricator).unwrap();
-            self.marks_version += 1;
             factory.pending_job = Some(part_id)
         }
 
@@ -390,6 +394,15 @@ impl Scene for Gameplay {
                             self.world.get::<&mut Factory>(fabricator_entity).unwrap();
                         factory.pending_job = None;
                     }
+                    CommandMessages::ToggleElectrolyzer {
+                        electrolyzer_entity,
+                    } => {
+                        let mut electrolyzer = self
+                            .world
+                            .get::<&mut Electrolyzer>(electrolyzer_entity)
+                            .unwrap();
+                        electrolyzer.enabled = !electrolyzer.enabled;
+                    }
                     CommandMessages::FactoryCommand {
                         part_id,
                         factory_entity,
@@ -425,6 +438,7 @@ impl Scene for Gameplay {
                     TurnMessages::NextTurn => {
                         if !self.is_animating() {
                             self.commit_pending_builds(self.current_et.get());
+                            self.commit_station();
                             self.schedule_events();
 
                             // Handle any events already at the current time before advancing
@@ -435,13 +449,14 @@ impl Scene for Gameplay {
 
                             let now = self.current_et.get();
                             let cap = now + EphemerisTime::from_days(MAX_TURN_DURATION_DAYS);
-                            let target = self
-                                .event_queue
-                                .events
-                                .keys()
-                                .next()
-                                .copied()
-                                .map_or(cap, |t| t.min(cap));
+                            let next_event = self.event_queue.events.keys().next().copied();
+                            let next_limit = self.next_station_limit(now);
+
+                            let target = [Some(cap), next_event, next_limit]
+                                .into_iter()
+                                .flatten()
+                                .min()
+                                .unwrap();
 
                             self.animation_start_et = now;
                             self.animation_target_et = target;
@@ -496,8 +511,9 @@ impl Scene for Gameplay {
         self.sync_selected_tile(app);
         self.line_path_system(app);
         self.sync_models(app);
-        if self.event_queue.version() != self.marks_version {
-            self.marks_version = self.event_queue.version();
+        let key = (self.event_queue.version(), self.job_state_bits());
+        if key != self.marks_key {
+            self.marks_key = key;
             *self.marks.borrow_mut() = self.build_marks();
         }
         self.sync_panel(app);
@@ -752,6 +768,8 @@ impl Gameplay {
             "square-outline",
             "pentagon-outline",
             "hexagon-outline",
+            "septagon-outline",
+            "octagon-outline",
         ]
         .iter()
         .enumerate()
@@ -887,10 +905,10 @@ impl Gameplay {
             }
 
             // Put us around the warmest third moon
-            if system.moons.len() >= 3 && most_moons == 0 {
+            if system.moons.len() >= 1 && most_moons == 0 {
                 starter_planet = body_id;
                 most_moons = system.moons.len();
-                avg_moon_dist = system.moons[2].1.r.norm();
+                avg_moon_dist = system.moons[0].1.r.norm();
             }
         }
 
@@ -925,64 +943,85 @@ impl Gameplay {
             &app.renderer,
             &mut bvh,
         );
+
+        let mut starting_inventory = PartInventory {
+            parts: HashMap::new(),
+        };
+
+        starting_inventory.add(id_hash("ilmenite"), 8);
+
         world
             .insert(
                 station,
                 (
                     Station {
-                        charge_kwh: 120.0,
-                        capacity_kwh: 500.0,
-                        charge_et: EphemerisTime::epoch(),
                         num_crew: 6,
                         modules_gen: 0,
                     },
-                    PartInventory {
-                        parts: HashMap::new(),
-                    },
+                    starting_inventory,
                 ),
             )
             .unwrap();
         world.spawn((
             StationModule { slot: 0 },
-            SolarPanel { rated_kw: 100.0 },
-            Parent { id: station },
-        ));
-        world.spawn((
-            StationModule { slot: 1 },
-            Tank {
-                capacity_kg: 3800.0,
-                mass_kg: 3800.0,
-                mass_et: EphemerisTime::epoch(),
-                resource: Resource::Water,
+            ResourceStore {
+                resource: Resource::Energy,
+                amount: 4.32e8,
+                capacity: 1.8e9,
+                amount_et: EphemerisTime::epoch(),
             },
             Parent { id: station },
         ));
         world.spawn((
+            StationModule { slot: 1 },
+            SolarPanel { rated_w: 100_000.0 },
+            Parent { id: station },
+        ));
+        world.spawn((
             StationModule { slot: 2 },
-            Tank {
-                capacity_kg: 70.0,
-                mass_kg: 70.0,
-                mass_et: EphemerisTime::epoch(),
-                resource: Resource::Oxygen,
+            ResourceStore {
+                resource: Resource::Water,
+                amount: 3800.0,
+                capacity: 3800.0,
+                amount_et: EphemerisTime::epoch(),
             },
             Parent { id: station },
         ));
         world.spawn((
             StationModule { slot: 3 },
-            Tank {
-                capacity_kg: 1000.0,
-                mass_kg: 0.0,
-                mass_et: EphemerisTime::epoch(),
-                resource: Resource::Hydrogen,
+            ResourceStore {
+                resource: Resource::Oxygen,
+                amount: 600.0,
+                capacity: 600.0,
+                amount_et: EphemerisTime::epoch(),
             },
             Parent { id: station },
         ));
         world.spawn((
             StationModule { slot: 4 },
+            ResourceStore {
+                resource: Resource::Hydrogen,
+                amount: 0.0,
+                capacity: 100.0,
+                amount_et: EphemerisTime::epoch(),
+            },
+            Parent { id: station },
+        ));
+        world.spawn((
+            StationModule { slot: 5 },
             Factory {
                 current_job: None,
                 pending_job: None,
-                power_kw: 5.0,
+                power_watts: 5000.0,
+            },
+            Parent { id: station },
+        ));
+        world.spawn((
+            StationModule { slot: 6 },
+            Electrolyzer {
+                enabled: true,
+                power_watts: 5_000.0,
+                joules_per_kg_water: 2.52e7,
             },
             Parent { id: station },
         ));
@@ -1058,7 +1097,7 @@ impl Gameplay {
             turn_progress: Rc::new(Cell::new(0.0)),
             calendar_string: Rc::new(RefCell::new(String::new())),
             marks: Rc::new(RefCell::new(vec![])),
-            marks_version: event_queue.version(),
+            marks_key: (event_queue.version(), 0),
 
             current_et: Rc::new(Cell::new(EphemerisTime::epoch())),
             animation_start_et: EphemerisTime::epoch(),
@@ -1623,65 +1662,7 @@ impl Gameplay {
         out.push(Label::new(name).font(font_big, app));
         out.push(HRule::new(STYLE.border_primary, 1.0, WIDTH));
 
-        // Station info
-        let charge = Rc::new(RefCell::new(String::new()));
-        let charge_percentage = Rc::new(Cell::new(0.0));
-        let time_to_zero = Rc::new(RefCell::new(String::new()));
-        let et = self.current_et.clone();
-        out.push(
-            Label::bound(charge.clone())
-                .font(font, app)
-                .color(STYLE.text_primary),
-        );
-        out.push(
-            ProgressBar::new(vec2(WIDTH, 12.0))
-                .background_color(STYLE.bg_primary)
-                .fill_color(STYLE.accent)
-                .border(STYLE.border_primary, 1.0)
-                .bind(charge_percentage.clone()),
-        );
-        out.push(
-            Label::bound(time_to_zero.clone())
-                .font(font, app)
-                .color(STYLE.text_primary),
-        );
-
-        out.bindings.push(Binding::new({
-            let charge = charge.clone();
-            let last_p = Cell::new(f32::NAN);
-            let last_q = Cell::new(f32::NAN);
-            move |world: &World| {
-                let Ok(s) = world.get::<&Station>(station) else {
-                    return;
-                };
-
-                let p = station_projected_kw(world, station);
-                let q = station_charge_at(world, station, et.get());
-
-                if p != last_p.get() || q != last_q.get() {
-                    last_p.set(p);
-                    last_q.set(q);
-                    *charge.borrow_mut() =
-                        format!("Charge: {:.0}/{:.0} kWh ({:+.2} kW)", q, s.capacity_kwh, p);
-                    charge_percentage.set(q / s.capacity_kwh);
-
-                    if q == 0.0 {
-                        *time_to_zero.borrow_mut() = String::from("Empty");
-                    } else if p < 0.0 {
-                        *time_to_zero.borrow_mut() =
-                            format!("{:.1} days until empty", q / -p / 24.0);
-                    } else if p > 0.0 && q < s.capacity_kwh {
-                        *time_to_zero.borrow_mut() =
-                            format!("{:.1} days until full", (s.capacity_kwh - q) / p / 24.0);
-                    } else {
-                        *time_to_zero.borrow_mut() = String::from("Full");
-                    }
-                }
-            }
-        }));
-
-        // All the modules now
-        out.push(HRule::new(STYLE.border_primary, 1.0, WIDTH));
+        // List of all the modules
         out.push(Label::new("MODULES").font(font_small_bold, app));
         out.merge(self.module_list(station, app));
 
@@ -1714,10 +1695,12 @@ impl Gameplay {
 
         if self.world.get::<&SolarPanel>(module).is_ok() {
             return self.solar_panel_section(module, app);
-        } else if self.world.get::<&Tank>(module).is_ok() {
-            return self.tank_section(module, app);
+        } else if self.world.get::<&ResourceStore>(module).is_ok() {
+            return self.resource_store_section(module, app);
         } else if self.world.get::<&Factory>(module).is_ok() {
             return self.fabricator_section(module, app);
+        } else if self.world.get::<&Electrolyzer>(module).is_ok() {
+            return self.electrolyzer_section(module, app);
         }
 
         let mut out = Section::default();
@@ -1747,7 +1730,7 @@ impl Gameplay {
                 let Ok(panel) = world.get::<&SolarPanel>(module) else {
                     return;
                 };
-                let kw = panel.output_kw(r_au);
+                let kw = panel.output_w(r_au) * Resource::Energy.presentation_scalars().1;
                 if kw != last.get() {
                     last.set(kw);
                     *text.borrow_mut() = format!("{kw:+.2} kW")
@@ -1758,7 +1741,7 @@ impl Gameplay {
         out
     }
 
-    fn tank_section(&self, module: Entity, app: &App) -> Section {
+    fn resource_store_section(&self, module: Entity, app: &App) -> Section {
         const WIDTH: f32 = 280.0;
         let font_small_bold = app
             .renderer
@@ -1769,10 +1752,10 @@ impl Gameplay {
         let mut out = Section::default();
 
         // Tank info
-        let tank = self.world.get::<&Tank>(module).unwrap();
+        let tank = self.world.get::<&ResourceStore>(module).unwrap();
 
         out.push(
-            Label::new(format!("{} TANK", tank.resource.long_name().to_uppercase()))
+            Label::new(tank.resource.long_name().to_uppercase().to_string())
                 .font(font_small_bold, app),
         );
 
@@ -1805,34 +1788,52 @@ impl Gameplay {
             let last_mdot = Cell::new(f32::NAN);
             move |world: &World| {
                 let station = world.get::<&Parent>(module).unwrap().id;
-                let Ok(t) = world.get::<&Tank>(module) else {
+                let Ok(t) = world.get::<&ResourceStore>(module) else {
                     return;
                 };
 
-                let m = tank_resource_mass(world, module, et.get());
-                let mdot = station_resource_mass_flow(world, station, t.resource);
+                let amount = resource_store_amount(world, module, et.get());
+                let rate = station_resource_amount_flow(world, station, t.resource, et.get(), true);
+
+                let days = if rate < 0.0 {
+                    Some(amount / -rate / 86400.0)
+                } else if rate > 0.0 && amount < t.capacity {
+                    Some((t.capacity - amount) / rate / 86400.0)
+                } else {
+                    None
+                };
+
+                let (unit, dunit) = t.resource.presentation_units();
+                let (scale, dscale) = t.resource.presentation_scalars();
+
+                let m = amount * scale;
+                let mdot = rate * dscale;
+                let capacity = t.capacity * scale;
 
                 if m != last_m.get() || mdot != last_mdot.get() {
                     last_m.set(m);
                     last_mdot.set(mdot);
                     *mass.borrow_mut() = format!(
-                        "{}: {:.0}/{:.0} kg ({:+.2} kg/day)",
+                        "{}: {:.0}/{:.0} {} ({:+.2} {})",
                         t.resource.short_name(),
                         m,
-                        t.capacity_kg,
-                        mdot
+                        capacity,
+                        unit,
+                        mdot,
+                        dunit
                     );
-                    mass_percentage.set(m / t.capacity_kg);
-                    if m == 0.0 {
-                        *time_to_zero.borrow_mut() = String::from("Empty");
-                    } else if mdot < 0.0 {
-                        *time_to_zero.borrow_mut() = format!("{:.1} days until empty", -m / mdot);
-                    } else if mdot > 0.0 && m < t.capacity_kg {
-                        *time_to_zero.borrow_mut() =
-                            format!("{:.1} days until full", (t.capacity_kg - m) / mdot);
-                    } else {
-                        *time_to_zero.borrow_mut() = String::from("Full");
-                    }
+                    mass_percentage.set(m / capacity);
+                    *time_to_zero.borrow_mut() = match days {
+                        _ if m == 0.0 => String::from("Empty"),
+                        Some(d) if mdot < 0.0 => format!("{:.1} days until empty", d),
+                        Some(d) if mdot > 0.0 => format!("{:.1} days until full", d),
+                        Some(_) => unreachable!("days shouldnt be Some if mdot is 0.0"),
+                        None if amount >= t.capacity && rate > 0.0 => {
+                            String::from("Full - venting")
+                        }
+                        None if amount >= t.capacity => String::from("Full"),
+                        None => String::from("Stable"),
+                    };
                 }
             }
         }));
@@ -1885,9 +1886,9 @@ impl Gameplay {
         } else if let Some(part_id) = factory.pending_job {
             let part = self.parts.get(part_id).unwrap();
 
-            let build_time_days = part.cost.energy_kwh / factory.power_kw / 24.0;
+            let build_time_secs = part.cost.energy_joules / factory.power_watts;
             let completion =
-                self.current_et.get() + EphemerisTime::from_years(build_time_days as f64 / 365.0);
+                self.current_et.get() + EphemerisTime::from_secs(build_time_secs as f64);
 
             out.push(Label::new(format!("Queued: {}", part.name)).font(font, app));
             out.push(Label::new(format!("Ready {}", completion.as_calendar())).font(font, app));
@@ -1914,7 +1915,46 @@ impl Gameplay {
             );
         }
 
-        // TODO: If in progress, show the progress. Otherwise, button to open fabricator modal
+        out
+    }
+
+    fn electrolyzer_section(&self, module: Entity, app: &App) -> Section {
+        const WIDTH: f32 = 280.0;
+        let font_small_bold = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
+        let font = app.renderer.get_font_id_from_name("font").unwrap();
+
+        let mut out = Section::default();
+
+        let text = Rc::new(RefCell::new(String::new()));
+        let enabled = Rc::new(Cell::new(false));
+
+        out.push(Label::new(String::from("ELECTROLYZER")).font(font_small_bold, app));
+        out.push(
+            Toggle::new("Enabled:")
+                .bind(enabled.clone())
+                .use_style(&STYLE)
+                .on_toggle(CommandMessages::ToggleElectrolyzer {
+                    electrolyzer_entity: module,
+                })
+                .font(font, app),
+        );
+        out.push(Label::bound(text.clone()).font(font, app));
+
+        out.bindings.push(Binding::new({
+            let text = text.clone();
+            let enabled = enabled.clone();
+            move |world: &World| {
+                if let Ok(el) = world.get::<&Electrolyzer>(module) {
+                    enabled.set(el.enabled);
+                    let kw = if el.enabled { -el.power_watts } else { 0.0 }
+                        * Resource::Energy.presentation_scalars().1;
+                    *text.borrow_mut() = format!("Power draw: {kw:+.2} kW")
+                }
+            }
+        }));
 
         out
     }
@@ -1947,6 +1987,22 @@ impl Gameplay {
         Some((sel, gen, jobs))
     }
 
+    fn job_state_bits(&self) -> u64 {
+        let mut h = 0u64;
+        for (e, f) in self.world.query::<&Factory>().iter() {
+            let s = match (&f.current_job, f.pending_job) {
+                (Some(_), _) => 2,
+                (None, Some(_)) => 1,
+                _ => 0,
+            };
+            h ^= (e.id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ s;
+        }
+        for (e, el) in self.world.query::<&Electrolyzer>().iter() {
+            h ^= (e.id() as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F) ^ (el.enabled as u64);
+        }
+        h
+    }
+
     fn commit_pending_builds(&self, now: EphemerisTime) {
         // Collect the factories
         let pending: Vec<(Entity, u64)> = self
@@ -1975,31 +2031,23 @@ impl Gameplay {
                 take_resource(&self.world, station, *r, *amount, now);
             }
 
-            let build_time_days = {
+            let build_time_secs = {
                 let f = self.world.get::<&mut Factory>(fab).unwrap();
-                cost.energy_kwh / f.power_kw / 24.0
+                cost.energy_joules / f.power_watts
             };
 
-            // Commit at the old rate, before the hob changes it.
-            self.commit_charge(station, now);
+            // Commit at the old rate, before the job changes it.
+            commit_station(&self.world, station, now);
 
             {
                 let mut f = self.world.get::<&mut Factory>(fab).unwrap();
-                f.start_job(part_id, now, build_time_days).unwrap();
+                f.start_job(part_id, now, build_time_secs).unwrap();
                 f.pending_job = None;
             }
 
             // update for module ui
             self.world.get::<&mut Station>(station).unwrap().modules_gen += 1;
         }
-    }
-
-    /// Call this each time the station's net power changes
-    fn commit_charge(&self, station: Entity, now: EphemerisTime) {
-        let q = station_charge_at(&self.world, station, now);
-        let mut s = self.world.get::<&mut Station>(station).unwrap();
-        s.charge_kwh = q;
-        s.charge_et = now;
     }
 
     fn schedule_events(&mut self) {
@@ -2361,13 +2409,19 @@ impl Gameplay {
                 let mut part_inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
                 part_inventory.add(part_id, 1);
 
-                self.commit_charge(parent, self.current_et.get());
+                commit_station(&self.world, parent, self.current_et.get());
 
                 // clear job so that factory becomes idle
                 if let Ok(mut f) = self.world.get::<&mut Factory>(factory) {
                     f.current_job = None;
                 }
             }
+        }
+    }
+
+    fn commit_station(&self) {
+        for (station, _) in self.world.query::<&Station>().iter() {
+            commit_station(&self.world, station, self.current_et.get());
         }
     }
 
@@ -2480,6 +2534,7 @@ impl Gameplay {
                 })
             })
             .collect();
+
         for (fab, (_, _, f)) in self
             .world
             .query::<(&StationModule, &Parent, &Factory)>()
@@ -2492,10 +2547,40 @@ impl Gameplay {
                 t: projected_completion(&self.world, fab, &self.parts, self.current_et.get())
                     .unwrap(),
                 kind: MarkKind::FactoryComplete,
-                craft_name: String::from("yup"),
+                craft_name: String::new(),
             })
         }
+
+        for (entity, (_, scene_obj)) in self.world.query::<(&Station, &SceneObject)>().iter() {
+            for (et, resource, rate) in
+                next_reservoir_limits(&self.world, entity, self.current_et.get(), true)
+            {
+                if rate < 0.0 {
+                    marks.push(TimelineMark {
+                        t: et,
+                        kind: MarkKind::Critical,
+                        craft_name: format!("{} {} Depletes", scene_obj.name, resource.long_name()),
+                    })
+                } else {
+                    marks.push(TimelineMark {
+                        t: et,
+                        kind: MarkKind::Good,
+                        craft_name: format!("{} {} Filled", scene_obj.name, resource.long_name()),
+                    })
+                }
+            }
+        }
+
         marks
+    }
+
+    fn next_station_limit(&self, now: EphemerisTime) -> Option<EphemerisTime> {
+        let mut limits = vec![];
+        for (entity, _) in self.world.query::<&Station>().iter() {
+            limits.extend(next_reservoir_limits(&self.world, entity, now, true));
+        }
+
+        limits.first().map(|(et, _, _)| *et)
     }
 
     fn craft_name_from_event(&self, event: &Event) -> String {

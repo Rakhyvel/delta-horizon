@@ -120,6 +120,7 @@ impl FabricatorUi {
             .use_style(&STYLE)
             .on_click(FabricatorMessages::Close);
 
+        // TODO: List the resources too
         let inventory = Box::new(ScrollContainer::new(
             vec2(INVENTROY_W, HEIGHT),
             Box::new(
@@ -226,7 +227,7 @@ impl FabricatorUi {
         }
 
         widgets.push(Box::new(
-            Label::new(format!("{:.0} kWh", part.cost.energy_kwh))
+            Label::new(format!("{:.0} kWh", part.cost.energy_joules / 3.6e6))
                 .font(font, app)
                 .color(STYLE.text_primary),
         ));

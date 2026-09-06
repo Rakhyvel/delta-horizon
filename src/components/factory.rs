@@ -23,7 +23,7 @@ use crate::{
 pub struct Factory {
     pub current_job: Option<FactoryJob>,
     pub pending_job: Option<u64>,
-    pub power_kw: f32,
+    pub power_watts: f32,
 }
 
 #[derive(Debug)]
@@ -87,7 +87,7 @@ pub fn spawn_factory(
                 Factory {
                     current_job: None,
                     pending_job: None,
-                    power_kw: 5.0,
+                    power_watts: 5.0,
                 },
             ),
         )
@@ -106,9 +106,9 @@ impl Factory {
         &mut self,
         part_id: u64,
         current_et: EphemerisTime,
-        build_time_days: f32,
+        build_time_secs: f32,
     ) -> Result<(), String> {
-        let completion_et = current_et + EphemerisTime::from_years(build_time_days as f64 / 365.0);
+        let completion_et = current_et + EphemerisTime::from_secs(build_time_secs as f64);
         self.current_job = Some(FactoryJob {
             part_id,
             order_et: current_et,
@@ -209,6 +209,6 @@ pub fn projected_completion(
 ) -> Option<EphemerisTime> {
     let f = world.get::<&Factory>(fab).ok()?;
     let def = registry.get(f.pending_job?)?;
-    let days = def.cost.energy_kwh / f.power_kw / 24.0;
-    Some(now + EphemerisTime::from_years(days as f64 / 365.0))
+    let secs = def.cost.energy_joules / f.power_watts;
+    Some(now + EphemerisTime::from_secs(secs as f64))
 }

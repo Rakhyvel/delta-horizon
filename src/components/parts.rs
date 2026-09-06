@@ -3,9 +3,12 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
 };
 
-use crate::components::{
-    craft::{Payload, Stage},
-    station::Resource,
+use crate::{
+    astro::units::JOULES_PER_KWH,
+    components::{
+        craft::{Payload, Stage},
+        station::Resource,
+    },
 };
 
 /// A file full of parts definitions
@@ -60,7 +63,7 @@ pub struct PartDef {
 pub struct PartCost {
     pub parts: Vec<(u64, u32)>,
     pub resources: Vec<(Resource, f32)>,
-    pub energy_kwh: f32,
+    pub energy_joules: f32,
 }
 
 impl PartRegistry {
@@ -119,7 +122,7 @@ impl PartRegistry {
                 cost: PartCost {
                     parts: inputs,
                     resources,
-                    energy_kwh: raw.energy_kwh,
+                    energy_joules: raw.energy_kwh * JOULES_PER_KWH as f32,
                 },
                 fuel: raw.fuel,
                 id: raw.id,
@@ -144,7 +147,7 @@ impl PartRegistry {
     }
 }
 
-fn id_hash(id: &str) -> u64 {
+pub fn id_hash(id: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     id.hash(&mut hasher);
     hasher.finish()

@@ -16,3 +16,5 @@ pub const G: f64 = 4.0 * PI * PI * EARTH_RADII_PER_AU * EARTH_RADII_PER_AU * EAR
 pub const SUN_MU: f64 = G * EARTH_MASSES_PER_SUN_MASS;
 
 pub const LITTLE_G: f64 = 9.80665; // [m/s]
+
+pub const JOULES_PER_KWH: f64 = 3.6e6;
