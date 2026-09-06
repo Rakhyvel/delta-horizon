@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    f32::consts::{FRAC_PI_2, PI},
+    f32::consts::FRAC_PI_2,
     rc::Rc,
 };
 
@@ -81,12 +81,12 @@ impl MarkKind {
     }
 
     fn color(&self) -> Vec4 {
-        const MARK_L: f32 = 0.8;
+        const MARK_L: f32 = 0.75;
         const MARK_C: f32 = 0.13;
         match *self {
-            MarkKind::Burn => oklch(MARK_L, MARK_C, 55.0, 1.0),
-            MarkKind::Launch => oklch(MARK_L, MARK_C, 130.0, 1.0),
-            MarkKind::Land => oklch(MARK_L, MARK_C, 195.0, 1.0),
+            MarkKind::Burn => oklch(MARK_L, MARK_C, 60.0, 1.0),
+            MarkKind::Launch => oklch(MARK_L, MARK_C, 60.0, 1.0),
+            MarkKind::Land => oklch(MARK_L, MARK_C, 60.0, 1.0),
             MarkKind::SoiChange => oklch(MARK_L, MARK_C, 265.0, 1.0),
             MarkKind::FactoryComplete => oklch(MARK_L, MARK_C, 330.0, 1.0),
             MarkKind::Critical => oklch(0.6, 0.22, 25.0, 1.0),

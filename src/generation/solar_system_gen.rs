@@ -116,15 +116,27 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
     let mut orbital_radius_au = rng.gen_range(0.1..0.4); // in AU
     while orbital_radius_au < 35.0 {
         let orbital_radius_earth_radii = orbital_radius_au * EARTH_RADII_PER_AU;
-        let planet = generate_planet(
-            rng,
-            orbital_radius_au,
-            PLANET_MASS_CATEGORIES,
-            None,
-            None,
-            None,
-            1.0,
-        );
+        let planet = if (4.0..6.7).contains(&orbital_radius_au) {
+            generate_planet(
+                rng,
+                orbital_radius_au,
+                PLANET_MASS_CATEGORIES,
+                Some(13.0),
+                None,
+                None,
+                1.0,
+            )
+        } else {
+            generate_planet(
+                rng,
+                orbital_radius_au,
+                PLANET_MASS_CATEGORIES,
+                None,
+                None,
+                None,
+                1.0,
+            )
+        };
         let planet_inclination =
             (6.0f64 / (0.5 + planet.body_radius)).to_radians() * rng.gen::<f64>().powf(2.0);
         let planet_eccentricity = sample_eccentricity(rng, planet.body_radius);

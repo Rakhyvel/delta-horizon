@@ -44,7 +44,6 @@ pub fn station_resource_amount_flow(
     world: &World,
     station: Entity,
     r: Resource,
-    t: EphemerisTime,
     projected: bool,
 ) -> f32 {
     let Ok(s) = world.get::<&Station>(station) else {
@@ -154,7 +153,7 @@ pub fn resource_store_amount(world: &World, module: Entity, t: EphemerisTime) ->
         return 0.0;
     };
 
-    let flow = station_resource_amount_flow(world, station, store.resource, t, false);
+    let flow = station_resource_amount_flow(world, station, store.resource, false);
 
     let mut capacity = 0.0;
     let mut q = world.query::<(&StationModule, &Parent, &ResourceStore)>();
@@ -175,7 +174,7 @@ pub fn station_resource_totals(
     r: Resource,
     t: EphemerisTime,
 ) -> (f32, f32) {
-    let flow = station_resource_amount_flow(world, station, r, t, false);
+    let flow = station_resource_amount_flow(world, station, r, false);
 
     let mut capacity = 0.0;
     let mut stores: Vec<&ResourceStore> = Vec::new();
@@ -257,7 +256,7 @@ pub fn next_reservoir_limits(
             if projected {
                 total = (total - pending_deduction(world, station, registry, *r)).max(0.0)
             }
-            let rate = station_resource_amount_flow(world, station, *r, now, projected);
+            let rate = station_resource_amount_flow(world, station, *r, projected);
 
             // Fix saturation, on either end, so we don't do more than one event for these
             let rate = if (total >= capacity && rate > 0.0) || (total <= 0.0 && rate < 0.0) {

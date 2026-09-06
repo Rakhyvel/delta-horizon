@@ -122,7 +122,7 @@ pub struct Gameplay {
     maneuver_ui: ManeuverModal,
 
     // RCs for GUI
-    turn_button_enabled: Rc<Cell<bool>>,
+    controls_enabled: Rc<Cell<bool>>,
     turn_progress: Rc<Cell<f32>>,
     calendar_string: Rc<RefCell<String>>,
     marks: Rc<RefCell<Vec<TimelineMark>>>,
@@ -397,6 +397,7 @@ impl Scene for Gameplay {
                     CommandMessages::ToggleElectrolyzer {
                         electrolyzer_entity,
                     } => {
+                        self.commit_station();
                         let mut electrolyzer = self
                             .world
                             .get::<&mut Electrolyzer>(electrolyzer_entity)
@@ -494,7 +495,7 @@ impl Scene for Gameplay {
         if *self.calendar_string.borrow() != cal {
             *self.calendar_string.borrow_mut() = cal;
         }
-        self.turn_button_enabled.set(!self.is_animating());
+        self.controls_enabled.set(!self.is_animating());
 
         self.orbit_system();
         self.landed_system();
@@ -905,10 +906,10 @@ impl Gameplay {
             }
 
             // Put us around the warmest third moon
-            if system.moons.len() >= 1 && most_moons == 0 {
+            if system.planet.0.body_radius > 12.0 && most_moons == 0 {
                 starter_planet = body_id;
                 most_moons = system.moons.len();
-                avg_moon_dist = system.moons[0].1.r.norm();
+                avg_moon_dist = system.moons[3].1.r.norm();
             }
         }
 
@@ -1093,7 +1094,7 @@ impl Gameplay {
             vab_ui: VabUi::new(),
             maneuver_ui: ManeuverModal::new(),
 
-            turn_button_enabled: Rc::new(Cell::new(false)),
+            controls_enabled: Rc::new(Cell::new(false)),
             turn_progress: Rc::new(Cell::new(0.0)),
             calendar_string: Rc::new(RefCell::new(String::new())),
             marks: Rc::new(RefCell::new(vec![])),
@@ -1217,7 +1218,7 @@ impl Gameplay {
             Box::new(
                 TextButton::new(Rectangle::new(0.0, 0.0, 280.0, 44.0), "NEXT TURN")
                     .use_style_accented(&STYLE)
-                    .bound_active(self.turn_button_enabled.clone())
+                    .bound_active(self.controls_enabled.clone())
                     .on_click(TurnMessages::NextTurn),
             ),
             Box::new(Label::bound(self.calendar_string.clone()).font(font, app)),
@@ -1537,6 +1538,7 @@ impl Gameplay {
                                         part_id: part.id_hash(),
                                         factory_entity: self.selection.selected_entity().unwrap(),
                                     })
+                                    .bound_active(self.controls_enabled.clone())
                                     .active(can_afford),
                                 )])
                                 .padding(vec2(0.0, 0.0))
@@ -1635,6 +1637,7 @@ impl Gameplay {
                 "Stack New Vehicle...",
             )
             .use_style_accented(&STYLE)
+            .bound_active(self.controls_enabled.clone())
             .on_click(CommandMessages::OpenVab)
             .active(!inventory.parts.is_empty()),
         ));
@@ -1644,7 +1647,6 @@ impl Gameplay {
 
     fn station_section(&self, station: Entity, app: &App) -> Section {
         const WIDTH: f32 = 280.0;
-        let font = app.renderer.get_font_id_from_name("font").unwrap();
         let font_small_bold = app
             .renderer
             .get_font_id_from_name("font-small-bold")
@@ -1793,7 +1795,7 @@ impl Gameplay {
                 };
 
                 let amount = resource_store_amount(world, module, et.get());
-                let rate = station_resource_amount_flow(world, station, t.resource, et.get(), true);
+                let rate = station_resource_amount_flow(world, station, t.resource, true);
 
                 let days = if rate < 0.0 {
                     Some(amount / -rate / 86400.0)
@@ -1898,6 +1900,7 @@ impl Gameplay {
                     "Cancel",
                 )
                 .use_style(&STYLE)
+                .bound_active(self.controls_enabled.clone())
                 .on_click(CommandMessages::CancelQueuedFabricator {
                     fabricator_entity: module,
                 }),
@@ -1909,6 +1912,7 @@ impl Gameplay {
                     "Build...",
                 )
                 .use_style_accented(&STYLE)
+                .bound_active(self.controls_enabled.clone())
                 .on_click(CommandMessages::OpenFabricator {
                     fabricator_entity: module,
                 }),
@@ -1919,7 +1923,6 @@ impl Gameplay {
     }
 
     fn electrolyzer_section(&self, module: Entity, app: &App) -> Section {
-        const WIDTH: f32 = 280.0;
         let font_small_bold = app
             .renderer
             .get_font_id_from_name("font-small-bold")
@@ -1939,6 +1942,7 @@ impl Gameplay {
                 .on_toggle(CommandMessages::ToggleElectrolyzer {
                     electrolyzer_entity: module,
                 })
+                .bound_active(self.controls_enabled.clone())
                 .font(font, app),
         );
         out.push(Label::bound(text.clone()).font(font, app));
@@ -2552,9 +2556,13 @@ impl Gameplay {
         }
 
         for (entity, (_, scene_obj)) in self.world.query::<(&Station, &SceneObject)>().iter() {
-            for (et, resource, rate) in
-                next_reservoir_limits(&self.world, entity, self.current_et.get(), true)
-            {
+            for (et, resource, rate) in next_reservoir_limits(
+                &self.world,
+                entity,
+                &self.parts,
+                self.current_et.get(),
+                true,
+            ) {
                 if rate < 0.0 {
                     marks.push(TimelineMark {
                         t: et,
@@ -2577,7 +2585,13 @@ impl Gameplay {
     fn next_station_limit(&self, now: EphemerisTime) -> Option<EphemerisTime> {
         let mut limits = vec![];
         for (entity, _) in self.world.query::<&Station>().iter() {
-            limits.extend(next_reservoir_limits(&self.world, entity, now, true));
+            limits.extend(next_reservoir_limits(
+                &self.world,
+                entity,
+                &self.parts,
+                now,
+                true,
+            ));
         }
 
         limits.first().map(|(et, _, _)| *et)

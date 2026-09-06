@@ -9,7 +9,9 @@ pub struct Toggle<Msg> {
     rect: Rectangle,
     text_size: Vec2,
     label: String,
-    state: Rc<Cell<bool>>,
+    state: Rc<Cell<bool>>, // what the switch shows
+    active: bool,
+    active_src: Option<Rc<Cell<bool>>>, // whether it accepts clicks
     on_toggle: Option<Msg>,
     font_id: Option<FontId>,
     text_color: Vec4,
@@ -34,6 +36,8 @@ impl<Msg> Toggle<Msg> {
             label: label.into(),
             hovered: false,
             state: Rc::new(Cell::new(false)),
+            active: false,
+            active_src: None,
             on_toggle: None,
             font_id: None,
             text_color: vec4(0.0, 0.0, 0.0, 0.0),
@@ -71,15 +75,26 @@ impl<Msg> Toggle<Msg> {
         self.on_toggle = Some(msg);
         self
     }
+
+    pub fn bound_active(mut self, active_src: Rc<Cell<bool>>) -> Self {
+        self.active_src = Some(active_src);
+        self
+    }
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Toggle<Msg> {
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
-        self.hovered = self.rect.contains_point(&app.mouse_pos);
-        if self.hovered && !app.is_click_consumed() && app.mouse_left_clicked {
-            if let Some(msg) = &self.on_toggle {
-                msgq.push(msg.clone());
-                app.consume_click();
+        if let Some(src) = &self.active_src {
+            self.active = src.get();
+        }
+
+        if self.active {
+            self.hovered = self.rect.contains_point(&app.mouse_pos);
+            if self.hovered && !app.is_click_consumed() && app.mouse_left_clicked {
+                if let Some(msg) = &self.on_toggle {
+                    msgq.push(msg.clone());
+                    app.consume_click();
+                }
             }
         }
     }
