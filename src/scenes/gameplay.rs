@@ -28,7 +28,7 @@ use crate::{
         epoch::EphemerisTime,
         maneuver::sphere_of_influence,
         state::State,
-        units::{SECONDS_PER_DAY, SUN_MU},
+        units::{G, SECONDS_PER_DAY, SUN_MU},
     },
     components::{
         craft::{
@@ -527,7 +527,6 @@ impl Scene for Gameplay {
         self.landed_system();
         self.select_system();
         self.camera_update(app);
-        self.lerp_factory_progress();
         if !modal_open {
             self.hovered = None;
             self.control(app);
@@ -934,6 +933,7 @@ impl Gameplay {
 
         let station_parent = station_parent.expect("generator returned no station host");
         let parent_mu = world.get::<&Body>(station_parent).unwrap().mu;
+        let parent_body_radius = world.get::<&Body>(station_parent).unwrap().body_radius;
 
         let station_payload = parts
             .all()
@@ -950,7 +950,7 @@ impl Gameplay {
             },
             Parent { id: station_parent },
             State::from_kepler(
-                28.8,
+                parent_body_radius * 16.0,
                 0.2,
                 0.0,
                 1.5,
@@ -2271,6 +2271,33 @@ impl Gameplay {
                     self.event_queue
                         .push(exit_time, Event::CompleteCommand { craft: entity });
                 }
+                Command::Rendezvous { plan, .. } => {
+                    let departure_time = plan.transfer_state.t;
+                    let arrival_time = plan.rendezvous_state.t;
+
+                    self.event_queue.push(
+                        departure_time,
+                        Event::Burn {
+                            craft: entity,
+                            new_orbit: plan.transfer_state,
+                            soi_radius: None,
+                            dv: plan.transfer_dv,
+                        },
+                    );
+
+                    self.event_queue.push(
+                        arrival_time,
+                        Event::Burn {
+                            craft: entity,
+                            new_orbit: plan.rendezvous_state,
+                            soi_radius: None,
+                            dv: plan.brake_dv,
+                        },
+                    );
+
+                    self.event_queue
+                        .push(arrival_time, Event::CompleteCommand { craft: entity });
+                }
                 Command::Escape { to, plan } => {
                     let departure_time = plan.escape_burn.t;
                     let arrival_time = plan.exit_state.t;
@@ -3139,22 +3166,6 @@ impl Gameplay {
         self.camera_3d.world_pos =
             (rot_matrix * nalgebra_glm::vec4(self.distance, 0., 0., 0.)).xyz() + offset;
         self.camera_3d.sync(offset);
-    }
-
-    fn lerp_factory_progress(&self) {
-        let selected = match self.selection.selected_entity() {
-            Some(f) => f,
-            None => return,
-        };
-        let factory = match self.world.get::<&Factory>(selected) {
-            Ok(f) => f,
-            Err(_) => return,
-        };
-
-        // if let Some(job) = &factory.current_job {
-        //     self.turn_progress
-        //         .set(job.progress(self.current_et.get()) as f32);
-        // }
     }
 
     fn world_to_screen(&self, relative_pos: DVec3, app: &App) -> Option<Vec2> {

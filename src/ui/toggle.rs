@@ -89,7 +89,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Toggle<Msg> {
         }
 
         if self.active {
-            self.hovered = self.rect.contains_point(&app.mouse_pos);
+            self.hovered = app.mouse_over(&self.rect);
             if self.hovered && !app.is_click_consumed() && app.mouse_left_clicked {
                 if let Some(msg) = &self.on_toggle {
                     msgq.push(msg.clone());

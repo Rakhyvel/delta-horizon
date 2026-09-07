@@ -3,7 +3,8 @@
     "allow": [
       "Bash(cargo check *)",
       "Bash(cd /c/Users/Joseph/git/apricot && sed -n '300,360p;430,470p' src/opengl.rs)",
-      "Read(//c/Users/Joseph/git/apricot/**)"
+      "Read(//c/Users/Joseph/git/apricot/**)",
+      "Bash(ls ~/git/apricot ~/git/erovra3 2>&1 | head -60)"
     ]
   }
 }

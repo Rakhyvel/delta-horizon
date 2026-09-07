@@ -121,7 +121,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
             self.active = src.get();
         }
 
-        self.hovered = self.active && self.rect.contains_point(&app.mouse_pos);
+        self.hovered = self.active && app.mouse_over(&self.rect);
 
         if self.active && self.hovered && !app.is_click_consumed() && app.mouse_left_clicked {
             if let Some(msg) = &self.on_click {

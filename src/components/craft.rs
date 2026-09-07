@@ -12,6 +12,7 @@ use crate::{
         escape::EscapePlan,
         landing::LandingPlan,
         launch::LaunchPlan,
+        rendezvous::RendezvousPlan,
         state::State,
         transfer::{FlybyPlan, TransferPlan},
         units::LITTLE_G,
@@ -61,6 +62,7 @@ pub enum Command {
     Launch { plan: LaunchPlan },
     Transfer { to: Entity, plan: TransferPlan },
     Flyby { to: Entity, plan: FlybyPlan },
+    Rendezvous { with: Entity, plan: RendezvousPlan },
     Escape { to: Entity, plan: EscapePlan },
     Land { plan: LandingPlan },
 }
@@ -70,6 +72,7 @@ impl Command {
         match self {
             Command::Transfer { .. } => "Transfer",
             Command::Flyby { .. } => "Flyby",
+            Command::Rendezvous { .. } => "Rendezvous",
             Command::Escape { .. } => "Escape",
             Command::Land { .. } => "Land",
             Command::Launch { .. } => "Launch",
@@ -83,6 +86,10 @@ impl Command {
                 ("Circularization", plan.circ_state.t),
             ],
             Command::Flyby { plan, .. } => vec![("Departure burn", plan.transfer_state.t)],
+            Command::Rendezvous { plan, .. } => vec![
+                ("Departure burn", plan.transfer_state.t),
+                ("Braking burn", plan.rendezvous_state.t),
+            ],
             Command::Escape { plan, .. } => vec![("Escape burn", plan.escape_burn.t)],
             Command::Land { plan } => vec![
                 ("Deorbit burn", plan.deorbit_burn.t),
@@ -103,7 +110,7 @@ impl Command {
                 ("Leaves SOI", plan.exit_state.t),
             ],
             Command::Escape { plan, .. } => vec![("Leaves SOI", plan.exit_state.t)],
-            Command::Land { .. } | Command::Launch { .. } => vec![],
+            Command::Land { .. } | Command::Launch { .. } | Command::Rendezvous { .. } => vec![],
         }
     }
 }

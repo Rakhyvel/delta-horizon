@@ -1,3 +1,4 @@
+pub(crate) mod departure;
 pub(crate) mod epoch;
 pub(crate) mod escape;
 pub(crate) mod lambert;
@@ -5,6 +6,8 @@ pub(crate) mod landing;
 pub(crate) mod launch;
 pub(crate) mod maneuver;
 pub(crate) mod newton;
+pub(crate) mod porkchop;
+pub(crate) mod rendezvous;
 pub(crate) mod state;
 pub(crate) mod stumpff;
 pub(crate) mod transfer;

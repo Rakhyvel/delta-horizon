@@ -216,24 +216,12 @@ pub fn circularization(orbit: &State, mu: f64) -> (State, f64) {
     )
 }
 
-#[allow(dead_code)]
-pub fn get_flyby_state(
-    transfer_orbit: &State,
-    target_orbit: &State,
-    arrival_et: EphemerisTime,
-    mu: f64, // of the common parent
-) -> Result<State, String> {
-    let craft_state_at_soi = transfer_orbit.propagate(arrival_et, mu)?;
-    let target_state_at_soi = target_orbit.propagate(arrival_et, mu)?;
+pub fn capture_dv(v_inf: f64, target_mu: f64, r_p: f64) -> f64 {
+    (v_inf * v_inf + 2.0 * target_mu / r_p).sqrt() - (target_mu / r_p).sqrt()
+}
 
-    let r_rel = craft_state_at_soi.r - target_state_at_soi.r; // TODO: Maybe you should be able to subtract states?
-    let v_rel = craft_state_at_soi.v - target_state_at_soi.v;
-
-    Ok(State {
-        r: r_rel,
-        v: v_rel,
-        t: arrival_et,
-    })
+pub fn impact_parameter(r_p: f64, v_inf: f64, mu: f64) -> f64 {
+    r_p * (1.0 + 2.0 * mu / (r_p * v_inf * v_inf)).sqrt()
 }
 
 pub fn get_grandparent_state(

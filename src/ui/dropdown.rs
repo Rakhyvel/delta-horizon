@@ -63,7 +63,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Dropdown<Msg> {
                     pos: vec2(self.rect.pos.x, self.rect.pos.y + 28.0 + i as f32 * 28.0),
                     size: vec2(self.rect.size.x, 28.0),
                 };
-                if option_rect.contains_point(&app.mouse_pos) {
+                if app.mouse_over(&option_rect) {
                     self.selected = Some(i);
                     self.open = false;
                     msgq.push(msg.clone());
@@ -76,7 +76,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Dropdown<Msg> {
                 pos: vec2(self.rect.pos.x, self.rect.pos.y + 28.0),
                 size: vec2(self.rect.size.x, self.options.len() as f32 * 28.0),
             };
-            if menu_rect.contains_point(&app.mouse_pos) {
+            if app.mouse_over(&menu_rect) {
                 app.consume_click();
             } else {
                 // Click outside the whole dropdown, close it and let click reach its target
@@ -90,7 +90,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Dropdown<Msg> {
             pos: self.rect.pos,
             size: vec2(self.rect.size.x, 28.0),
         };
-        self.is_hovered = header_rect.contains_point(&app.mouse_pos);
+        self.is_hovered = app.mouse_over(&header_rect);
         if self.is_hovered && app.mouse_left_clicked && !app.is_click_consumed() {
             self.open = !self.open;
             app.consume_click();
@@ -139,7 +139,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Dropdown<Msg> {
                     pos: vec2(self.rect.pos.x, self.rect.pos.y + 28.0 + i as f32 * 28.0),
                     size: vec2(self.rect.size.x, 28.0),
                 };
-                let hovered = option_rect.contains_point(&app.mouse_pos);
+                let hovered = app.mouse_over(&option_rect);
                 app.renderer.set_color(if hovered {
                     self.hover_color
                 } else {

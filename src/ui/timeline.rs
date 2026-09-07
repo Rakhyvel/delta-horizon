@@ -82,9 +82,10 @@ impl MarkKind {
 
     pub fn from_command(command: &Command) -> Self {
         match command {
-            Command::Transfer { .. } | Command::Flyby { .. } | Command::Escape { .. } => {
-                MarkKind::Burn
-            }
+            Command::Transfer { .. }
+            | Command::Flyby { .. }
+            | Command::Escape { .. }
+            | Command::Rendezvous { .. } => MarkKind::Burn,
             Command::Land { .. } => MarkKind::Land,
             Command::Launch { .. } => MarkKind::Launch,
         }

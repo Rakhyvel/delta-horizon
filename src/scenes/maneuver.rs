@@ -1,11 +1,13 @@
 use crate::{
     astro::{
+        departure::TransferObjective,
         epoch::EphemerisTime,
         escape::{plan_escape, EscapePlan},
         landing::{plan_landing, LandingPlan},
         launch::{plan_launch, LaunchPlan},
+        rendezvous::{plan_rendezvous, RendezvousPlan},
         state::State,
-        transfer::{plan_flyby, plan_transfer, FlybyPlan, TransferObjective, TransferPlan},
+        transfer::{plan_flyby, plan_transfer, FlybyPlan, TransferPlan},
     },
     components::{
         body::{Body, Parent, SceneObject},
@@ -55,6 +57,12 @@ enum ManeuverKind {
     Escape,
     Land,
     Launch,
+    Rendezvous,
+}
+
+enum TargetKind {
+    Body,
+    Craft,
 }
 
 impl ManeuverKind {
@@ -65,16 +73,18 @@ impl ManeuverKind {
             ManeuverKind::Escape,
             ManeuverKind::Land,
             ManeuverKind::Launch,
+            ManeuverKind::Rendezvous,
         ]
     }
 
     pub fn available(&self, is_landed: bool, is_orbiting: bool) -> bool {
         match self {
-            ManeuverKind::Transfer => is_orbiting,
-            ManeuverKind::Flyby => is_orbiting,
-            ManeuverKind::Escape => is_orbiting,
+            ManeuverKind::Transfer => is_orbiting, // TODO: And there's stuff to transfer to
+            ManeuverKind::Flyby => is_orbiting,    // TODO: And there's stuff to fly by
+            ManeuverKind::Escape => is_orbiting,   // TODO: As is not around the sun
             ManeuverKind::Land => is_orbiting,
             ManeuverKind::Launch => is_landed,
+            ManeuverKind::Rendezvous => is_orbiting, // TODO: And there's another craft to redezvous with
         }
     }
 
@@ -85,16 +95,15 @@ impl ManeuverKind {
             ManeuverKind::Escape => "Escape",
             ManeuverKind::Land => "Land",
             ManeuverKind::Launch => "Launch",
+            ManeuverKind::Rendezvous => "Rendezvous",
         }
     }
 
-    pub fn needs_destination(&self) -> bool {
+    pub fn target_kind(&self) -> Option<TargetKind> {
         match self {
-            ManeuverKind::Transfer => true,
-            ManeuverKind::Flyby => true,
-            ManeuverKind::Escape => false,
-            ManeuverKind::Land => false,
-            ManeuverKind::Launch => false,
+            ManeuverKind::Transfer | ManeuverKind::Flyby => Some(TargetKind::Body),
+            ManeuverKind::Rendezvous => Some(TargetKind::Craft),
+            ManeuverKind::Escape | ManeuverKind::Land | ManeuverKind::Launch => None,
         }
     }
 }
@@ -102,6 +111,7 @@ impl ManeuverKind {
 pub enum ManeuverResult {
     Transfer { to: Entity, plan: TransferPlan },
     Flyby { to: Entity, plan: FlybyPlan },
+    Rendezvous { with: Entity, plan: RendezvousPlan },
     Escape { to: Entity, plan: EscapePlan },
     Land { plan: LandingPlan },
     Launch { plan: LaunchPlan },
@@ -112,6 +122,7 @@ impl ManeuverResult {
         match self {
             ManeuverResult::Transfer { plan, .. } => plan.transfer_dv + plan.circ_dv,
             ManeuverResult::Flyby { plan, .. } => plan.transfer_dv,
+            ManeuverResult::Rendezvous { plan, .. } => plan.transfer_dv + plan.brake_dv,
             ManeuverResult::Escape { plan, .. } => plan.escape_dv,
             ManeuverResult::Land { plan } => plan.deorbit_dv + plan.landing_dv,
             ManeuverResult::Launch { plan } => plan.launch_dv + plan.circ_dv,
@@ -122,6 +133,7 @@ impl ManeuverResult {
         match self {
             ManeuverResult::Transfer { plan, .. } => plan.circ_state.t,
             ManeuverResult::Flyby { plan, .. } => plan.flyby_state.t,
+            ManeuverResult::Rendezvous { plan, .. } => plan.rendezvous_state.t,
             ManeuverResult::Escape { plan, .. } => plan.exit_state.t,
             ManeuverResult::Land { plan } => plan.landing_burn.t,
             ManeuverResult::Launch { plan } => plan.circ_burn.t,
@@ -136,6 +148,7 @@ impl ManeuverResult {
         match self {
             ManeuverResult::Transfer { to, plan } => Command::Transfer { to, plan },
             ManeuverResult::Flyby { to, plan } => Command::Flyby { to, plan },
+            ManeuverResult::Rendezvous { with, plan } => Command::Rendezvous { with, plan },
             ManeuverResult::Escape { to, plan } => Command::Escape { to, plan },
             ManeuverResult::Land { plan } => Command::Land { plan },
             ManeuverResult::Launch { plan } => Command::Launch { plan },
@@ -256,8 +269,11 @@ impl ManeuverModal {
         ));
 
         if let Some(kind) = &self.selected_kind {
-            if kind.needs_destination() {
-                let destinations = self.get_destinations(self.craft.unwrap(), world);
+            if let Some(target_kind) = kind.target_kind() {
+                let destinations = match target_kind {
+                    TargetKind::Body => self.get_body_destinations(self.craft.unwrap(), world),
+                    TargetKind::Craft => self.get_craft_destinations(self.craft.unwrap(), world),
+                };
                 let selected_dest_idx = self
                     .selected_destination
                     .and_then(|sd| destinations.iter().position(|(e, _)| *e == sd));
@@ -355,7 +371,7 @@ impl ManeuverModal {
         self.modal.reposition(app);
     }
 
-    fn get_destinations(&self, craft: Entity, world: &World) -> Vec<(Entity, String)> {
+    fn get_body_destinations(&self, craft: Entity, world: &World) -> Vec<(Entity, String)> {
         let parent = world
             .get::<&Parent>(craft)
             .expect("craft should have parent")
@@ -364,6 +380,20 @@ impl ManeuverModal {
         binding
             .iter()
             .filter(|(_, (_, _, _, p))| p.id == parent)
+            .map(|(entity, (_state, _body, scene_obj, _parent))| (entity, scene_obj.name.clone()))
+            .collect()
+    }
+
+    fn get_craft_destinations(&self, craft: Entity, world: &World) -> Vec<(Entity, String)> {
+        let parent = world
+            .get::<&Parent>(craft)
+            .expect("craft should have parent")
+            .id;
+        // this already excludes landed craft, since they don't have State
+        let mut binding = world.query::<(&State, &Craft, &SceneObject, &Parent)>();
+        binding
+            .iter()
+            .filter(|(e, (_, _, _, p))| p.id == parent && craft != *e)
             .map(|(entity, (_state, _body, scene_obj, _parent))| (entity, scene_obj.name.clone()))
             .collect()
     }
@@ -416,6 +446,19 @@ impl ManeuverModal {
                 )
                 .ok()?;
                 Some(ManeuverResult::Flyby { to, plan })
+            }
+            ManeuverKind::Rendezvous => {
+                let with = self.selected_destination?;
+                let target_state = world.get::<&State>(with).unwrap();
+                let plan = plan_rendezvous(
+                    &init_state.unwrap(),
+                    &target_state,
+                    current_et,
+                    parent_body.mass(),
+                    TransferObjective::MinFuel,
+                )
+                .ok()?;
+                Some(ManeuverResult::Rendezvous { with, plan })
             }
             ManeuverKind::Escape => {
                 let parent_state = world.get::<&State>(parent).unwrap();
