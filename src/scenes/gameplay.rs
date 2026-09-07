@@ -165,6 +165,9 @@ pub enum CommandMessages {
     ToggleElectrolyzer {
         electrolyzer_entity: Entity,
     },
+    CancelCommand {
+        craft: Entity,
+    },
     #[allow(unused)]
     FactoryCommand {
         part_id: u64,
@@ -403,6 +406,10 @@ impl Scene for Gameplay {
                         let mut factory =
                             self.world.get::<&mut Factory>(fabricator_entity).unwrap();
                         factory.pending_job = None;
+                    }
+                    CommandMessages::CancelCommand { craft } => {
+                        let mut craft = self.world.get::<&mut Craft>(craft).unwrap();
+                        craft.command = None;
                     }
                     CommandMessages::ToggleElectrolyzer {
                         electrolyzer_entity,
@@ -1284,32 +1291,72 @@ impl Gameplay {
         ];
 
         if let Some(command) = &craft.command {
-            widgets.push(Box::new(
-                Label::new(command.label().to_uppercase())
-                    .font(font_small_bold, app)
-                    .color(STYLE.accent),
-            ));
-            for (burn_label, et) in command.burn_schedule() {
-                let done = self.current_et.get() >= et;
+            if craft.command_scheduled {
                 widgets.push(Box::new(
-                    Container::new(vec![
-                        Box::new(Label::new(burn_label).font(font_small_bold, app).color(
-                            if done {
+                    Label::new(command.label().to_uppercase())
+                        .font(font_small_bold, app)
+                        .color(STYLE.accent),
+                ));
+                for (burn_label, et) in command.burn_schedule() {
+                    let done = self.current_et.get() >= et;
+                    widgets.push(Box::new(
+                        Container::new(vec![
+                            Box::new(Label::new(burn_label).font(font_small_bold, app).color(
+                                if done {
+                                    STYLE.positive
+                                } else {
+                                    STYLE.text_primary
+                                },
+                            )),
+                            Box::new(Label::new(et.as_calendar()).font(font, app).color(if done {
                                 STYLE.positive
                             } else {
-                                STYLE.text_primary
-                            },
-                        )),
-                        Box::new(Label::new(et.as_calendar()).font(font, app).color(if done {
-                            STYLE.positive
-                        } else {
-                            STYLE.text_disabled
-                        })),
-                    ])
-                    .flow(Flow::Vertical)
-                    .border(STYLE.border_primary, 1.0)
-                    .fixed_width(vec2(WIDTH, 10.0))
-                    .padding(vec2(8.0, 8.0)),
+                                STYLE.text_disabled
+                            })),
+                        ])
+                        .flow(Flow::Vertical)
+                        .border(STYLE.border_primary, 1.0)
+                        .fixed_width(vec2(WIDTH, 10.0))
+                        .padding(vec2(8.0, 8.0)),
+                    ));
+                }
+            } else {
+                widgets.push(Box::new(
+                    Label::new(format!("{} - QUEUED", command.label().to_uppercase()))
+                        .font(font_small_bold, app)
+                        .color(STYLE.accent),
+                ));
+                for (burn_label, et) in command.burn_schedule() {
+                    let done = self.current_et.get() >= et;
+                    widgets.push(Box::new(
+                        Container::new(vec![
+                            Box::new(Label::new(burn_label).font(font_small_bold, app).color(
+                                if done {
+                                    STYLE.positive
+                                } else {
+                                    STYLE.text_primary
+                                },
+                            )),
+                            Box::new(Label::new(et.as_calendar()).font(font, app).color(if done {
+                                STYLE.positive
+                            } else {
+                                STYLE.text_disabled
+                            })),
+                        ])
+                        .flow(Flow::Vertical)
+                        .border(STYLE.border_primary, 1.0)
+                        .fixed_width(vec2(WIDTH, 10.0))
+                        .padding(vec2(8.0, 8.0)),
+                    ));
+                }
+                widgets.push(Box::new(
+                    TextButton::<CommandMessages>::new(
+                        Rectangle::new(0.0, 0.0, WIDTH, 30.0),
+                        "Cancel Mission",
+                    )
+                    .use_style(&STYLE)
+                    .bound_active(self.controls_enabled.clone())
+                    .on_click(CommandMessages::CancelCommand { craft: selected }),
                 ));
             }
         } else {
