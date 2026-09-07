@@ -89,12 +89,6 @@ pub fn station_resource_amount_flow(
 pub fn station_net_watts(world: &World, station: Entity) -> f32 {
     let r_au = station_r_au(world, station);
 
-    let (station_water_total_kg, _) = committed_totals(world, station, Resource::Water);
-    let (station_h2_total_kg, station_h2_capacity_kg) =
-        committed_totals(world, station, Resource::Hydrogen);
-    let (station_o2_total_kg, station_o2_capacity_kg) =
-        committed_totals(world, station, Resource::Oxygen);
-
     let mut w = 0.0;
 
     // Sum up all the generators
@@ -117,12 +111,8 @@ pub fn station_net_watts(world: &World, station: Entity) -> f32 {
         .query::<(&StationModule, &Parent, &Electrolyzer)>()
         .iter()
     {
-        if parent.id == station
-            && el.enabled
-            && station_water_total_kg > 0.0
-            && station_h2_total_kg < station_h2_capacity_kg
-            && station_o2_total_kg < station_o2_capacity_kg
-        {
+        let running = el.is_running(world, parent.id);
+        if parent.id == station && el.enabled && running {
             w -= el.power_watts;
         }
     }
@@ -194,6 +184,33 @@ pub fn station_resource_totals(
     }
 
     (stored, capacity)
+}
+
+pub fn add_resource(world: &World, station: Entity, r: Resource, amount: f32, now: EphemerisTime) {
+    commit_resource_stores(world, station, r, now);
+
+    let resource_stores = stores_of(world, station, r);
+
+    // how much each resource store can take up
+    let headroom: Vec<f32> = resource_stores
+        .iter()
+        .map(|m| {
+            let s = world.get::<&ResourceStore>(*m).unwrap();
+            (s.capacity - s.amount).max(0.0)
+        })
+        .collect();
+
+    let total: f32 = headroom.iter().sum();
+    if total <= 0.0 {
+        return; // everything is full, vent (sus)
+    }
+
+    // fill up to what we each store can accept
+    let accepted = amount.min(total);
+    for (m, h) in resource_stores.iter().zip(headroom) {
+        let mut store = world.get::<&mut ResourceStore>(*m).unwrap();
+        store.amount = (store.amount + accepted * h / total).min(store.capacity);
+    }
 }
 
 pub fn take_resource(world: &World, station: Entity, r: Resource, amount: f32, now: EphemerisTime) {
@@ -329,6 +346,13 @@ pub struct Electrolyzer {
     pub power_watts: f32,
     /// Energy to turn 1 kg of water into LH2 + LO2
     pub joules_per_kg_water: f32,
+}
+
+impl Electrolyzer {
+    pub fn is_running(&self, world: &World, station: Entity) -> bool {
+        let (water, _) = committed_totals(world, station, Resource::Water);
+        self.enabled && water > 0.0
+    }
 }
 
 // TODO: This doens't belong here!

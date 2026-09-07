@@ -29,6 +29,8 @@ pub struct PartRaw {
     inputs: HashMap<String, u32>,
     #[serde(default)]
     resources: HashMap<Resource, f32>,
+    #[serde(default)]
+    byproducts: HashMap<Resource, f32>,
     energy_kwh: f32,
     fuel: Option<FuelSpec>,
 }
@@ -55,6 +57,7 @@ pub struct PartDef {
     pub desc: String,
     pub dry_mass_kg: f64,
 
+    pub byproducts: Vec<(Resource, f32)>,
     pub cost: PartCost,
     pub fuel: Option<FuelSpec>,
 }
@@ -109,6 +112,8 @@ impl PartRegistry {
             inputs.sort_by_key(|(h, _)| *h);
             let mut resources: Vec<(Resource, f32)> = raw.resources.into_iter().collect();
             resources.sort_by_key(|(r, _)| *r as u8);
+            let mut byproducts: Vec<(Resource, f32)> = raw.byproducts.into_iter().collect();
+            byproducts.sort_by_key(|(r, _)| *r as u8);
 
             assert!(
                 raw.energy_kwh > 0.0,
@@ -124,6 +129,7 @@ impl PartRegistry {
                     resources,
                     energy_joules: raw.energy_kwh * JOULES_PER_KWH as f32,
                 },
+                byproducts,
                 fuel: raw.fuel,
                 id: raw.id,
                 name: raw.name,

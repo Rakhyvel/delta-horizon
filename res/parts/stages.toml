@@ -16,9 +16,8 @@ id = 'dray'
 name = 'Dray'
 desc = 'Work-horse lander. Lands, mines, delivers.'
 dry_mass_kg = 500.0
-energy_kwh = 7200.0
-inputs = {metal = 5}
+energy_kwh = 7#200.0
 [parts.fuel]
-max_fuel_mass_kg = 400.0
+max_fuel_mass_kg = 600.0
 isp = 450.0
 thrust_kn = 1.0

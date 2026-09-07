@@ -75,14 +75,27 @@ impl State {
         let mut chi = if alpha > 0.0 {
             // Elliptic: seed with circular orbit chi
             mu.sqrt() * dt * alpha
+        } else if alpha < 1e-12 {
+            // Hyperbolic, seed using Vallado alg. 8
+            let a = 1.0 / alpha;
+            let sign = if dt < 0.0 { -1.0 } else { 1.0 };
+            let num = -2.0 * mu * alpha * dt;
+            let den = r0_mag * vr0 + sign * (-mu * a).sqrt() * (1.0 - r0_mag * alpha);
+            let ratio = num / den;
+            if ratio > 0.0 && ratio.is_finite() {
+                sign * (-a).sqrt() * ratio.ln()
+            } else {
+                mu.sqrt() * dt / r0_mag
+            }
         } else {
-            // Hyperbolic/parabolic: seed conservatively
+            // Near-parabolic
             mu.sqrt() * dt / r0_mag
         };
 
         // newton rhapson, find chi that makes F 0
         const MAX_ITER: usize = 500;
-        const TOL: f64 = 1e-8;
+        let tol = 1e-12 * chi.abs().max(1.0); // relative, on delta
+        let mut converged = false;
         for _ in 0..MAX_ITER {
             let chi2 = chi * chi;
             let z = alpha * chi2;
@@ -101,7 +114,8 @@ impl State {
                 return Err(String::from("universal kepler equation diverged"));
             }
 
-            if f.abs() < TOL {
+            if f.abs() < tol {
+                converged = true;
                 break;
             }
 
@@ -110,13 +124,18 @@ impl State {
                 + (1.0 - alpha * r0_mag) * chi2 * c
                 + r0_mag;
 
-            let delta = (f / df_dchi).clamp(-1.0, 1.0);
-            const DAMPING: f64 = 0.8; // Tweak if necessary
-            chi -= DAMPING * delta;
+            // Make the delta proportional so large chi can actually move
+            let max_step = (0.5 * chi.abs()).max(1.0);
+            let delta = (f / df_dchi).clamp(-max_step, max_step);
+            chi -= delta;
 
-            if delta.abs() < TOL {
+            if delta.abs() < tol {
+                converged = true;
                 break;
             }
+        }
+        if !converged {
+            return Err(String::from("universal kepler equation did not converge"));
         }
 
         let chi2 = chi * chi;

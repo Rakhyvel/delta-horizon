@@ -24,16 +24,23 @@ use nalgebra_glm::{vec2, vec3, vec4, DVec3, I32Vec2, Vec2, Vec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
-    astro::{epoch::EphemerisTime, maneuver::sphere_of_influence, state::State, units::SUN_MU},
+    astro::{
+        epoch::EphemerisTime,
+        maneuver::sphere_of_influence,
+        state::State,
+        units::{SECONDS_PER_DAY, SUN_MU},
+    },
     components::{
-        craft::{replace_line_path, spawn_orbiting_craft, AssociatedEntity, Command, Stage},
+        craft::{
+            replace_line_path, spawn_orbiting_craft, AssociatedEntity, Command, Payload, Stage,
+        },
         factory::{projected_completion, Factory},
         inventory::PartInventory,
-        parts::{id_hash, PartRegistry},
+        parts::{id_hash, PartDef, PartRegistry},
         station::{
-            commit_station, next_reservoir_limits, resource_store_amount, station_r_au,
-            station_resource_amount_flow, take_resource, Electrolyzer, Resource, ResourceStore,
-            SolarPanel, Station, StationModule,
+            add_resource, commit_station, next_reservoir_limits, resource_store_amount,
+            station_r_au, station_resource_amount_flow, station_resource_totals, take_resource,
+            Electrolyzer, Resource, ResourceStore, SolarPanel, Station, StationModule,
         },
         tile::{SurfaceTile, TileMap, TileSets},
     },
@@ -114,7 +121,7 @@ pub struct Gameplay {
 
     turn_gui: Anchor<TurnMessages>,
     gui: Anchor<CommandMessages>,
-    gui_built_for: Option<(Entity, u32, u64)>,
+    gui_built_for: Option<(Entity, u32, u64, u64)>,
     gui_built_window: I32Vec2,
     gui_bindings: Vec<Binding>,
     fabricator_ui: FabricatorUi,
@@ -131,9 +138,11 @@ pub struct Gameplay {
     // Events and timeline
     event_queue: EventQueue,
     current_et: Rc<Cell<EphemerisTime>>,
-    animation_start_et: EphemerisTime,
-    animation_target_et: EphemerisTime,
-    animation_start_real: f64,
+    paused: bool,
+    /// Sim seconds per real second
+    time_scale: f64,
+    /// Either the next event, or None
+    run_until: Option<EphemerisTime>,
 
     // Vec of unit vectors
     starbox: Starbox,
@@ -141,7 +150,8 @@ pub struct Gameplay {
 
 #[derive(Clone)]
 enum TurnMessages {
-    NextTurn,
+    Play,
+    Stop,
 }
 
 #[derive(Clone)]
@@ -436,57 +446,38 @@ impl Scene for Gameplay {
 
             for msg in recv_msgs(app, &mut self.turn_gui) {
                 match msg {
-                    TurnMessages::NextTurn => {
-                        if !self.is_animating() {
-                            self.commit_pending_builds(self.current_et.get());
-                            self.commit_station();
-                            self.schedule_events();
-
-                            // Handle any events already at the current time before advancing
-                            let due_now = self.event_queue.pop_due(self.current_et.get());
-                            for event in due_now {
-                                self.handle_event(event, app);
-                            }
-
-                            let now = self.current_et.get();
-                            let cap = now + EphemerisTime::from_days(MAX_TURN_DURATION_DAYS);
-                            let next_event = self.event_queue.events.keys().next().copied();
-                            let next_limit = self.next_station_limit(now);
-
-                            let target = [Some(cap), next_event, next_limit]
-                                .into_iter()
-                                .flatten()
-                                .min()
-                                .unwrap();
-
-                            self.animation_start_et = now;
-                            self.animation_target_et = target;
-                            self.animation_start_real = app.seconds as f64;
-                        }
+                    TurnMessages::Play => {
+                        let now = self.current_et.get();
+                        self.commit_pending_builds(now);
+                        self.recompute_run_until();
+                        self.paused = false;
+                    }
+                    TurnMessages::Stop => {
+                        self.commit_pending_builds(self.current_et.get());
+                        self.recompute_run_until();
+                        self.paused = true;
                     }
                 }
             }
         }
 
-        if self.is_animating() {
-            let days = (self.animation_target_et - self.animation_start_et).as_days();
-            let turn_time = 0.5 + 2.0 * (days + 1.0).log10();
-            let t = ((app.seconds as f64 - self.animation_start_real) / turn_time).min(1.0);
-            let eased = 1.0 - (1.0 - t).powi(3);
+        if !self.paused {
+            let dt = (1.0 / 60.0_f64) * self.time_scale; // TODO: Expose delta_seconds
+            let mut t = self.current_et.get() + EphemerisTime::from_secs(dt);
 
-            // Interpolate ET between start and target
-            self.current_et.set(
-                self.animation_start_et
-                    .lerp(self.animation_target_et, eased),
-            );
+            if let Some(stop) = self.run_until {
+                if t >= stop {
+                    t = stop; // land exactly on the boundary
+                    self.paused = true
+                }
+            }
+            self.current_et.set(t);
 
-            // Animation finished
-            if t >= 1.0 {
-                self.current_et.set(self.animation_target_et);
-                let due = self.event_queue.pop_due(self.current_et.get());
-                for event in due {
+            if self.paused {
+                for event in self.event_queue.pop_due(t) {
                     self.handle_event(event, app);
                 }
+                self.recompute_run_until();
             }
         }
 
@@ -495,7 +486,7 @@ impl Scene for Gameplay {
         if *self.calendar_string.borrow() != cal {
             *self.calendar_string.borrow_mut() = cal;
         }
-        self.controls_enabled.set(!self.is_animating());
+        self.controls_enabled.set(self.paused);
 
         self.orbit_system();
         self.landed_system();
@@ -861,11 +852,9 @@ impl Gameplay {
 
         let parts = PartRegistry::load_from_dir("res/parts");
 
-        let mut starter_planet = 0;
-        let mut most_moons = 0;
-        let mut avg_moon_dist = 0.0;
-        let planets = solar_system_gen::generate();
-        for system in planets {
+        let mut station_parent = None;
+        let (planets, starter) = solar_system_gen::generate();
+        for (i, system) in planets.into_iter().enumerate() {
             let name = lexicon.generate_word(7);
             println!("Planet: {}", name);
 
@@ -883,8 +872,10 @@ impl Gameplay {
                 &mut bvh,
             );
 
-            let body_id = bodies.len();
             bodies.push(planet_entity);
+            if i == starter {
+                station_parent = Some(planet_entity)
+            }
 
             for moon in &system.moons {
                 let name = lexicon.generate_word(10);
@@ -904,16 +895,9 @@ impl Gameplay {
                 );
                 bodies.push(moon_entity);
             }
-
-            // Put us around the warmest third moon
-            if system.planet.0.body_radius > 12.0 && most_moons == 0 {
-                starter_planet = body_id;
-                most_moons = system.moons.len();
-                avg_moon_dist = system.moons[3].1.r.norm();
-            }
         }
 
-        let station_parent = bodies[starter_planet];
+        let station_parent = station_parent.expect("generator returned no station host");
         let parent_mu = world.get::<&Body>(station_parent).unwrap().mu;
 
         let station_payload = parts
@@ -931,7 +915,7 @@ impl Gameplay {
             },
             Parent { id: station_parent },
             State::from_kepler(
-                avg_moon_dist,
+                28.8,
                 0.2,
                 0.0,
                 1.5,
@@ -956,7 +940,7 @@ impl Gameplay {
                 station,
                 (
                     Station {
-                        num_crew: 6,
+                        num_crew: 2,
                         modules_gen: 0,
                     },
                     starting_inventory,
@@ -1002,7 +986,7 @@ impl Gameplay {
             StationModule { slot: 4 },
             ResourceStore {
                 resource: Resource::Hydrogen,
-                amount: 0.0,
+                amount: 100.0,
                 capacity: 100.0,
                 amount_et: EphemerisTime::epoch(),
             },
@@ -1101,10 +1085,10 @@ impl Gameplay {
             marks_key: (event_queue.version(), 0),
 
             current_et: Rc::new(Cell::new(EphemerisTime::epoch())),
-            animation_start_et: EphemerisTime::epoch(),
-            animation_target_et: EphemerisTime::epoch(),
-            animation_start_real: 0.0,
             event_queue,
+            paused: true,
+            time_scale: SECONDS_PER_DAY,
+            run_until: None,
 
             starbox: Starbox::new(9000, vec3(1.0, 2.0, 4.0), 0.4),
         };
@@ -1117,8 +1101,13 @@ impl Gameplay {
         retval
     }
 
-    fn is_animating(&self) -> bool {
-        self.current_et.get() < self.animation_target_et
+    fn recompute_run_until(&mut self) {
+        let now = self.current_et.get();
+        self.schedule_events();
+        let next_event = self.event_queue.events.keys().next().copied();
+        let next_limit = self.next_station_limit(now);
+
+        self.run_until = [next_event, next_limit].into_iter().flatten().min()
     }
 
     /// Changes various game state based on user mouse and keyboard input
@@ -1216,10 +1205,22 @@ impl Gameplay {
 
         let turn_controls = Container::new(vec![
             Box::new(
-                TextButton::new(Rectangle::new(0.0, 0.0, 280.0, 44.0), "NEXT TURN")
-                    .use_style_accented(&STYLE)
-                    .bound_active(self.controls_enabled.clone())
-                    .on_click(TurnMessages::NextTurn),
+                Container::new(vec![
+                    Box::new(
+                        TextButton::new(Rectangle::new(0.0, 0.0, 44.0, 44.0), "Play")
+                            .use_style_accented(&STYLE)
+                            .bound_active(self.controls_enabled.clone())
+                            .on_click(TurnMessages::Play),
+                    ),
+                    Box::new(
+                        TextButton::new(Rectangle::new(0.0, 0.0, 44.0, 44.0), "Stop")
+                            .use_style_accented(&STYLE)
+                            .on_click(TurnMessages::Stop),
+                    ),
+                ])
+                .flow(Flow::Horizontal)
+                .padding(vec2(0.0, 0.0))
+                .gap(0.0),
             ),
             Box::new(Label::bound(self.calendar_string.clone()).font(font, app)),
         ])
@@ -1245,6 +1246,8 @@ impl Gameplay {
 
         if self.world.get::<&Station>(selected).is_ok() {
             out.merge(self.station_section(selected, app));
+        } else if self.world.get::<&Craft>(selected).is_ok() {
+            out.merge(self.craft_selection(selected, app));
         } else if self.world.get::<&Body>(selected).is_ok() {
             out.merge(self.body_section(selected, app));
         }
@@ -1252,12 +1255,9 @@ impl Gameplay {
         out
     }
 
-    #[allow(unused)]
-    fn build_craft_info(
-        &self,
-        selected: Entity,
-        app: &App,
-    ) -> Vec<Box<dyn Widget<CommandMessages>>> {
+    fn craft_selection(&self, selected: Entity, app: &App) -> Section {
+        let mut out = Section::default();
+
         const WIDTH: f32 = 280.0;
         let font = app.renderer.get_font_id_from_name("font").unwrap();
         let font_small_bold = app
@@ -1376,7 +1376,8 @@ impl Gameplay {
             ));
         }
 
-        widgets
+        out.widgets = widgets;
+        out
     }
 
     fn body_section(&self, selected: Entity, app: &App) -> Section {
@@ -1963,7 +1964,7 @@ impl Gameplay {
         out
     }
 
-    fn gui_structure_key(&self) -> Option<(Entity, u32, u64)> {
+    fn gui_structure_key(&self) -> Option<(Entity, u32, u64, u64)> {
         let sel = self.selection.selected_entity()?;
         let gen = self
             .world
@@ -1988,7 +1989,9 @@ impl Gameplay {
             }
         }
 
-        Some((sel, gen, jobs))
+        let event_queue_version = self.event_queue.version();
+
+        Some((sel, gen, event_queue_version, jobs))
     }
 
     fn job_state_bits(&self) -> u64 {
@@ -2410,10 +2413,22 @@ impl Gameplay {
                 self.selection.set_selected(factory, app.seconds as f64);
 
                 let parent = self.world.get::<&Parent>(factory).unwrap().id;
-                let mut part_inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
-                part_inventory.add(part_id, 1);
+                let def = self.parts.get(part_id).unwrap().clone();
 
-                commit_station(&self.world, parent, self.current_et.get());
+                self.commit_station();
+
+                // Add any byproducts
+                for (r, amt) in &def.byproducts {
+                    add_resource(&self.world, parent, *r, *amt, self.current_et.get());
+                }
+
+                // For now just eject the stage
+                if def.fuel.is_some() {
+                    self.eject_craft(parent, &def, app);
+                } else {
+                    let mut part_inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
+                    part_inventory.add(part_id, 1);
+                }
 
                 // clear job so that factory becomes idle
                 if let Ok(mut f) = self.world.get::<&mut Factory>(factory) {
@@ -2427,6 +2442,59 @@ impl Gameplay {
         for (station, _) in self.world.query::<&Station>().iter() {
             commit_station(&self.world, station, self.current_et.get());
         }
+    }
+
+    fn eject_craft(&mut self, station: Entity, def: &PartDef, app: &App) {
+        let now = self.current_et.get();
+        let state = *self.world.get::<&State>(station).unwrap();
+        let parent = *self.world.get::<&Parent>(station).unwrap();
+
+        // Fuel it from the station's tanks, partially if that's all there is
+        let fuel = def.fuel.unwrap();
+        let want = fuel.max_fuel_mass_kg as f32;
+        let (h2, _) = station_resource_totals(&self.world, station, Resource::Hydrogen, now);
+        let (o2, _) = station_resource_totals(&self.world, station, Resource::Oxygen, now);
+
+        // TODO: I'd rather put the fuels in the fuel struct itself, than have these ratios hardcoded
+        const OF_RATIO: f32 = 5.5;
+        let available = (h2 * (1.0 + OF_RATIO)).min(o2 * (1.0 + OF_RATIO) / OF_RATIO);
+        let loaded = want.min(available);
+
+        take_resource(
+            &self.world,
+            station,
+            Resource::Hydrogen,
+            loaded / (1.0 + OF_RATIO),
+            now,
+        );
+        take_resource(
+            &self.world,
+            station,
+            Resource::Oxygen,
+            loaded * OF_RATIO / (1.0 + OF_RATIO),
+            now,
+        );
+
+        let mut stage = def.instantiate_stage();
+        stage.fuel_mass = loaded as f64;
+
+        let craft = spawn_orbiting_craft(
+            Payload {
+                name: def.name.clone(),
+                dry_mass: 0.0,
+            },
+            vec![stage],
+            SceneObject {
+                bvh_node_id: None,
+                name: def.name.clone(),
+            },
+            parent,
+            state,
+            &mut self.world,
+            &app.renderer,
+            &mut self.bvh,
+        );
+        self.selection.crafts.push(craft);
     }
 
     /// Updates planets based on their on-rails orbits around their parent bodies

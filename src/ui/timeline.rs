@@ -270,26 +270,30 @@ impl<Msg: Clone + 'static> Widget<Msg> for Timeline {
 
         // Draw the hovered event
         if let Some(hovered) = self.hovered {
-            let timeline_event = &self.marks.borrow()[hovered];
+            if self.marks.borrow().len() > hovered {
+                let timeline_event = &self.marks.borrow()[hovered];
 
-            if let Some(x) = self.x_for(timeline_event.t) {
-                let event_tick = Rectangle {
-                    pos: vec2(x, timeline_baseline - Self::EVENT_TICK_HEIGHT),
-                    size: vec2(1.0, Self::EVENT_TICK_HEIGHT),
-                };
+                if let Some(x) = self.x_for(timeline_event.t) {
+                    let event_tick = Rectangle {
+                        pos: vec2(x, timeline_baseline - Self::EVENT_TICK_HEIGHT),
+                        size: vec2(1.0, Self::EVENT_TICK_HEIGHT),
+                    };
 
-                app.renderer.set_color(self.now_color);
-                app.renderer.draw_text(
-                    vec2(event_tick.pos.x + 15.0, event_tick.pos.y - 1.0),
-                    &timeline_event.craft_name,
-                );
-                let color = timeline_event.kind.color();
-                let event_label = String::from(timeline_event.kind.describe());
-                app.renderer.set_color(color);
-                app.renderer.draw_text(
-                    vec2(event_tick.pos.x + 15.0, event_tick.pos.y - 20.0),
-                    &event_label,
-                );
+                    app.renderer.set_color(self.now_color);
+                    app.renderer.draw_text(
+                        vec2(event_tick.pos.x + 15.0, event_tick.pos.y - 1.0),
+                        &timeline_event.craft_name,
+                    );
+                    let color = timeline_event.kind.color();
+                    let event_label = String::from(timeline_event.kind.describe());
+                    app.renderer.set_color(color);
+                    app.renderer.draw_text(
+                        vec2(event_tick.pos.x + 15.0, event_tick.pos.y - 20.0),
+                        &event_label,
+                    );
+                }
+            } else {
+                println!("timeline.rs: hovered index was greater than the `marks` vec size");
             }
         }
 

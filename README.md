@@ -28,7 +28,7 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
         x gui_structure_key includes job state
         x replace build button with progress bar, "Done by ... " text
         x show inventory
-    - [ ] force there to be a jupiter-analog
+    - [x] force there to be a jupiter-analog
     - [ ] assembly bay module: combines parts into spacecraft
     - [ ] can build new modules (x or just start with electrolysis module?)
     - [ ] lose the game if the station dies
@@ -56,7 +56,7 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
         * The byproducts of processes are always useful.
         * Natural resources are clustered out in the system, imperfectly overlap, and distributed based on the hidden parameters.
     - Eventual modules:
-        * Electrolysis: H2O + Energy -> H2 + O2
+        x Electrolysis: H2O + Energy -> H2 + O2
         * Hydrolox Fuel Cell: H2 + O2 -> H2O + Energy (cleaner, but H2 tanks should be a pain)
         * Methalox Fuel Cell: CH4 + O2 -> H2O + CO2 + Energy (not as nice with the CO2, but no H2)
         * Chemistry Lab: Has cartridges for specific processes:

@@ -38,6 +38,7 @@ impl EphemerisTime {
         (self.0 as f64) / ET_PER_YEAR
     }
 
+    #[allow(dead_code)]
     pub fn as_days(self) -> f64 {
         (self.0 as f64) / ET_PER_DAY
     }
@@ -49,12 +50,6 @@ impl EphemerisTime {
 
     pub fn as_secs(self) -> f64 {
         (self.0 as f64) / ET_PER_SECOND
-    }
-
-    pub fn lerp(self, other: Self, t: f64) -> Self {
-        let start = self.0;
-        let end = other.0;
-        Self(start + ((end - start) as f64 * t) as i64)
     }
 
     pub fn ceil_to(self, step: Self) -> Self {

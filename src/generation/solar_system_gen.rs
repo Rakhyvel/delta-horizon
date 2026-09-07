@@ -85,11 +85,12 @@ const MOON_MASS_CATEGORIES: &[MassCategory] = &[
     }, // BIG GUYS (Moon, Io, Callisto, Titan, Ganymede)
 ];
 
-pub fn generate() -> Vec<BodySystem> {
+pub fn generate() -> (Vec<BodySystem>, usize) {
     let mut rng = rand::rngs::StdRng::from_entropy();
 
     loop {
-        let planets = generate_system(&mut rng);
+        let (planets, starter) = generate_system(&mut rng);
+        let Some(starter) = starter else { continue };
 
         if !all_moons_small(&planets) {
             continue;
@@ -106,22 +107,25 @@ pub fn generate() -> Vec<BodySystem> {
         if planets.len() < 5 {
             continue;
         }
-        break planets;
+
+        break (planets, starter);
     }
 }
 
-fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
+fn generate_system(rng: &mut impl Rng) -> (Vec<BodySystem>, Option<usize>) {
     let mut planets: Vec<BodySystem> = vec![];
+    let mut starter: Option<usize> = None;
 
     let mut orbital_radius_au = rng.gen_range(0.1..0.4); // in AU
     while orbital_radius_au < 35.0 {
         let orbital_radius_earth_radii = orbital_radius_au * EARTH_RADII_PER_AU;
-        let planet = if (4.0..6.7).contains(&orbital_radius_au) {
+        let planet = if (3.0..5.0).contains(&orbital_radius_au) && starter.is_none() {
+            starter = Some(planets.len());
             generate_planet(
                 rng,
                 orbital_radius_au,
                 PLANET_MASS_CATEGORIES,
-                Some(13.0),
+                Some(3.9),
                 None,
                 None,
                 1.0,
@@ -209,7 +213,7 @@ fn generate_system(rng: &mut impl Rng) -> Vec<BodySystem> {
         });
     }
 
-    planets
+    (planets, starter)
 }
 
 fn generate_planet(
