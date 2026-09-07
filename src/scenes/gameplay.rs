@@ -87,8 +87,6 @@ pub const UV_DATA: &[u8] = include_bytes!("../../res/uv-sphere.obj");
 pub const CONE_DATA: &[u8] = include_bytes!("../../res/cone.obj");
 pub const CUBE_DATA: &[u8] = include_bytes!("../../res/cube.obj");
 
-const MAX_TURN_DURATION_DAYS: f64 = 30.0;
-
 /// Struct that contains info about the game state
 pub struct Gameplay {
     /// The world where all the entities live
@@ -160,6 +158,12 @@ pub enum CommandMessages {
         fabricator_entity: Entity,
     },
     CancelQueuedFabricator {
+        fabricator_entity: Entity,
+    },
+    CancelActiveFabricator {
+        fabricator_entity: Entity,
+    },
+    ToggleFabricator {
         fabricator_entity: Entity,
     },
     ToggleElectrolyzer {
@@ -407,6 +411,29 @@ impl Scene for Gameplay {
                             self.world.get::<&mut Factory>(fabricator_entity).unwrap();
                         factory.pending_job = None;
                     }
+                    CommandMessages::CancelActiveFabricator { fabricator_entity } => {
+                        let mut factory =
+                            self.world.get::<&mut Factory>(fabricator_entity).unwrap();
+                        factory.current_job = None;
+                    }
+                    CommandMessages::ToggleFabricator { fabricator_entity } => {
+                        self.commit_station();
+                        let now = self.current_et.get();
+                        let mut factory =
+                            self.world.get::<&mut Factory>(fabricator_entity).unwrap();
+                        let enabled = factory.enabled;
+                        let power = factory.power_watts;
+                        if let Some(job) = &mut factory.current_job {
+                            if enabled {
+                                // bank the energy done before turning off the thing
+                                let dt = (now - job.energy_et).as_secs() as f32;
+                                job.energy_done =
+                                    (job.energy_done + power * dt).min(job.energy_total);
+                            }
+                            job.energy_et = now;
+                        }
+                        factory.enabled = !factory.enabled;
+                    }
                     CommandMessages::CancelCommand { craft } => {
                         let mut craft = self.world.get::<&mut Craft>(craft).unwrap();
                         craft.command = None;
@@ -484,6 +511,7 @@ impl Scene for Gameplay {
                 for event in self.event_queue.pop_due(t) {
                     self.handle_event(event, app);
                 }
+                self.complete_due_jobs(t, app);
                 self.recompute_run_until();
             }
         }
@@ -1005,6 +1033,7 @@ impl Gameplay {
                 current_job: None,
                 pending_job: None,
                 power_watts: 5000.0,
+                enabled: false,
             },
             Parent { id: station },
         ));
@@ -1113,8 +1142,20 @@ impl Gameplay {
         self.schedule_events();
         let next_event = self.event_queue.events.keys().next().copied();
         let next_limit = self.next_station_limit(now);
+        let next_job_complete = self.next_job_completion(now);
 
-        self.run_until = [next_event, next_limit].into_iter().flatten().min()
+        self.run_until = [next_event, next_limit, next_job_complete]
+            .into_iter()
+            .flatten()
+            .min()
+    }
+
+    fn next_job_completion(&self, now: EphemerisTime) -> Option<EphemerisTime> {
+        self.world
+            .query::<&Factory>()
+            .iter()
+            .filter_map(|(_, f)| f.current_job.as_ref()?.completion_et(f, now))
+            .min()
     }
 
     /// Changes various game state based on user mouse and keyboard input
@@ -1539,8 +1580,12 @@ impl Gameplay {
                         .bind(self.turn_progress.clone()),
                 ) as Box<dyn Widget<CommandMessages>>,
                 Box::new(
-                    Label::new(format!("Completion: {}", job.completion_et.as_calendar()))
-                        .font(font, app),
+                    Label::new(format!(
+                        "Completion: {}",
+                        job.completion_et(&factory, self.current_et.get())
+                            .map_or(String::from("None"), |et| et.as_calendar())
+                    ))
+                    .font(font, app),
                 ) as Box<dyn Widget<CommandMessages>>,
             ])
         } else {
@@ -1902,14 +1947,31 @@ impl Gameplay {
         let mut out = Section::default();
 
         let factory = self.world.get::<&Factory>(module).unwrap();
+        let enabled = Rc::new(Cell::new(true));
         let progress = Rc::new(Cell::new(0.0));
+        let now = self.current_et.get();
 
         out.push(Label::new(String::from("FABRICATOR")).font(font_small_bold, app));
 
         if let Some(job) = &factory.current_job {
             let part_name = &self.parts.get(job.part_id).unwrap().name;
 
+            let ready_text = match job.completion_et(&factory, now) {
+                Some(et) => format!("Ready {}", et.as_calendar()),
+                None => String::from("Paused"),
+            };
+
             out.push(Label::new(format!("Building {}", part_name)).font(font, app));
+            out.push(
+                Toggle::new("Enabled:")
+                    .bind(enabled.clone())
+                    .use_style(&STYLE)
+                    .on_toggle(CommandMessages::ToggleFabricator {
+                        fabricator_entity: module,
+                    })
+                    .bound_active(self.controls_enabled.clone())
+                    .font(font, app),
+            );
             out.push(
                 ProgressBar::new(vec2(WIDTH - 8.0 * 2.0, 12.0))
                     .background_color(STYLE.bg_primary)
@@ -1917,11 +1979,22 @@ impl Gameplay {
                     .border(STYLE.border_primary, 1.0)
                     .bind(progress.clone()),
             );
+            out.push(Label::new(ready_text).font(font, app));
             out.push(
-                Label::new(format!("Ready {}", job.completion_et.as_calendar())).font(font, app),
+                TextButton::<CommandMessages>::new(
+                    Rectangle::new(0.0, 0.0, WIDTH - 8.0 * 2.0, 30.0),
+                    "Cancel",
+                )
+                .use_style(&STYLE)
+                .bound_active(self.controls_enabled.clone())
+                .on_click(CommandMessages::CancelActiveFabricator {
+                    fabricator_entity: module,
+                }),
             );
+
             out.bindings.push(Binding::new({
                 let current_et = self.current_et.clone();
+                let enabled = enabled.clone();
                 move |world: &World| {
                     let factory = world.get::<&Factory>(module).unwrap();
                     progress.set(
@@ -1929,16 +2002,16 @@ impl Gameplay {
                             .current_job
                             .as_ref()
                             .unwrap()
-                            .progress(current_et.get()) as f32,
+                            .progress(&factory, current_et.get()) as f32,
                     );
+                    enabled.set(factory.enabled);
                 }
             }))
         } else if let Some(part_id) = factory.pending_job {
             let part = self.parts.get(part_id).unwrap();
 
             let build_time_secs = part.cost.energy_joules / factory.power_watts;
-            let completion =
-                self.current_et.get() + EphemerisTime::from_secs(build_time_secs as f64);
+            let completion = now + EphemerisTime::from_secs(build_time_secs as f64);
 
             out.push(Label::new(format!("Queued: {}", part.name)).font(font, app));
             out.push(Label::new(format!("Ready {}", completion.as_calendar())).font(font, app));
@@ -2030,7 +2103,8 @@ impl Gameplay {
                 (None, Some(_)) => 1,
                 _ => 0,
             };
-            h ^= (e.id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ s;
+            h ^=
+                (e.id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ s ^ ((f.enabled as u64) << 2);
         }
         for (e, el) in self.world.query::<&Electrolyzer>().iter() {
             h ^= (e.id() as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F) ^ (el.enabled as u64);
@@ -2074,17 +2148,12 @@ impl Gameplay {
                 take_resource(&self.world, station, *r, *amount, now);
             }
 
-            let build_time_secs = {
-                let f = self.world.get::<&mut Factory>(fab).unwrap();
-                cost.energy_joules / f.power_watts
-            };
-
             // Commit at the old rate, before the job changes it.
             commit_station(&self.world, station, now);
 
             {
                 let mut f = self.world.get::<&mut Factory>(fab).unwrap();
-                f.start_job(part_id, now, build_time_secs).unwrap();
+                f.start_job(part_id, now, cost.energy_joules).unwrap();
                 f.pending_job = None;
             }
 
@@ -2303,31 +2372,6 @@ impl Gameplay {
                 }
             }
         }
-
-        let factories: Vec<(Entity, u64, EphemerisTime)> = self
-            .world
-            .query::<(&mut Factory,)>()
-            .iter()
-            .filter_map(|(entity, (factory,))| {
-                if let Some(job) = &mut factory.current_job {
-                    if !job.scheduled {
-                        job.scheduled = true;
-                        return Some((entity, job.part_id, job.completion_et));
-                    }
-                }
-                None
-            })
-            .collect();
-
-        for (entity, part_id, completion_et) in factories {
-            self.event_queue.push(
-                completion_et,
-                Event::FactoryComplete {
-                    factory: entity,
-                    part_id,
-                },
-            );
-        }
     }
 
     fn handle_event(&mut self, event: Event, app: &App) {
@@ -2445,38 +2489,52 @@ impl Gameplay {
                 craft.command = None;
                 craft.command_scheduled = false;
             }
-            Event::FactoryComplete { factory, part_id } => {
-                self.selection.set_selected(factory, app.seconds as f64);
-
-                let parent = self.world.get::<&Parent>(factory).unwrap().id;
-                let def = self.parts.get(part_id).unwrap().clone();
-
-                self.commit_station();
-
-                // Add any byproducts
-                for (r, amt) in &def.byproducts {
-                    add_resource(&self.world, parent, *r, *amt, self.current_et.get());
-                }
-
-                // For now just eject the stage
-                if def.fuel.is_some() {
-                    self.eject_craft(parent, &def, app);
-                } else {
-                    let mut part_inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
-                    part_inventory.add(part_id, 1);
-                }
-
-                // clear job so that factory becomes idle
-                if let Ok(mut f) = self.world.get::<&mut Factory>(factory) {
-                    f.current_job = None;
-                }
-            }
         }
     }
 
     fn commit_station(&self) {
         for (station, _) in self.world.query::<&Station>().iter() {
             commit_station(&self.world, station, self.current_et.get());
+        }
+    }
+
+    fn complete_due_jobs(&mut self, now: EphemerisTime, app: &App) {
+        let done: Vec<(Entity, u64)> = self
+            .world
+            .query::<&Factory>()
+            .iter()
+            .filter_map(|(e, f)| {
+                let job = f.current_job.as_ref()?;
+                (job.energy_at(f, now) >= job.energy_total - f.power_watts)
+                    .then_some((e, job.part_id))
+            })
+            .collect();
+
+        for (fab, part_id) in done {
+            self.selection.set_selected(fab, app.seconds as f64);
+
+            let parent = self.world.get::<&Parent>(fab).unwrap().id;
+            let def = self.parts.get(part_id).unwrap().clone();
+
+            self.commit_station();
+
+            // Add any byproducts
+            for (r, amt) in &def.byproducts {
+                add_resource(&self.world, parent, *r, *amt, self.current_et.get());
+            }
+
+            // For now just eject the stage
+            if def.fuel.is_some() {
+                self.eject_craft(parent, &def, app);
+            } else {
+                let mut part_inventory = self.world.get::<&mut PartInventory>(parent).unwrap();
+                part_inventory.add(part_id, 1);
+            }
+
+            // clear job so that factory becomes idle
+            if let Ok(mut f) = self.world.get::<&mut Factory>(fab) {
+                f.current_job = None;
+            }
         }
     }
 
@@ -2644,21 +2702,30 @@ impl Gameplay {
             })
             .collect();
 
-        // Add projected factory completion events
+        // Add pending projected factory completion events
         for (fab, (_, _, f)) in self
             .world
             .query::<(&StationModule, &Parent, &Factory)>()
             .iter()
         {
-            if f.pending_job.is_none() {
-                continue;
-            };
-            marks.push(TimelineMark {
-                t: projected_completion(&self.world, fab, &self.parts, self.current_et.get())
-                    .unwrap(),
-                kind: MarkKind::FactoryComplete,
-                craft_name: String::new(),
-            })
+            if f.pending_job.is_some() {
+                marks.push(TimelineMark {
+                    t: projected_completion(&self.world, fab, &self.parts, self.current_et.get())
+                        .unwrap(),
+                    kind: MarkKind::FactoryComplete,
+                    craft_name: String::new(),
+                })
+            } else if let Some(current_job) = &f.current_job {
+                let Some(completion_et) = current_job.completion_et(f, self.current_et.get())
+                else {
+                    continue;
+                };
+                marks.push(TimelineMark {
+                    t: completion_et,
+                    kind: MarkKind::FactoryComplete,
+                    craft_name: String::new(),
+                })
+            }
         }
 
         // Add projected reservoir limit events, Depleted and Filled
@@ -2740,7 +2807,7 @@ impl Gameplay {
             }
 
             // No real craft name
-            Event::CompleteCommand { .. } | Event::FactoryComplete { .. } => String::from(""),
+            Event::CompleteCommand { .. } => String::from(""),
         }
     }
 
@@ -3084,10 +3151,10 @@ impl Gameplay {
             Err(_) => return,
         };
 
-        if let Some(job) = &factory.current_job {
-            self.turn_progress
-                .set(job.progress(self.current_et.get()) as f32);
-        }
+        // if let Some(job) = &factory.current_job {
+        //     self.turn_progress
+        //         .set(job.progress(self.current_et.get()) as f32);
+        // }
     }
 
     fn world_to_screen(&self, relative_pos: DVec3, app: &App) -> Option<Vec2> {

@@ -75,7 +75,6 @@ impl MarkKind {
             Event::Burn { .. } => Some(MarkKind::Burn),
             Event::Launch { .. } => Some(MarkKind::Launch),
             Event::Land { .. } => Some(MarkKind::Land),
-            Event::FactoryComplete { .. } => Some(MarkKind::FactoryComplete),
 
             Event::CompleteCommand { .. } => None,
         }

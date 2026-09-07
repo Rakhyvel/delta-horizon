@@ -58,7 +58,7 @@ impl EphemerisTime {
     }
 
     fn as_datetime(&self) -> DateTime<Utc> {
-        let secs = self.0 / 1_000_000;
+        let secs = self.0.div_euclid(1_000_000);
         let micros = self.0.rem_euclid(1_000_000) * 1000; // always positive
 
         chrono::DateTime::from_timestamp(secs, micros as u32).unwrap()

@@ -2,6 +2,7 @@ use std::f64::consts::PI;
 
 use nalgebra_glm::DVec3;
 
+use crate::astro::stumpff::stumpff_c2_c3;
 #[allow(unused)]
 use crate::astro::{epoch::EphemerisTime, state::State};
 
@@ -104,22 +105,6 @@ pub fn lambert(
     let v2 = (gdot * r2 - r1) / g;
 
     Some((v1, v2))
-}
-
-fn stumpff_c2_c3(phi: f64) -> (f64, f64) {
-    if phi > LAMBERT_EPSILON {
-        let sp = phi.sqrt();
-        let (s, c) = sp.sin_cos();
-        ((1.0 - c) / phi, (sp - s) / phi.powi(3).sqrt())
-    } else if phi < -LAMBERT_EPSILON {
-        let sp = (-phi).sqrt();
-        (
-            (1.0 - sp.cosh()) / phi,
-            (sp.sinh() - sp) / (-phi).powi(3).sqrt(),
-        )
-    } else {
-        (0.5, 1.0 / 6.0)
-    }
 }
 
 #[test]

@@ -285,9 +285,10 @@ fn aim_for_periapsis(
     theta: f64,
     kind: TransferKind,
 ) -> Option<(DVec3, DVec3)> {
-    let mut aim = target.r;
+    let mut aim = target.r; // we target the body directly on the first pass
     let mut out = None;
 
+    // 3 iterations seems to be good enough from playtesting, could maybe use some test cases
     for _ in 0..3 {
         let (v1, v2) = lambert(r_craft, aim, tof, mu, kind)?;
         let v_inf_vec = v2 - target.v;
@@ -306,7 +307,7 @@ fn aim_for_periapsis(
         // theta selects leading vs trailing, above vs below
         let b_vec = b * (theta.cos() * t_hat + theta.sin() * r_hat);
 
-        // re-solve aiming at the offset point
+        // nudge the aim point toward our desired flyby, resolve
         let d = (soi_radius * soi_radius - b * b).max(0.0).sqrt();
         aim = target.r + b_vec - s_hat * d;
 

@@ -24,14 +24,16 @@ pub struct Factory {
     pub current_job: Option<FactoryJob>,
     pub pending_job: Option<u64>,
     pub power_watts: f32,
+    pub enabled: bool,
 }
 
 #[derive(Debug)]
 pub struct FactoryJob {
     pub part_id: u64,
     pub order_et: EphemerisTime,
-    pub completion_et: EphemerisTime,
-    pub scheduled: bool,
+    pub energy_total: f32,
+    pub energy_done: f32,
+    pub energy_et: EphemerisTime,
 }
 
 #[allow(unused)]
@@ -88,6 +90,7 @@ pub fn spawn_factory(
                     current_job: None,
                     pending_job: None,
                     power_watts: 5.0,
+                    enabled: false,
                 },
             ),
         )
@@ -106,23 +109,39 @@ impl Factory {
         &mut self,
         part_id: u64,
         current_et: EphemerisTime,
-        build_time_secs: f32,
+        energy_total: f32,
     ) -> Result<(), String> {
-        let completion_et = current_et + EphemerisTime::from_secs(build_time_secs as f64);
+        self.enabled = true;
         self.current_job = Some(FactoryJob {
             part_id,
             order_et: current_et,
-            completion_et,
-            scheduled: false,
+            energy_done: 0.0,
+            energy_total,
+            energy_et: current_et,
         });
         Ok(())
     }
 }
 
 impl FactoryJob {
-    pub fn progress(&self, current_et: EphemerisTime) -> f64 {
-        (current_et.as_years() - self.order_et.as_years())
-            / (self.completion_et.as_years() - self.order_et.as_years())
+    pub fn energy_at(&self, fab: &Factory, t: EphemerisTime) -> f32 {
+        if !fab.enabled {
+            return self.energy_done;
+        }
+        let dt = (t - self.energy_et).as_secs() as f32;
+        (self.energy_done + fab.power_watts * dt).min(self.energy_total)
+    }
+
+    pub fn progress(&self, fab: &Factory, current_et: EphemerisTime) -> f64 {
+        (self.energy_at(fab, current_et) / self.energy_total) as f64
+    }
+
+    pub fn completion_et(&self, fab: &Factory, t: EphemerisTime) -> Option<EphemerisTime> {
+        if !fab.enabled {
+            return None;
+        }
+        let remaining = self.energy_total - self.energy_at(fab, t);
+        Some(t + EphemerisTime::from_secs((remaining / fab.power_watts) as f64))
     }
 }
 

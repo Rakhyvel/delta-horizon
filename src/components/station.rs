@@ -103,7 +103,7 @@ pub fn station_net_watts(world: &World, station: Entity) -> f32 {
 
     // Subtract consumers
     for (_, (_, parent, fab)) in world.query::<(&StationModule, &Parent, &Factory)>().iter() {
-        if parent.id == station && fab.current_job.is_some() {
+        if parent.id == station && fab.current_job.is_some() && fab.enabled {
             w -= fab.power_watts;
         }
     }

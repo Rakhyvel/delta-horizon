@@ -4,6 +4,7 @@ use nalgebra_glm::{quat_angle_axis, quat_rotate_vec3, vec3, DVec3};
 
 use crate::astro::{
     epoch::{EphemerisTime, ET_PER_SECOND},
+    stumpff::{stumpff_c, stumpff_s},
     units::SECONDS_PER_YEAR,
 };
 
@@ -58,24 +59,35 @@ impl State {
     }
 
     /// Returns the ephemeris at some `t` given some mu
+    /// TODO:
+    /// * Tests! That we preserve orbital energy and angular momentum
+    /// * bracket/bisection
     pub fn propagate(&self, t: EphemerisTime, mu: f64) -> Result<State, String> {
         let dt = (t - self.t).as_years();
 
-        assert!(mu > 0.0); // mu must be positive
+        if !mu.is_finite() || mu <= 0.0 {
+            return Err("mu must be finite and positive".into());
+        }
 
         let r0_mag = self.r.norm();
         let v0_mag = self.v.norm();
 
-        assert!(r0_mag > 0.0); // r0_mag must be positive
+        if !self.r.iter().all(|x| x.is_finite()) || !self.v.iter().all(|x| x.is_finite()) {
+            return Err("state contains non-finite values".into());
+        }
+
+        if r0_mag == 0.0 {
+            return Err("position magnitude must be non-zero".into());
+        }
 
         let vr0 = self.r.dot(&self.v) / r0_mag; // radial velocity
         let alpha = 2.0 / r0_mag - (v0_mag * v0_mag) / mu; // 1/a (specific energy form)
 
-        // Newton solver for chi (TODO: look into different initial guesses)
+        // Setup chi with an initial guess
         let mut chi = if alpha > 0.0 {
             // Elliptic: seed with circular orbit chi
             mu.sqrt() * dt * alpha
-        } else if alpha < 1e-12 {
+        } else if alpha.abs() > 1e-12 {
             // Hyperbolic, seed using Vallado alg. 8
             let a = 1.0 / alpha;
             let sign = if dt < 0.0 { -1.0 } else { 1.0 };
@@ -92,9 +104,9 @@ impl State {
             mu.sqrt() * dt / r0_mag
         };
 
-        // newton rhapson, find chi that makes F 0
+        // newton rhapson, find chi that satisfies the EOM for our given dt
         const MAX_ITER: usize = 500;
-        let tol = 1e-12 * chi.abs().max(1.0); // relative, on delta
+        let f_tol = 1e-12 * (mu.sqrt() * dt).abs().max(1.0);
         let mut converged = false;
         for _ in 0..MAX_ITER {
             let chi2 = chi * chi;
@@ -103,8 +115,10 @@ impl State {
             let c = stumpff_c(z);
             let s = stumpff_s(z);
 
+            // how initial radial motion affects dt
             let r0_vr0_over_sqrtmu = r0_mag * vr0 / mu.sqrt();
 
+            // residual to drive to 0, how far `chi` is to satisfying the EOM
             let f = r0_vr0_over_sqrtmu * chi2 * c
                 + (1.0 - alpha * r0_mag) * chi2 * chi * s
                 + r0_mag * chi
@@ -114,25 +128,26 @@ impl State {
                 return Err(String::from("universal kepler equation diverged"));
             }
 
-            if f.abs() < tol {
+            if f.abs() < f_tol {
                 converged = true;
                 break;
             }
 
-            // derivative of F wrt chi
+            // derivative of F wrt chi, roughly how to nudge chi based on our error to reduce errors to 0
             let df_dchi = r0_vr0_over_sqrtmu * chi * (1.0 - alpha * chi2 * s)
                 + (1.0 - alpha * r0_mag) * chi2 * c
                 + r0_mag;
 
+            if !df_dchi.is_finite() || df_dchi == 0.0 {
+                return Err(String::from("universal kepler derivative became invalid"));
+            }
+
             // Make the delta proportional so large chi can actually move
             let max_step = (0.5 * chi.abs()).max(1.0);
             let delta = (f / df_dchi).clamp(-max_step, max_step);
-            chi -= delta;
 
-            if delta.abs() < tol {
-                converged = true;
-                break;
-            }
+            // make the newton step, towards where 0 residuals are
+            chi -= delta;
         }
         if !converged {
             return Err(String::from("universal kepler equation did not converge"));
@@ -144,7 +159,7 @@ impl State {
         let c = stumpff_c(z);
         let s = stumpff_s(z);
 
-        // find f and g
+        // find lagrange f and g coeffs
         let f = 1.0 - (chi2 / r0_mag) * c;
         let g = dt - (1.0 / mu.sqrt()) * chi2 * chi * s;
 
@@ -313,29 +328,5 @@ impl State {
         }
 
         Some(period)
-    }
-}
-
-fn stumpff_c(z: f64) -> f64 {
-    if z > 0.0 {
-        let sz = z.sqrt();
-        (1.0 - sz.cos()) / z
-    } else if z < 0.0 {
-        let sz = (-z).sqrt();
-        (sz.cosh() - 1.0) / (-z)
-    } else {
-        0.5
-    }
-}
-
-fn stumpff_s(z: f64) -> f64 {
-    if z > 0.0 {
-        let sz = z.sqrt();
-        (sz - sz.sin()) / (sz.powi(3))
-    } else if z < 0.0 {
-        let sz = (-z).sqrt();
-        (sz.sinh() - sz) / (sz.powi(3))
-    } else {
-        1.0 / 6.0
     }
 }

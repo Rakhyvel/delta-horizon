@@ -41,11 +41,6 @@ pub enum Event {
 
     /// At this event, the craft's command is cleared (maneuver sequence finished)
     CompleteCommand { craft: Entity },
-
-    FactoryComplete {
-        factory: Entity,
-        part_id: u64, // hash of the part id
-    },
 }
 
 pub struct EventQueue {

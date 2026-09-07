@@ -6,5 +6,6 @@ pub(crate) mod launch;
 pub(crate) mod maneuver;
 pub(crate) mod newton;
 pub(crate) mod state;
+pub(crate) mod stumpff;
 pub(crate) mod transfer;
 pub(crate) mod units;
