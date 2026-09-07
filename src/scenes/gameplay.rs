@@ -1972,26 +1972,7 @@ impl Gameplay {
             .map(|s| s.modules_gen)
             .unwrap_or(0);
 
-        // Get job state key
-        let mut jobs = 0u64;
-        for (_, (m, p, f)) in self
-            .world
-            .query::<(&StationModule, &Parent, &Factory)>()
-            .iter()
-        {
-            if p.id == sel {
-                let s = match (&f.current_job, f.pending_job) {
-                    (Some(_), _) => 2,
-                    (None, Some(_)) => 1,
-                    _ => 0,
-                };
-                jobs |= (s as u64) << (m.slot.min(31) * 2);
-            }
-        }
-
-        let event_queue_version = self.event_queue.version();
-
-        Some((sel, gen, event_queue_version, jobs))
+        Some((sel, gen, self.event_queue.version(), self.job_state_bits()))
     }
 
     fn job_state_bits(&self) -> u64 {
@@ -2006,6 +1987,14 @@ impl Gameplay {
         }
         for (e, el) in self.world.query::<&Electrolyzer>().iter() {
             h ^= (e.id() as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F) ^ (el.enabled as u64);
+        }
+        for (e, c) in self.world.query::<&Craft>().iter() {
+            let s = match (&c.command, c.command_scheduled) {
+                (Some(_), true) => 2,
+                (Some(_), false) => 1,
+                _ => 0,
+            };
+            h ^= (e.id() as u64).wrapping_mul(0x1656_67B1_9E37_79F9) ^ s;
         }
         h
     }
@@ -2168,7 +2157,7 @@ impl Gameplay {
                 }
                 Command::Escape { to, plan } => {
                     let departure_time = plan.escape_burn.t;
-                    let arrival_time = plan.grandparent_orbit.t;
+                    let arrival_time = plan.exit_state.t;
 
                     println!("departure_time: {}", departure_time.as_calendar());
                     println!("arrival_time.t: {}", arrival_time.as_calendar());
@@ -2190,7 +2179,7 @@ impl Gameplay {
                         Event::SoiChange {
                             craft: entity,
                             new_parent: to,
-                            new_craft_orbit: plan.grandparent_orbit,
+                            new_craft_orbit: plan.exit_state,
                             new_soi_radius: plan.soi_radius * 3.0,
                         },
                     );
@@ -2591,6 +2580,7 @@ impl Gameplay {
     }
 
     fn build_marks(&self) -> Vec<TimelineMark> {
+        // Add hard events from the event queue
         let mut marks: Vec<TimelineMark> = self
             .event_queue
             .events
@@ -2607,6 +2597,7 @@ impl Gameplay {
             })
             .collect();
 
+        // Add projected factory completion events
         for (fab, (_, _, f)) in self
             .world
             .query::<(&StationModule, &Parent, &Factory)>()
@@ -2623,6 +2614,7 @@ impl Gameplay {
             })
         }
 
+        // Add projected reservoir limit events, Depleted and Filled
         for (entity, (_, scene_obj)) in self.world.query::<(&Station, &SceneObject)>().iter() {
             for (et, resource, rate) in next_reservoir_limits(
                 &self.world,
@@ -2635,7 +2627,7 @@ impl Gameplay {
                     marks.push(TimelineMark {
                         t: et,
                         kind: MarkKind::Critical,
-                        craft_name: format!("{} {} Depletes", scene_obj.name, resource.long_name()),
+                        craft_name: format!("{} {} Depleted", scene_obj.name, resource.long_name()),
                     })
                 } else {
                     marks.push(TimelineMark {
@@ -2644,6 +2636,31 @@ impl Gameplay {
                         craft_name: format!("{} {} Filled", scene_obj.name, resource.long_name()),
                     })
                 }
+            }
+        }
+
+        // Add projected mission burns (burns, SOI crossings, etc)
+        for (_, (craft, scene_obj)) in self.world.query::<(&Craft, &SceneObject)>().iter() {
+            let Some(command) = &craft.command else {
+                continue;
+            };
+            if craft.command_scheduled {
+                continue; // already in the event queue, don't re-add it
+            }
+            let kind: MarkKind = MarkKind::from_command(command);
+            for (label, et) in command.burn_schedule() {
+                marks.push(TimelineMark {
+                    t: et,
+                    kind,
+                    craft_name: format!("{} - {}", scene_obj.name, label),
+                });
+            }
+            for (label, et) in command.transition_schedule() {
+                marks.push(TimelineMark {
+                    t: et,
+                    kind: MarkKind::SoiChange,
+                    craft_name: format!("{} - {}", scene_obj.name, label),
+                });
             }
         }
 

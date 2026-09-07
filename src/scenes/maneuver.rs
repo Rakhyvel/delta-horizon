@@ -122,7 +122,7 @@ impl ManeuverResult {
         match self {
             ManeuverResult::Transfer { plan, .. } => plan.circ_state.t,
             ManeuverResult::Flyby { plan, .. } => plan.flyby_state.t,
-            ManeuverResult::Escape { plan, .. } => plan.grandparent_orbit.t,
+            ManeuverResult::Escape { plan, .. } => plan.exit_state.t,
             ManeuverResult::Land { plan } => plan.landing_burn.t,
             ManeuverResult::Launch { plan } => plan.circ_burn.t,
         }

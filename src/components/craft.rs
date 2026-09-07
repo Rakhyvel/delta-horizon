@@ -66,7 +66,6 @@ pub enum Command {
 }
 
 impl Command {
-    #[allow(unused)]
     pub fn label(&self) -> &'static str {
         match self {
             Command::Transfer { .. } => "Transfer",
@@ -77,7 +76,6 @@ impl Command {
         }
     }
 
-    #[allow(unused)]
     pub fn burn_schedule(&self) -> Vec<(&'static str, EphemerisTime)> {
         match self {
             Command::Transfer { plan, .. } => vec![
@@ -94,6 +92,18 @@ impl Command {
                 ("Launch", plan.launch_burn.t),
                 ("Circularization", plan.circ_burn.t),
             ],
+        }
+    }
+
+    pub fn transition_schedule(&self) -> Vec<(&'static str, EphemerisTime)> {
+        match self {
+            Command::Transfer { plan, .. } => vec![("Enters SOI", plan.flyby_state.t)],
+            Command::Flyby { plan, .. } => vec![
+                ("Enters SOI", plan.flyby_state.t),
+                ("Leaves SOI", plan.exit_state.t),
+            ],
+            Command::Escape { plan, .. } => vec![("Leaves SOI", plan.exit_state.t)],
+            Command::Land { .. } | Command::Launch { .. } => vec![],
         }
     }
 }

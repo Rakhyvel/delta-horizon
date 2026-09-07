@@ -9,6 +9,7 @@ use nalgebra_glm::{vec2, vec4, Vec2, Vec4};
 
 use crate::{
     astro::epoch::EphemerisTime,
+    components::craft::Command,
     scenes::events::Event,
     ui::{msg::MsgQueue, style::Style, widget::Widget},
 };
@@ -77,6 +78,16 @@ impl MarkKind {
             Event::FactoryComplete { .. } => Some(MarkKind::FactoryComplete),
 
             Event::CompleteCommand { .. } => None,
+        }
+    }
+
+    pub fn from_command(command: &Command) -> Self {
+        match command {
+            Command::Transfer { .. } | Command::Flyby { .. } | Command::Escape { .. } => {
+                MarkKind::Burn
+            }
+            Command::Land { .. } => MarkKind::Land,
+            Command::Launch { .. } => MarkKind::Launch,
         }
     }
 
@@ -247,7 +258,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Timeline {
         }
 
         // Draw events
-        for timeline_event in self.marks.borrow().iter() {
+        for (i, timeline_event) in self.marks.borrow().iter().enumerate() {
             let Some(x) = self.x_for(timeline_event.t) else {
                 continue;
             };
@@ -256,13 +267,19 @@ impl<Msg: Clone + 'static> Widget<Msg> for Timeline {
                 size: vec2(1.0, Self::EVENT_TICK_HEIGHT),
             };
 
-            let color = timeline_event.kind.color();
+            let color = timeline_event.kind.color().xyz().push(
+                if self.hovered.is_some() && self.hovered.unwrap() != i {
+                    0.4
+                } else {
+                    1.0
+                },
+            );
             app.renderer.set_color(color);
             app.renderer.fill_rect(event_tick);
             let (mesh_id, rotation) = timeline_event.kind.shape(app);
             app.renderer.fill_polygon(
                 mesh_id,
-                vec2(event_tick.pos.x + 1.0, event_tick.pos.y - 13.0),
+                vec2(event_tick.pos.x + 1.0, event_tick.pos.y - 10.0),
                 8.5,
                 rotation,
             );
@@ -281,14 +298,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for Timeline {
 
                     app.renderer.set_color(self.now_color);
                     app.renderer.draw_text(
-                        vec2(event_tick.pos.x + 15.0, event_tick.pos.y - 1.0),
+                        vec2(event_tick.pos.x + 15.0, event_tick.pos.y - 3.0),
                         &timeline_event.craft_name,
                     );
                     let color = timeline_event.kind.color();
                     let event_label = String::from(timeline_event.kind.describe());
                     app.renderer.set_color(color);
                     app.renderer.draw_text(
-                        vec2(event_tick.pos.x + 15.0, event_tick.pos.y - 20.0),
+                        vec2(event_tick.pos.x + 15.0, event_tick.pos.y - 18.0),
                         &event_label,
                     );
                 }
@@ -317,7 +334,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Timeline {
 }
 
 impl Timeline {
-    const EVENT_TICK_HEIGHT: f32 = 20.0;
+    const EVENT_TICK_HEIGHT: f32 = 14.0;
 
     fn x_for(&self, t: EphemerisTime) -> Option<f32> {
         let frac = (t.as_years() - self.start.get().as_years()) / self.span_years;

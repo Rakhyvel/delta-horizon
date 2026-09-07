@@ -9,7 +9,7 @@ use crate::astro::{
 pub struct EscapePlan {
     pub escape_burn: State,
     pub escape_dv: f64,
-    pub grandparent_orbit: State,
+    pub exit_state: State,
     pub soi_radius: f64,
 }
 
@@ -44,13 +44,13 @@ pub fn plan_escape(
         grandparent_mass,
     );
 
-    let grandparent_orbit =
+    let exit_state =
         get_grandparent_state(&escape_burn, parent_state, soi_radius, grandparent_mu, mu)?;
 
     Ok(EscapePlan {
         escape_burn,
         escape_dv: escape_dv * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
-        grandparent_orbit,
+        exit_state,
         soi_radius,
     })
 }
