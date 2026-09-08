@@ -72,7 +72,8 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
         * Greenhouse: CO2 + H2O + Energy -> Food + O2 (composes maybe too well with methalox fuel cell?)
 - [ ] Misc stuff
     - [ ] timeline zoom (maybe by dragging the baseline?)
-    - [ ] mission planner
+    - [ ] combined, backwards mission planner
+    - [ ] expose target periapsis, once it matters to the player (when they build their own depot stations)
     - [ ] allow aero capture when payload has heat shield and player has atmospheric instrument readings
     - [ ] heat management
     - [ ] atmospheric harvesting

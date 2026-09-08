@@ -30,6 +30,7 @@ pub fn transfer_porkchop(
     w: &SweepWindow,
     parent_mass: f64,
     target_mass: f64,
+    theta: f64,
     depart_steps: usize,
     tof_steps: usize,
 ) -> Result<Porkchop, String> {
@@ -60,12 +61,13 @@ pub fn transfer_porkchop(
                 let (v1, v2) = aim_for_periapsis(
                     craft.r,
                     target,
+                    target_body_radius,
                     tof,
                     mu,
                     target_mu,
                     soi_radius,
                     target_peri,
-                    0.0,
+                    theta,
                     k,
                 )?;
                 let depart_dv = v1 - craft.v;
@@ -139,6 +141,7 @@ pub fn flyby_porkchop(
     w: &SweepWindow,
     parent_mass: f64,
     target_mass: f64,
+    theta: f64,
     depart_steps: usize,
     tof_steps: usize,
 ) -> Result<Porkchop, String> {
@@ -166,15 +169,16 @@ pub fn flyby_porkchop(
                 .ok()?;
 
             best_branch(|k| {
-                let (v1, v2) = aim_for_periapsis(
+                let (v1, _) = aim_for_periapsis(
                     craft.r,
                     target,
+                    target_body_radius,
                     tof,
                     mu,
                     target_mu,
                     soi_radius,
                     target_peri,
-                    0.0,
+                    theta,
                     k,
                 )?;
                 let depart_dv = v1 - craft.v;
@@ -230,6 +234,7 @@ pub fn plan_flyby_at(
 fn aim_for_periapsis(
     r_craft: DVec3,
     target: State,
+    target_body_radius: f64,
     tof: f64,
     mu: f64,
     target_mu: f64,
@@ -248,7 +253,10 @@ fn aim_for_periapsis(
         let v_inf = v_inf_vec.norm();
 
         let b_max = soi_radius * 0.7;
-        let b = impact_parameter(target_peri, v_inf, target_mu).min(b_max); // clamp to be within the SOI
+        let b = impact_parameter(target_peri, v_inf, target_mu);
+        if b > b_max {
+            return None; // can't get that periapsis
+        }
 
         // Build the B-plane basis
         let s_hat = v_inf_vec / v_inf;

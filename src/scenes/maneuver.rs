@@ -1,5 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
+    f64::consts::PI,
     rc::Rc,
 };
 
@@ -25,7 +26,7 @@ use crate::{
     },
     ui::{
         container::Container, dropdown::Dropdown, hrule::HRule, oklch::oklch,
-        porkchop_picker::PorkchopPicker, style::STYLE,
+        porkchop_picker::PorkchopPicker, slider::Slider, style::STYLE,
     },
 };
 use apricot::{app::App, font::FontId, rectangle::Rectangle, render_core::TextureId};
@@ -59,8 +60,10 @@ pub struct ManeuverModal {
 
     result_dv_text: Rc<RefCell<String>>,
     result_date_text: Rc<RefCell<String>>,
+    inclination_text: Rc<RefCell<String>>,
     dv_color: Rc<RefCell<Vec4>>,
     can_confirm: Rc<Cell<bool>>,
+    theta: Rc<Cell<f32>>,
 
     window: Option<SweepWindow>,
     porkchop: Option<Porkchop>,
@@ -68,6 +71,7 @@ pub struct ManeuverModal {
     selected_cell: Rc<Cell<(usize, usize)>>,
     last_cell: (usize, usize),
     optimum: Rc<Cell<(usize, usize)>>,
+    last_theta: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -98,6 +102,15 @@ enum TargetKind {
     Craft,
 }
 
+struct ManeuverOptions {
+    is_landed: bool,
+    is_orbiting: bool,
+    parent_is_solid: bool,
+    can_escape: bool,
+    bodies: Vec<(Entity, String)>,
+    crafts: Vec<(Entity, String)>,
+}
+
 impl ManeuverKind {
     pub fn all() -> &'static [ManeuverKind] {
         &[
@@ -110,14 +123,14 @@ impl ManeuverKind {
         ]
     }
 
-    pub fn available(&self, is_landed: bool, is_orbiting: bool) -> bool {
+    pub fn available(&self, o: &ManeuverOptions) -> bool {
         match self {
-            ManeuverKind::Transfer => is_orbiting, // TODO: And there's stuff to transfer to
-            ManeuverKind::Flyby => is_orbiting,    // TODO: And there's stuff to fly by
-            ManeuverKind::Escape => is_orbiting,   // TODO: As is not around the sun
-            ManeuverKind::Land => is_orbiting,
-            ManeuverKind::Launch => is_landed,
-            ManeuverKind::Rendezvous => is_orbiting, // TODO: And there's another craft to redezvous with
+            ManeuverKind::Transfer => o.is_orbiting && !o.bodies.is_empty(),
+            ManeuverKind::Flyby => o.is_orbiting && !o.bodies.is_empty(),
+            ManeuverKind::Escape => o.is_orbiting && o.can_escape,
+            ManeuverKind::Land => o.is_orbiting && o.parent_is_solid,
+            ManeuverKind::Launch => o.is_landed,
+            ManeuverKind::Rendezvous => o.is_orbiting && !o.crafts.is_empty(),
         }
     }
 
@@ -202,8 +215,10 @@ impl ManeuverModal {
 
             result_date_text: Rc::new(RefCell::new(String::new())),
             result_dv_text: Rc::new(RefCell::new(String::new())),
+            inclination_text: Rc::new(RefCell::new(String::new())),
             dv_color: Rc::new(RefCell::new(Vec4::zeros())),
             can_confirm: Rc::new(Cell::new(false)),
+            theta: Rc::new(Cell::new(0.0)),
 
             window: None,
             porkchop: None,
@@ -211,6 +226,7 @@ impl ManeuverModal {
             selected_cell: Rc::new(Cell::new((0, 0))),
             last_cell: (0, 0),
             optimum: Rc::new(Cell::new((0, 0))),
+            last_theta: 0.0,
         }
     }
 
@@ -293,6 +309,12 @@ impl ManeuverModal {
         if cell != self.last_cell {
             self.last_cell = cell;
             self.computed_plan = self.plan_from_selection(craft, current_et, world);
+        }
+
+        let theta = self.theta.get();
+        if theta != self.last_theta && !app.mouse_left_dragging {
+            self.last_theta = theta;
+            self.refresh_chop(craft, current_et, world, app, true);
         }
 
         self.sync_labels(world);
@@ -405,6 +427,14 @@ impl ManeuverModal {
             *self.result_date_text.borrow_mut() = date;
         }
 
+        let inclination = format!(
+            "Inclination: {:.1} deg",
+            (self.theta.get() as f64 * 2.0 * PI).to_degrees()
+        );
+        if *self.inclination_text.borrow() != inclination {
+            *self.inclination_text.borrow_mut() = inclination;
+        }
+
         let craft_dv = world
             .get::<&Craft>(self.craft.unwrap())
             .unwrap()
@@ -445,12 +475,41 @@ impl ManeuverModal {
             Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)),
         ];
 
-        let is_landed = world.get::<&Landed>(self.craft.unwrap()).is_ok();
-        let is_orbiting = world.get::<&State>(self.craft.unwrap()).is_ok();
+        let craft = self.craft.unwrap();
+        let parent = world
+            .get::<&Parent>(craft)
+            .expect("should have a parent")
+            .id;
+        let opts = ManeuverOptions {
+            is_landed: world.get::<&Landed>(craft).is_ok(),
+            is_orbiting: world.get::<&State>(craft).is_ok(),
+            parent_is_solid: !world.get::<&Body>(parent).unwrap().gaseous(),
+            can_escape: world.get::<&Parent>(parent).is_ok(),
+            bodies: self.get_body_destinations(craft, world),
+            crafts: self.get_craft_destinations(craft, world),
+        };
+
+        if self.selected_kind.is_some_and(|k| !k.available(&opts)) {
+            self.selected_kind = None;
+        }
+
+        if let Some(dest) = self.selected_destination {
+            let still_valid = self
+                .selected_kind
+                .and_then(|k| k.target_kind())
+                .is_some_and(|tk| match tk {
+                    TargetKind::Body => opts.bodies.iter().any(|(e, _)| *e == dest),
+                    TargetKind::Craft => opts.crafts.iter().any(|(e, _)| *e == dest),
+                });
+            if !still_valid {
+                self.selected_destination = None;
+                self.computed_plan = None;
+            }
+        }
 
         let kind_options: Vec<&ManeuverKind> = ManeuverKind::all()
             .iter()
-            .filter(|k| k.available(is_landed, is_orbiting))
+            .filter(|k| k.available(&opts))
             .collect();
         let selected_kind_idx = self
             .selected_kind
@@ -465,7 +524,7 @@ impl ManeuverModal {
                     vec2(WIDTH * 0.5, 40.0),
                     kind_options
                         .iter()
-                        .map(|k| (k.label(), ManeuverMessages::SelectKind((*k).clone())))
+                        .map(|k| (k.label(), ManeuverMessages::SelectKind(*(*k))))
                         .collect(),
                 )
                 .selected(selected_kind_idx)
@@ -479,8 +538,8 @@ impl ManeuverModal {
         if let Some(kind) = &self.selected_kind {
             if let Some(target_kind) = kind.target_kind() {
                 let destinations = match target_kind {
-                    TargetKind::Body => self.get_body_destinations(self.craft.unwrap(), world),
-                    TargetKind::Craft => self.get_craft_destinations(self.craft.unwrap(), world),
+                    TargetKind::Body => opts.bodies,
+                    TargetKind::Craft => opts.crafts,
                 };
                 let selected_dest_idx = self
                     .selected_destination
@@ -537,7 +596,18 @@ impl ManeuverModal {
                         ),
                     ])
                     .flow(Flow::Horizontal),
-                ))
+                ));
+
+                if matches!(kind, ManeuverKind::Flyby | ManeuverKind::Transfer) {
+                    sections.push(Box::new(
+                        Label::bound(self.inclination_text.clone())
+                            .font(font, app)
+                            .color(STYLE.text_primary),
+                    ));
+                    sections.push(Box::new(
+                        Slider::new(vec2(WIDTH, 16.0), self.theta.clone()).use_style(&STYLE),
+                    ));
+                }
             }
         }
 
@@ -643,6 +713,7 @@ impl ManeuverModal {
                     self.window.as_ref().unwrap(),
                     parent_body.mass(),
                     target_body.mass(),
+                    self.theta.get() as f64 * PI * 2.0,
                     DEPART_STEPS,
                     TOF_STEPS,
                 )
@@ -659,6 +730,7 @@ impl ManeuverModal {
                     self.window.as_ref().unwrap(),
                     parent_body.mass(),
                     target_body.mass(),
+                    self.theta.get() as f64 * PI * 2.0,
                     DEPART_STEPS,
                     TOF_STEPS,
                 )
