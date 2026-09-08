@@ -124,6 +124,10 @@ impl ManeuverKind {
     }
 
     pub fn available(&self, o: &ManeuverOptions) -> bool {
+        // Idea here is to only hide maneuver kinds that are physically impossible, no matter how good your
+        // craft is. Transfers that cost a million km/s of dv are shown, but locked out. Landing with a low
+        // TWR is shown, but locked out. You could make a craft that's super good and fix both of those.
+        // There is no craft you can make to land on a gas giant, so it's hidden.
         match self {
             ManeuverKind::Transfer => o.is_orbiting && !o.bodies.is_empty(),
             ManeuverKind::Flyby => o.is_orbiting && !o.bodies.is_empty(),
@@ -428,7 +432,7 @@ impl ManeuverModal {
         }
 
         let inclination = format!(
-            "Inclination: {:.1} deg",
+            "Inclination: {:.1} deg", // TODO: This is really the B-plane clock angle
             (self.theta.get() as f64 * 2.0 * PI).to_degrees()
         );
         if *self.inclination_text.borrow() != inclination {
@@ -761,7 +765,8 @@ impl ManeuverModal {
     ) -> Option<ManeuverResult> {
         let kind = self.selected_kind.as_ref()?;
 
-        let init_state = world.get::<&State>(craft).expect("gotta have state");
+        // Can be Err if craft is landed (no state!)
+        let init_state = world.get::<&State>(craft);
         let parent = world
             .get::<&Parent>(craft)
             .expect("craft must have parent")
@@ -782,7 +787,7 @@ impl ManeuverModal {
                 let depart_dv = chop.at(i, j).expect("cell was none").depart_dv;
 
                 match plan_transfer_at(
-                    &init_state,
+                    init_state.as_ref().ok()?,
                     &target_state,
                     parent_body.mass(),
                     target_body.mass(),
@@ -810,7 +815,7 @@ impl ManeuverModal {
                 let depart_dv = chop.at(i, j)?.depart_dv;
 
                 let plan = plan_flyby_at(
-                    &init_state,
+                    init_state.as_ref().ok()?,
                     &target_state,
                     parent_body.mass(),
                     target_body.mass(),
@@ -833,7 +838,7 @@ impl ManeuverModal {
                 let depart_dv = chop.at(i, j)?.depart_dv;
 
                 let plan = plan_rendezvous_at(
-                    &init_state,
+                    init_state.as_ref().ok()?,
                     &target_state,
                     parent_body.mass(),
                     depart_et,
@@ -849,7 +854,7 @@ impl ManeuverModal {
                 let grandparent_body = world.get::<&Body>(grandparent.id).unwrap();
 
                 let plan = plan_escape(
-                    &init_state,
+                    init_state.as_ref().ok()?,
                     &parent_state,
                     current_et,
                     grandparent_body.mass(),
@@ -863,7 +868,7 @@ impl ManeuverModal {
             ManeuverKind::Land => {
                 let target_body = world.get::<&Body>(parent).unwrap();
                 let plan = plan_landing(
-                    &init_state,
+                    init_state.as_ref().ok()?,
                     target_body.body_radius,
                     current_et,
                     target_body.mu,

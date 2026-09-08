@@ -1098,7 +1098,7 @@ impl Gameplay {
 
             phi: 2.5,
             theta: -PI / 4.0,
-            distance: 1000.0,
+            distance: 64.0,
             prev_tab_state: false,
 
             gui: Anchor::new(Box::new(container![]), AnchorPoint::TopRight),
@@ -2656,7 +2656,10 @@ impl Gameplay {
         let mut world_pos = self.world.get::<&mut WorldPosition>(entity).unwrap();
 
         let local_offset = if let Ok(orbit) = self.world.get::<&State>(entity) {
-            orbit.propagate(t, parent_mu).unwrap().r
+            match orbit.propagate(t, parent_mu) {
+                Ok(s) => s.r,
+                Err(_) => return,
+            }
         } else {
             vec3(0.0, 0.0, 0.0)
         };

@@ -244,10 +244,12 @@ fn aim_for_periapsis(
     kind: TransferKind,
 ) -> Option<(DVec3, DVec3)> {
     let mut aim = target.r; // we target the body directly on the first pass
+    let mut prev_aim = DVec3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
     let mut out = None;
 
-    // 3 iterations seems to be good enough from playtesting, could maybe use some test cases
-    for _ in 0..3 {
+    const MAX_AIM_ITER: usize = 5; // did some testing, this convered >90% of cases
+
+    for _ in 0..MAX_AIM_ITER {
         let (v1, v2) = lambert(r_craft, aim, tof, mu, kind)?;
         let v_inf_vec = v2 - target.v;
         let v_inf = v_inf_vec.norm();
@@ -272,6 +274,11 @@ fn aim_for_periapsis(
         aim = target.r + b_vec - s_hat * d;
 
         out = Some((v1, v2));
+
+        if (aim - prev_aim).norm() < soi_radius * 1e-6 {
+            break;
+        }
+        prev_aim = aim;
     }
 
     out

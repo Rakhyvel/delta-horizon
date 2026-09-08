@@ -104,9 +104,11 @@ impl State {
             mu.sqrt() * dt / r0_mag
         };
 
+        let mut best = (f64::INFINITY, chi);
+
         // newton rhapson, find chi that satisfies the EOM for our given dt
         const MAX_ITER: usize = 500;
-        let f_tol = 1e-12 * (mu.sqrt() * dt).abs().max(1.0);
+        let f_tol = 1e-10 * (mu.sqrt() * dt).abs().max(1.0);
         let mut converged = false;
         for _ in 0..MAX_ITER {
             let chi2 = chi * chi;
@@ -126,6 +128,10 @@ impl State {
 
             if !f.is_finite() {
                 return Err(String::from("universal kepler equation diverged"));
+            }
+
+            if f.abs() < best.0 {
+                best = (f.abs(), chi);
             }
 
             if f.abs() < f_tol {
@@ -149,8 +155,18 @@ impl State {
             // make the newton step, towards where 0 residuals are
             chi -= delta;
         }
+
         if !converged {
-            return Err(String::from("universal kepler equation did not converge"));
+            // Accept a good enough answer rather than failing outright
+            const SLOP: f64 = 1e4;
+            if best.0 < f_tol * SLOP {
+                chi = best.1;
+            } else {
+                return Err(format!(
+                    "universal kepler equation did not converge, best: (f={}, chi={})",
+                    best.0, best.1
+                ));
+            }
         }
 
         let chi2 = chi * chi;

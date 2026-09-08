@@ -1,6 +1,6 @@
 # Vis Viva
 
-A turn-based, event-driven space colony survival strategy game. Start off in a sleeper ship sent across the galaxy to a system _beleived_ to have a habitable world, with finite starter resources.
+A real-time-with-pauses, event-driven space colony survival strategy game. Start off in a sleeper ship sent across the galaxy to a system _believed_ to have a habitable world, with finite starter resources.
 
 ## TODO:
 - [x] Procedurally generated solar system
@@ -31,27 +31,102 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
     - [x] force there to be a jupiter-analog
     - [ ] assembly bay module: combines parts into spacecraft
     - [ ] can build new modules (x or just start with electrolysis module?)
+- [ ] MVP stuff
+    - [ ] better mission planning
+        x tell me in the mission planner UI if the lambert solver failed
+        x rendevouz maneuver
+        x porkchop plot: departure window, tof window, initialize with planner's choice
+        x add picker to porkchop plot
+        x theta
+        x don't offer "escape" if parent is the sun, etc
+        * labels, axes, numbers on the porkchop plot, ESPECIALLY departure. Colorbar
+        * MinTime objective, with events drawn on the porkchop plot as lines
+    - [x] better time controls, speed control
+        x play becomes pause becomes play button
+        x fast forward and slow forward, show speed, powers of two days/sec
+    - [ ] craft/body list
+        * bread crumbs (Mars > Deimos > Deimos Station) (upwards traversal)
+        * bodies have lists of other bodies and craft (downwards traversal)
+        * hide the parameters, until you fly there with a spectrometer
+    - [ ] better descriptions for things and what you're supposed to do. What is a "Dray", what is a "Pico", why do I want either?
+        * tooltips over things to tell you what they are
+    - [ ] better events/timeline
+        - [ ] event descs with full details, take me to the entity (station) that's built something
+            * What part is complete? What were you building, _who_ are you?
+            * A burn? For what? For who? etc
+        - [ ] event list on left side, shows what's next, what's paused
+        - [ ] scissor timeline so that dates dont draw off the side
+    - [ ] better craft info
+        * tell me the orbital elements for a craft/body
+        * tell me the TOF, and how long until burns. And tell me when I arrive
+        * tell me what dv each burn costs
+        * tell me my TWR ratio for landing and launching (this should be a requirement)
+        * tell me in the craft's mission where its going! I forgot!
+    - [ ] better fabrication
+        * list byproducts, gray out fully if a part is unbuildbale, or if we have 0 in the inventory
+        * mark some parts as un-fabricatable (ilmenite, station core) and don't list them
+        * fabricator shows power draw rate, completion date, and days-until-completion
     - [ ] lose the game if the station dies
+    - [ ] make linepaths participate in occlusion again, maybe make them white for bodies, blue for craft?
+    - [ ] make linepaths relative to their arclength? (esp for hyperbolic and parabolic!)
 - [ ] Science
     - [ ] body rotation, axial tilt
         - allows polar mapping probes to actually exist
         * axial tilt affects seasons, temps, could have crazy uranus worlds
         * rotation affects landing and launch delta V
-    - [ ] spectrometer, surface comp
-    - each tile has hidden parameters: surface temp, atmos temp, surface comp, atmos comp, surface topology, radiation, magnetic field. Ore compositions are derived from these. Some of these are immeasurable from orbit, or only measurable to a noise floor.
-    - each instrument has at least one parameter it measures directly, and one or more it provides weaker evidence about indirectly with a noise floor. There should be an H matrix hidden in the game. Totally internal, do the inference for the player.
-    - Instruments can be added to certain payloads, which have limited slots. Give insight into what resources _may_ be on the body. Just do the spectrometer for now.
-        * IR camera: strong surface temp, mid atmos temp, weak atmospheric composition
-        * Radar: strong surface topology, weak surface comp?
-        * Spectrometer: strong surface comp, strong atmos comp, weak surface temp
-        * Radiation detector: strong radiation, weak magnetic field strength
-        * Magnetometer: strong magnetic field strength, weak radiation
+    - [ ] measurements
+        - z = W * X * H^T + epsilon(X)
+            - z is the measurement vector
+            - W is the light-of-sight footprint weights over tiles
+            - X is N_tiles x N_params truth state
+            - H^T is the instrument-sensitivity
+            - epsilon(X) is state-dependent noise
+        - D += (WH)^T R^-1 (WH)
+        - nu += (WH)^T R-1 z
+    - [ ] parameters
+        - [T_surf, ice, maf, depth, rough]
+            - T_surf: surface pressure, ice abundance (smooth, from tile temp map)
+            - ice: water ice mass fraction
+            - maf: mafic rock mass fraction
+            - depth: burial depth (smooth, from tile terrain perlin)
+            - rough: topographic roughness
+    - [ ] H matrix
+        |                      | T_surf | ice | maf | depth | rough |
+        |----------------------|--------|-----|-----|-------|-------|
+        | IR Spectrometer      |    0.1 | 0.9 | 0.6 |       |       |
+        | IR Radiometer        |    1.0 |     |     |   0.3 |   0.2 | Perhaps add a day/night pair?
+        | Neutron Spectrometer |        | 1.0 |     |   0.3 |       |
+        | Radar                |        | 0.5 | 0.2 |   0.4 |   0.9 | ambigous on purpose!
+    - [ ] Noise
+        * IR Spectrometer returns nothing on an unlit tile
+        * IR Spectrometer noise scales with depth
+        * Optics noise scales with phase angle and slant range
+    - [ ] W
+        * Classic tradeoff of resolution vs coverage, flybys want full coverage, orbits want low eventual resoltuion
+    - [ ] Add spatial smoothness prior
+    - [ ] Show mean + sigma, never truth. Tile coloring overlays by posterior mean, saturated with confidence
 - [ ] Mining && ISRU
-    - [ ] surface outpots on tiles (give them solar panels for now)
-    - [ ] Ice mining, goes into a cargo hold
+    - [x] Ilmetite smelting (just give generic "metal" for MVP)
     - [x] station rendevous
-    - [ ] docking
-    - [ ] Ilmetite mining, smelting (just give generic "metal" for MVP)
+    - [ ] when on surface: able to mine ice and ilmenite, into cargo hold and water tank
+        * copy `volatiles = sample_ice_fraction * tidal_ice_retention` into Body from solar_system_gen, use that for the Ice abundance
+        * `crustal_metals = f_iron * (1 - core_mass_fraction)`
+        * tile temp for bodies, colder near poles
+        * terrain, low freq noise map over the tiles
+        * ice = volatiles * tile-temp
+        * ilmenite = crustal_metals * differentiation(radius) * mare_weight(terrain)
+        * abundance = "total tonnage at that site"
+            - largely uncertain, with high noise floor
+        * availability = "energy per kg"
+            - cheaply inferable, no noise floor (otherwise players get mad)
+            * for ice: a function of the tile_map
+            * for ilmenite: a function of atmospheric pressure and surface gravity
+    - [ ] docking, fabricating a craft takes up a docking spot (faux assembly bay?)
+    - [ ] resource transfer modal
+        * and maybe don't just take LH2O2 from the station, make the user fill it themselves
+    - [ ] inventory transfer modal
+    - [ ] ability to choose your landing site from what's available underneathe you
+    - [ ] surface outpots on tiles (give them solar panels for now)
     - Rules: 
         * Every resource should have a useful role somewhere in the system, and preferably a secondary use that competes with its first.
         * The byproducts of processes are always useful.
@@ -71,9 +146,15 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
             * SiO2 + Energy -> Si + O2
             * CaCO3 + Energy -> CaO + CO2
         * Greenhouse: CO2 + H2O + Energy -> Food + O2 (composes maybe too well with methalox fuel cell?)
+- [ ] Game saves and loading
 - [ ] Misc stuff
     - [ ] timeline zoom (maybe by dragging the baseline?)
-    - [ ] combined, backwards mission planner
+    - [ ] ability to ignore/subscribe to events (like infos)
+    - [ ] combined mission planner
+        * Players create a mission by sequencing maneuvers together
+        * Can tweak each one to optimize the total mission, not just each maneuver
+    - [ ] gravity assist planner
+        * tisserand plots? Or just show me the energy gained/lost for each flyby
     - [ ] expose target periapsis, once it matters to the player (when they build their own depot stations)
     - [ ] allow aero capture when payload has heat shield and player has atmospheric instrument readings
     - [ ] heat management
@@ -93,8 +174,10 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
     - [ ] win if you beam a message back to earth, huge amount of power, megaproject
 - [ ] Misc polish
     - [ ] planetary atmospheres, clouds, tile detail
+    - [ ] better orbit icons, for zoomed out moons, planets, craft. Somehow distinguish between bodies and craft in the orbit view
     - [ ] make actual building models, and rotate them to their tile's normal
-    - [ ] show more info about stages, their dv, their resources, maybe a little model sprite, in VAB and factory
+    - [ ] show more info about stage cards, their dv, their resources, maybe a little model sprite, in VAB and factory
+    - [ ] somehow show the planned orbital geometry to a player, if it ends up mattering (tuning just dv and time might be fine?)
     - [ ] show the planned trajectory for crafts with a mission, different color, lighter
     - [x] show how many stages we have in inventory in the factory
     - [ ] "kernel boot screen" type loading screen, TUI-esque main menu, like you're interfacing with the "Autonomous Colony Management System" that the player is for the game

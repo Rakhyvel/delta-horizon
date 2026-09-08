@@ -177,7 +177,7 @@ pub fn find_soi_exit(orbit: &State, soi: f64, mu: f64) -> Result<EphemerisTime, 
     const ITERATIONS: usize = 50;
     for _ in 0..ITERATIONS {
         let mid = lo + (hi - lo) / 2;
-        let pos = orbit.propagate(mid, mu).unwrap().r;
+        let pos = orbit.propagate(mid, mu)?.r;
         if pos.norm() < soi {
             lo = mid; // inside SOI, search later
         } else {
