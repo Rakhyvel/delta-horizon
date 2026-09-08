@@ -36,10 +36,10 @@ use nalgebra_glm::{vec2, Vec4};
 use crate::{
     container,
     ui::{
+        button::Button,
         container::{Align, Flow},
         label::Label,
         modal::Modal,
-        text_button::TextButton,
         widget::{recv_msgs, Widget},
     },
 };
@@ -575,22 +575,22 @@ impl ManeuverModal {
                 sections.push(Box::new(
                     Container::new(vec![
                         Box::new(
-                            TextButton::new(vec2(30.0, 30.0), "<")
+                            Button::text(vec2(30.0, 30.0), "<")
                                 .use_style(&STYLE)
                                 .on_click(ManeuverMessages::ShiftPorkchopLeft),
                         ),
                         Box::new(
-                            TextButton::new(vec2(30.0, 30.0), ">")
+                            Button::text(vec2(30.0, 30.0), ">")
                                 .use_style(&STYLE)
                                 .on_click(ManeuverMessages::ShiftPorkchopRight),
                         ),
                         Box::new(
-                            TextButton::new(vec2(30.0, 30.0), "+")
+                            Button::text(vec2(30.0, 30.0), "+")
                                 .use_style(&STYLE)
                                 .on_click(ManeuverMessages::ZoomPorkchopIn),
                         ),
                         Box::new(
-                            TextButton::new(vec2(30.0, 30.0), "-")
+                            Button::text(vec2(30.0, 30.0), "-")
                                 .use_style(&STYLE)
                                 .on_click(ManeuverMessages::ZoomPorkchopOut),
                         ),
@@ -639,10 +639,10 @@ impl ManeuverModal {
 
         sections.push(Box::new(
             container![
-                TextButton::new(vec2(100.0, 30.0), "Close")
+                Button::text(vec2(100.0, 30.0), "Close")
                     .use_style(&STYLE)
                     .on_click(ManeuverMessages::Close),
-                TextButton::new(vec2(100.0, 30.0), "Confirm")
+                Button::text(vec2(100.0, 30.0), "Confirm")
                     .use_style_accented(&STYLE)
                     .on_click(ManeuverMessages::Confirm)
                     .active(false)

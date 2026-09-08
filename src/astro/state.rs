@@ -5,7 +5,7 @@ use nalgebra_glm::{quat_angle_axis, quat_rotate_vec3, vec3, DVec3};
 use crate::astro::{
     epoch::{EphemerisTime, ET_PER_SECOND},
     stumpff::{stumpff_c, stumpff_s},
-    units::SECONDS_PER_YEAR,
+    units::{SECONDS_PER_HOUR, SECONDS_PER_YEAR},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -232,7 +232,7 @@ impl State {
                 vertices.push(pos.y as f32);
                 vertices.push(pos.z as f32);
 
-                et += EphemerisTime::from_secs(3600.0);
+                et += EphemerisTime::from_secs(SECONDS_PER_HOUR);
             }
         }
 

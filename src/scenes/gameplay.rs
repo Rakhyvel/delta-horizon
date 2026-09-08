@@ -24,12 +24,7 @@ use nalgebra_glm::{vec2, vec3, vec4, DVec3, I32Vec2, Vec2, Vec3};
 use sdl2::keyboard::Scancode;
 
 use crate::{
-    astro::{
-        epoch::EphemerisTime,
-        maneuver::sphere_of_influence,
-        state::State,
-        units::{SECONDS_PER_DAY, SUN_MU},
-    },
+    astro::{epoch::EphemerisTime, maneuver::sphere_of_influence, state::State, units::SUN_MU},
     components::{
         craft::{
             replace_line_path, spawn_orbiting_craft, AssociatedEntity, Command, Payload, Stage,
@@ -50,19 +45,20 @@ use crate::{
         events::{Event, EventQueue},
         fabricator::{FabricatorAction, FabricatorUi},
         maneuver::ManeuverModal,
+        sim_speed::SimSpeed,
         starbox::Starbox,
         vab::VabUi,
     },
     ui::{
         anchor::{Anchor, AnchorPoint},
         bind::Binding,
+        button::{Button, Icon},
         container::{Align, Flow},
         hrule::HRule,
         label::Label,
         progress_bar::ProgressBar,
         scroll_container::ScrollContainer,
         style::STYLE,
-        text_button::TextButton,
         timeline::{MarkKind, Timeline, TimelineMark},
         toggle::Toggle,
     },
@@ -132,13 +128,13 @@ pub struct Gameplay {
     calendar_string: Rc<RefCell<String>>,
     marks: Rc<RefCell<Vec<TimelineMark>>>,
     marks_key: (u64, u64),
+    transport_icon: Rc<Cell<Icon>>,
 
     // Events and timeline
     event_queue: EventQueue,
     current_et: Rc<Cell<EphemerisTime>>,
     paused: bool,
-    /// Sim seconds per real second
-    time_scale: f64,
+    sim_speed: SimSpeed,
     /// Either the next event, or None
     run_until: Option<EphemerisTime>,
 
@@ -148,8 +144,9 @@ pub struct Gameplay {
 
 #[derive(Clone)]
 enum TurnMessages {
-    Play,
-    Stop,
+    TogglePlay,
+    SpeedUp,
+    SlowDown,
 }
 
 #[derive(Clone)]
@@ -480,23 +477,20 @@ impl Scene for Gameplay {
 
             for msg in recv_msgs(app, &mut self.turn_gui) {
                 match msg {
-                    TurnMessages::Play => {
+                    TurnMessages::TogglePlay => {
                         let now = self.current_et.get();
                         self.commit_pending_builds(now);
                         self.recompute_run_until();
-                        self.paused = false;
+                        self.paused = !self.paused;
                     }
-                    TurnMessages::Stop => {
-                        self.commit_pending_builds(self.current_et.get());
-                        self.recompute_run_until();
-                        self.paused = true;
-                    }
+                    TurnMessages::SpeedUp => self.sim_speed.speed_up(),
+                    TurnMessages::SlowDown => self.sim_speed.slow_down(),
                 }
             }
         }
 
         if !self.paused {
-            let dt = (1.0 / 60.0_f64) * self.time_scale; // TODO: Expose delta_seconds
+            let dt = (1.0 / 60.0_f64) * self.sim_speed.get_rate(); // TODO: Expose delta_seconds
             let mut t = self.current_et.get() + EphemerisTime::from_secs(dt);
 
             if let Some(stop) = self.run_until {
@@ -522,6 +516,8 @@ impl Scene for Gameplay {
             *self.calendar_string.borrow_mut() = cal;
         }
         self.controls_enabled.set(self.paused);
+        self.transport_icon
+            .set(if self.paused { Icon::Play } else { Icon::Pause });
 
         self.orbit_system();
         self.landed_system();
@@ -1119,11 +1115,12 @@ impl Gameplay {
             calendar_string: Rc::new(RefCell::new(String::new())),
             marks: Rc::new(RefCell::new(vec![])),
             marks_key: (event_queue.version(), 0),
+            transport_icon: Rc::new(Cell::new(Icon::Play)),
 
             current_et: Rc::new(Cell::new(EphemerisTime::epoch())),
             event_queue,
             paused: true,
-            time_scale: SECONDS_PER_DAY,
+            sim_speed: SimSpeed::new(),
             run_until: None,
 
             starbox: Starbox::new(9000, vec3(1.0, 2.0, 4.0), 0.4),
@@ -1255,18 +1252,33 @@ impl Gameplay {
             Box::new(
                 Container::new(vec![
                     Box::new(
-                        TextButton::new(vec2(44.0, 44.0), "Play")
+                        Button::icon_bound(vec2(40.0, 40.0), self.transport_icon.clone())
                             .use_style_accented(&STYLE)
-                            .bound_active(self.controls_enabled.clone())
-                            .on_click(TurnMessages::Play),
+                            .on_click(TurnMessages::TogglePlay),
                     ),
                     Box::new(
-                        TextButton::new(vec2(44.0, 44.0), "Stop")
+                        Button::icon(vec2(30.0, 30.0), Icon::SlowForward)
                             .use_style_accented(&STYLE)
-                            .on_click(TurnMessages::Stop),
+                            .bound_active(self.sim_speed.can_slow_down.clone())
+                            .on_click(TurnMessages::SlowDown),
+                    ),
+                    Box::new(
+                        Button::icon(vec2(30.0, 30.0), Icon::FastForward)
+                            .use_style_accented(&STYLE)
+                            .bound_active(self.sim_speed.can_speed_up.clone())
+                            .on_click(TurnMessages::SpeedUp),
+                    ),
+                    Box::new(
+                        Container::new(vec![Box::new(
+                            Label::bound(self.sim_speed.sim_speed_str.clone()).font(font, app),
+                        )])
+                        .background_color(STYLE.bg_primary)
+                        .border(STYLE.border_primary, 1.0)
+                        .min_size(vec2(0.0, 30.0)),
                     ),
                 ])
                 .flow(Flow::Horizontal)
+                .cross_align(Align::Center)
                 .padding(vec2(0.0, 0.0))
                 .gap(0.0),
             ),
@@ -1391,7 +1403,7 @@ impl Gameplay {
                     ));
                 }
                 widgets.push(Box::new(
-                    TextButton::<CommandMessages>::new(vec2(WIDTH, 30.0), "Cancel Mission")
+                    Button::<CommandMessages>::text(vec2(WIDTH, 30.0), "Cancel Mission")
                         .use_style(&STYLE)
                         .bound_active(self.controls_enabled.clone())
                         .on_click(CommandMessages::CancelCommand { craft: selected }),
@@ -1407,7 +1419,7 @@ impl Gameplay {
 
         if is_idle {
             widgets.push(Box::new(
-                TextButton::<CommandMessages>::new(vec2(WIDTH, 30.0), "Plan Mission...")
+                Button::<CommandMessages>::text(vec2(WIDTH, 30.0), "Plan Mission...")
                     .use_style_accented(&STYLE)
                     .on_click(CommandMessages::OpenManeuver),
             ))
@@ -1616,7 +1628,7 @@ impl Gameplay {
                             ),
                             Box::new(
                                 Container::new(vec![Box::new(
-                                    TextButton::<CommandMessages>::new(vec2(45.0, 25.0), "BUILD")
+                                    Button::<CommandMessages>::text(vec2(45.0, 25.0), "BUILD")
                                         .use_style(&STYLE)
                                         .on_click(CommandMessages::FactoryCommand {
                                             part_id: part.id_hash(),
@@ -1719,7 +1731,7 @@ impl Gameplay {
         widgets.push(Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
         widgets.push(Box::new(Label::new("ASSEMBLE").font(font_small_bold, app)));
         widgets.push(Box::new(
-            TextButton::<CommandMessages>::new(vec2(WIDTH, 30.0), "Stack New Vehicle...")
+            Button::<CommandMessages>::text(vec2(WIDTH, 30.0), "Stack New Vehicle...")
                 .use_style_accented(&STYLE)
                 .bound_active(self.controls_enabled.clone())
                 .on_click(CommandMessages::OpenVab)
@@ -1972,7 +1984,7 @@ impl Gameplay {
             );
             out.push(Label::new(ready_text).font(font, app));
             out.push(
-                TextButton::<CommandMessages>::new(vec2(WIDTH - 8.0 * 2.0, 30.0), "Cancel")
+                Button::<CommandMessages>::text(vec2(WIDTH - 8.0 * 2.0, 30.0), "Cancel")
                     .use_style(&STYLE)
                     .bound_active(self.controls_enabled.clone())
                     .on_click(CommandMessages::CancelActiveFabricator {
@@ -2004,7 +2016,7 @@ impl Gameplay {
             out.push(Label::new(format!("Queued: {}", part.name)).font(font, app));
             out.push(Label::new(format!("Ready {}", completion.as_calendar())).font(font, app));
             out.push(
-                TextButton::<CommandMessages>::new(vec2(WIDTH - 8.0 * 2.0, 30.0), "Cancel")
+                Button::<CommandMessages>::text(vec2(WIDTH - 8.0 * 2.0, 30.0), "Cancel")
                     .use_style(&STYLE)
                     .bound_active(self.controls_enabled.clone())
                     .on_click(CommandMessages::CancelQueuedFabricator {
@@ -2013,7 +2025,7 @@ impl Gameplay {
             );
         } else {
             out.push(
-                TextButton::<CommandMessages>::new(vec2(WIDTH - 8.0 * 2.0, 30.0), "Build...")
+                Button::<CommandMessages>::text(vec2(WIDTH - 8.0 * 2.0, 30.0), "Build...")
                     .use_style_accented(&STYLE)
                     .bound_active(self.controls_enabled.clone())
                     .on_click(CommandMessages::OpenFabricator {

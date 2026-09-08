@@ -15,13 +15,13 @@ use crate::{
     },
     container,
     ui::{
+        button::Button,
         container::{Align, Container, Flow},
         hrule::HRule,
         label::Label,
         modal::Modal,
         scroll_container::ScrollContainer,
         style::STYLE,
-        text_button::TextButton,
         widget::{recv_msgs, Widget},
     },
 };
@@ -115,7 +115,7 @@ impl FabricatorUi {
         const CARD_W: f32 = 300.0;
         const HEIGHT: f32 = 400.0;
 
-        let close = TextButton::new(vec2(CARD_W, 30.0), "Close")
+        let close = Button::text(vec2(CARD_W, 30.0), "Close")
             .use_style(&STYLE)
             .on_click(FabricatorMessages::Close);
 
@@ -232,7 +232,7 @@ impl FabricatorUi {
         ));
 
         widgets.push(Box::new(
-            TextButton::new(vec2(280.0, 30.0), if queued { "QUEUED" } else { "BUILD" })
+            Button::text(vec2(280.0, 30.0), if queued { "QUEUED" } else { "BUILD" })
                 .use_style(&STYLE)
                 .active(affordable && !queued)
                 .on_click(FabricatorMessages::Build(id)),

@@ -14,10 +14,10 @@ use nalgebra_glm::{vec2, Vec2};
 use crate::{
     container,
     ui::{
+        button::Button,
         container::{Align, Flow},
         label::Label,
         modal::Modal,
-        text_button::TextButton,
         widget::{recv_msgs, Widget},
     },
 };
@@ -162,10 +162,10 @@ impl VabUi {
                 .cross_align(Align::Center),
                 // Bottom bottom row
                 container![
-                    TextButton::new(vec2(200.0, 30.0,), "Close",)
+                    Button::text(vec2(200.0, 30.0,), "Close",)
                         .use_style(&STYLE)
                         .on_click(VabMessages::Close),
-                    TextButton::new(vec2(200.0, 30.0,), "Build!",)
+                    Button::text(vec2(200.0, 30.0,), "Build!",)
                         .use_style_accented(&STYLE)
                         .on_click(VabMessages::Build)
                         .active(good_dv && good_twr)
@@ -202,7 +202,7 @@ impl VabUi {
                     ),
                     Box::new(
                         Container::new(vec![Box::new(
-                            TextButton::<VabMessages>::new(vec2(45.0, 25.0), "X")
+                            Button::<VabMessages>::text(vec2(45.0, 25.0), "X")
                                 .use_style(&STYLE)
                                 .on_click(VabMessages::UnsetPayload),
                         )])
@@ -249,7 +249,7 @@ impl VabUi {
                     ),
                     Box::new(
                         Container::new(vec![Box::new(
-                            TextButton::<VabMessages>::new(vec2(45.0, 25.0), "X")
+                            Button::<VabMessages>::text(vec2(45.0, 25.0), "X")
                                 .use_style(&STYLE)
                                 .on_click(VabMessages::RemoveFromStack)
                                 .active(is_bottom), // only bottom stage can be removed
@@ -334,7 +334,7 @@ impl VabUi {
                         ),
                         Box::new(
                             Container::new(vec![Box::new(
-                                TextButton::<VabMessages>::new(vec2(45.0, 25.0), "+")
+                                Button::<VabMessages>::text(vec2(45.0, 25.0), "+")
                                     .use_style(&STYLE)
                                     .on_click(VabMessages::SetPayload(part.id_hash()))
                                     .active(have_some),
@@ -373,7 +373,7 @@ impl VabUi {
                         ),
                         Box::new(
                             Container::new(vec![Box::new(
-                                TextButton::<VabMessages>::new(vec2(45.0, 25.0), "+")
+                                Button::<VabMessages>::text(vec2(45.0, 25.0), "+")
                                     .use_style(&STYLE)
                                     .on_click(VabMessages::AddToStack(part.id_hash()))
                                     .active(have_some),

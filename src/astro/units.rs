@@ -1,6 +1,7 @@
 use std::f64::consts::PI;
 
-pub const SECONDS_PER_DAY: f64 = 24.0 * 3600.0;
+pub const SECONDS_PER_HOUR: f64 = 3600.0;
+pub const SECONDS_PER_DAY: f64 = 24.0 * SECONDS_PER_HOUR;
 pub const SECONDS_PER_YEAR: f64 = 365.0 * SECONDS_PER_DAY;
 pub const HOURS_PER_YEAR: f64 = 8766.0;
 pub const KM_PER_EARTH_RADIUS: f64 = 6371.0;

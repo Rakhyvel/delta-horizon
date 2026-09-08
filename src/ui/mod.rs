@@ -1,5 +1,6 @@
 pub(crate) mod anchor;
 pub(crate) mod bind;
+pub(crate) mod button;
 pub(crate) mod container;
 pub(crate) mod dropdown;
 pub(crate) mod hrule;
@@ -12,8 +13,6 @@ pub(crate) mod progress_bar;
 pub(crate) mod scroll_container;
 pub(crate) mod slider;
 pub(crate) mod style;
-pub(crate) mod text_button;
-pub(crate) mod texture_button;
 pub(crate) mod timeline;
 pub(crate) mod toggle;
 pub(crate) mod vrule;

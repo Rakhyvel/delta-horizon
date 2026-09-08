@@ -1,15 +1,16 @@
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, f32::consts::PI, rc::Rc};
 
 use crate::ui::{msg::MsgQueue, style::Style, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
 use nalgebra_glm::{vec2, vec4, Vec2, Vec4};
 
 /// A button with text
-pub struct TextButton<Msg> {
+pub struct Button<Msg> {
     /// The rectangle defining the button's position and size
     rect: Rectangle,
     /// The text to be drawn for the button
-    label: String,
+    content: ButtonContent,
+    icon_src: Option<Rc<Cell<Icon>>>,
     text_color: Vec4,
     inactive_text_color: Vec4,
     /// The background color of the button
@@ -29,15 +30,96 @@ pub struct TextButton<Msg> {
     hovered: bool,
 }
 
-impl<Msg> TextButton<Msg> {
+pub enum ButtonContent {
+    Text(String),
+    Icon(Icon),
+}
+
+#[derive(Clone, Copy)]
+pub enum Icon {
+    Play,
+    Pause,
+    FastForward,
+    SlowForward,
+}
+
+impl ButtonContent {
+    pub fn draw(&self, rect: &Rectangle, app: &App) {
+        let center = rect.pos + rect.size * 0.5;
+
+        match self {
+            ButtonContent::Text(str) => {
+                let text_size = {
+                    let current_font = app.renderer.get_current_font().unwrap();
+                    current_font.measure(str)
+                };
+                app.renderer
+                    .draw_text(rect.pos + (rect.size - text_size) * 0.5, str);
+            }
+            ButtonContent::Icon(Icon::Play) => {
+                let tri = app.renderer.get_mesh_id_from_name("triangle").unwrap();
+                app.renderer.fill_polygon(tri, center, 10.0, PI);
+            }
+            ButtonContent::Icon(Icon::Pause) => {
+                let w = 6.0;
+                let h = 9.0;
+                app.renderer.fill_rect(Rectangle::new(
+                    center.x - w * 1.2,
+                    center.y - h,
+                    w,
+                    2.0 * h,
+                ));
+                app.renderer.fill_rect(Rectangle::new(
+                    center.x + w * 0.2,
+                    center.y - h,
+                    w,
+                    2.0 * h,
+                ));
+            }
+            ButtonContent::Icon(Icon::FastForward) => {
+                let s = rect.size.x * 0.3125;
+                let tri = app.renderer.get_mesh_id_from_name("triangle").unwrap();
+                app.renderer
+                    .fill_polygon(tri, center - vec2(s * 0.5, 0.0), s * 0.64, PI);
+                app.renderer
+                    .fill_polygon(tri, center + vec2(s * 0.3, 0.0), s * 0.64, PI);
+            }
+            ButtonContent::Icon(Icon::SlowForward) => {
+                let s = rect.size.x * 0.3125;
+                let tri = app.renderer.get_mesh_id_from_name("triangle").unwrap();
+                app.renderer
+                    .fill_polygon(tri, center - vec2(s * 0.5, 0.0), s * 0.64, 0.0);
+                app.renderer
+                    .fill_polygon(tri, center + vec2(s * 0.3, 0.0), s * 0.64, 0.0);
+            }
+        }
+    }
+}
+
+impl<Msg> Button<Msg> {
     /// Creates a textu button
-    pub fn new(size: Vec2, label: impl Into<String>) -> Self {
+    pub fn text(size: Vec2, label: impl Into<String>) -> Self {
+        Self::with_content(size, ButtonContent::Text(label.into()))
+    }
+
+    pub fn icon(size: Vec2, icon: Icon) -> Self {
+        Self::with_content(size, ButtonContent::Icon(icon))
+    }
+
+    pub fn icon_bound(size: Vec2, icon_src: Rc<Cell<Icon>>) -> Self {
+        let mut retval = Self::with_content(size, ButtonContent::Icon(icon_src.get()));
+        retval.icon_src = Some(icon_src);
+        retval
+    }
+
+    fn with_content(size: Vec2, content: ButtonContent) -> Self {
         Self {
             rect: Rectangle {
                 pos: vec2(0.0, 0.0),
                 size,
             },
-            label: label.into(),
+            content,
+            icon_src: None,
             text_color: vec4(1.0, 1.0, 1.0, 1.0),
             inactive_text_color: vec4(1.0, 1.0, 1.0, 1.0),
             background_color: vec4(1.0, 0.0, 1.0, 255.0),
@@ -118,10 +200,13 @@ impl<Msg> TextButton<Msg> {
     }
 }
 
-impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
+impl<Msg: Clone + 'static> Widget<Msg> for Button<Msg> {
     fn update(&mut self, app: &App, msgq: &mut MsgQueue<Msg>) {
         if let Some(src) = &self.active_src {
             self.active = src.get();
+        }
+        if let Some(src) = &self.icon_src {
+            self.content = ButtonContent::Icon(src.get());
         }
 
         self.hovered = self.active && app.mouse_over(&self.rect);
@@ -135,12 +220,6 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
     }
 
     fn render(&self, app: &App) {
-        // Measure text size
-        let text_size = {
-            let current_font = app.renderer.get_current_font().unwrap();
-            current_font.measure(&self.label)
-        };
-
         // Draw background
         let color = if !self.active {
             self.inactive_background_color
@@ -171,10 +250,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextButton<Msg> {
         } else {
             app.renderer.set_color(self.inactive_text_color);
         }
-        app.renderer.draw_text(
-            self.rect.pos + (self.rect.size - text_size) * 0.5,
-            &self.label,
-        );
+        self.content.draw(&self.rect, app);
     }
 
     fn size(&self) -> Vec2 {
