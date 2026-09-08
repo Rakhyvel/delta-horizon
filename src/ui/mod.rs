@@ -6,6 +6,8 @@ pub(crate) mod hrule;
 pub(crate) mod label;
 pub(crate) mod modal;
 pub(crate) mod msg;
+pub(crate) mod oklch;
+pub(crate) mod porkchop_picker;
 pub(crate) mod progress_bar;
 pub(crate) mod scroll_container;
 pub(crate) mod style;

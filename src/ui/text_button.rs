@@ -2,7 +2,7 @@ use std::{cell::Cell, rc::Rc};
 
 use crate::ui::{msg::MsgQueue, style::Style, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
-use nalgebra_glm::{vec4, Vec2, Vec4};
+use nalgebra_glm::{vec2, vec4, Vec2, Vec4};
 
 /// A button with text
 pub struct TextButton<Msg> {
@@ -31,9 +31,12 @@ pub struct TextButton<Msg> {
 
 impl<Msg> TextButton<Msg> {
     /// Creates a textu button
-    pub fn new(rect: Rectangle, label: impl Into<String>) -> Self {
+    pub fn new(size: Vec2, label: impl Into<String>) -> Self {
         Self {
-            rect,
+            rect: Rectangle {
+                pos: vec2(0.0, 0.0),
+                size,
+            },
             label: label.into(),
             text_color: vec4(1.0, 1.0, 1.0, 1.0),
             inactive_text_color: vec4(1.0, 1.0, 1.0, 1.0),

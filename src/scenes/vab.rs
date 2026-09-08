@@ -162,10 +162,10 @@ impl VabUi {
                 .cross_align(Align::Center),
                 // Bottom bottom row
                 container![
-                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Close",)
+                    TextButton::new(vec2(200.0, 30.0,), "Close",)
                         .use_style(&STYLE)
                         .on_click(VabMessages::Close),
-                    TextButton::new(Rectangle::new(100.0, 120.0, 200.0, 30.0,), "Build!",)
+                    TextButton::new(vec2(200.0, 30.0,), "Build!",)
                         .use_style_accented(&STYLE)
                         .on_click(VabMessages::Build)
                         .active(good_dv && good_twr)
@@ -202,12 +202,9 @@ impl VabUi {
                     ),
                     Box::new(
                         Container::new(vec![Box::new(
-                            TextButton::<VabMessages>::new(
-                                Rectangle::new(0.0, 0.0, 45.0, 25.0),
-                                "X",
-                            )
-                            .use_style(&STYLE)
-                            .on_click(VabMessages::UnsetPayload),
+                            TextButton::<VabMessages>::new(vec2(45.0, 25.0), "X")
+                                .use_style(&STYLE)
+                                .on_click(VabMessages::UnsetPayload),
                         )])
                         .fixed_width(vec2(WIDTH * 0.2, 10.0))
                         .flow(Flow::Horizontal),
@@ -252,13 +249,10 @@ impl VabUi {
                     ),
                     Box::new(
                         Container::new(vec![Box::new(
-                            TextButton::<VabMessages>::new(
-                                Rectangle::new(0.0, 0.0, 45.0, 25.0),
-                                "X",
-                            )
-                            .use_style(&STYLE)
-                            .on_click(VabMessages::RemoveFromStack)
-                            .active(is_bottom), // only bottom stage can be removed
+                            TextButton::<VabMessages>::new(vec2(45.0, 25.0), "X")
+                                .use_style(&STYLE)
+                                .on_click(VabMessages::RemoveFromStack)
+                                .active(is_bottom), // only bottom stage can be removed
                         )])
                         .fixed_width(vec2(WIDTH * 0.2, 10.0))
                         .flow(Flow::Horizontal),
@@ -340,13 +334,10 @@ impl VabUi {
                         ),
                         Box::new(
                             Container::new(vec![Box::new(
-                                TextButton::<VabMessages>::new(
-                                    Rectangle::new(0.0, 0.0, 45.0, 25.0),
-                                    "+",
-                                )
-                                .use_style(&STYLE)
-                                .on_click(VabMessages::SetPayload(part.id_hash()))
-                                .active(have_some),
+                                TextButton::<VabMessages>::new(vec2(45.0, 25.0), "+")
+                                    .use_style(&STYLE)
+                                    .on_click(VabMessages::SetPayload(part.id_hash()))
+                                    .active(have_some),
                             )])
                             .padding(vec2(0.0, 0.0))
                             .fixed_width(vec2(WIDTH * 0.2, 10.0))
@@ -382,13 +373,10 @@ impl VabUi {
                         ),
                         Box::new(
                             Container::new(vec![Box::new(
-                                TextButton::<VabMessages>::new(
-                                    Rectangle::new(0.0, 0.0, 45.0, 25.0),
-                                    "+",
-                                )
-                                .use_style(&STYLE)
-                                .on_click(VabMessages::AddToStack(part.id_hash()))
-                                .active(have_some),
+                                TextButton::<VabMessages>::new(vec2(45.0, 25.0), "+")
+                                    .use_style(&STYLE)
+                                    .on_click(VabMessages::AddToStack(part.id_hash()))
+                                    .active(have_some),
                             )])
                             .padding(vec2(0.0, 0.0))
                             .fixed_width(vec2(WIDTH * 0.2, 10.0))

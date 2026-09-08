@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use crate::astro::{lambert::TransferKind, porkchop::Cell, state::State};
+use crate::astro::{epoch::EphemerisTime, lambert::TransferKind, porkchop::Cell, state::State};
 
 #[allow(unused)]
 #[derive(Debug)]
@@ -33,13 +33,22 @@ impl TransferObjective {
     }
 }
 
+#[derive(Debug)]
 pub struct SweepWindow {
+    pub start: EphemerisTime,
     pub sweep: f64,
+    // the untruncated synodic period, for clamping
+    pub full: f64,
     pub tof_min: f64,
     pub tof_max: f64,
 }
 
-pub fn sweep_window(craft: &State, target: &State, mu: f64) -> Result<SweepWindow, String> {
+pub fn sweep_window(
+    craft: &State,
+    target: &State,
+    mu: f64,
+    current_et: EphemerisTime,
+) -> Result<SweepWindow, String> {
     let transfer_a = (craft.semi_major_axis(mu) + target.semi_major_axis(mu)) / 2.0;
     let tof_guess = PI * (transfer_a.powi(3) / mu).sqrt();
 
@@ -53,7 +62,9 @@ pub fn sweep_window(craft: &State, target: &State, mu: f64) -> Result<SweepWindo
     let synodic = 1.0 / (1.0 / craft_period - 1.0 / target_period).abs();
 
     Ok(SweepWindow {
+        start: current_et,
         sweep: synodic.min(craft_period * 20.0),
+        full: synodic,
         tof_min: tof_guess * 0.7,
         tof_max: tof_guess * 1.5,
     })

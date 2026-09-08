@@ -1112,7 +1112,7 @@ impl Gameplay {
             turn_gui: Anchor::new(Box::new(container![]), AnchorPoint::BottomLeft),
             fabricator_ui: FabricatorUi::new(),
             vab_ui: VabUi::new(),
-            maneuver_ui: ManeuverModal::new(),
+            maneuver_ui: ManeuverModal::new(app),
 
             controls_enabled: Rc::new(Cell::new(false)),
             turn_progress: Rc::new(Cell::new(0.0)),
@@ -1255,13 +1255,13 @@ impl Gameplay {
             Box::new(
                 Container::new(vec![
                     Box::new(
-                        TextButton::new(Rectangle::new(0.0, 0.0, 44.0, 44.0), "Play")
+                        TextButton::new(vec2(44.0, 44.0), "Play")
                             .use_style_accented(&STYLE)
                             .bound_active(self.controls_enabled.clone())
                             .on_click(TurnMessages::Play),
                     ),
                     Box::new(
-                        TextButton::new(Rectangle::new(0.0, 0.0, 44.0, 44.0), "Stop")
+                        TextButton::new(vec2(44.0, 44.0), "Stop")
                             .use_style_accented(&STYLE)
                             .on_click(TurnMessages::Stop),
                     ),
@@ -1391,13 +1391,10 @@ impl Gameplay {
                     ));
                 }
                 widgets.push(Box::new(
-                    TextButton::<CommandMessages>::new(
-                        Rectangle::new(0.0, 0.0, WIDTH, 30.0),
-                        "Cancel Mission",
-                    )
-                    .use_style(&STYLE)
-                    .bound_active(self.controls_enabled.clone())
-                    .on_click(CommandMessages::CancelCommand { craft: selected }),
+                    TextButton::<CommandMessages>::new(vec2(WIDTH, 30.0), "Cancel Mission")
+                        .use_style(&STYLE)
+                        .bound_active(self.controls_enabled.clone())
+                        .on_click(CommandMessages::CancelCommand { craft: selected }),
                 ));
             }
         } else {
@@ -1410,12 +1407,9 @@ impl Gameplay {
 
         if is_idle {
             widgets.push(Box::new(
-                TextButton::<CommandMessages>::new(
-                    Rectangle::new(0.0, 0.0, WIDTH, 30.0),
-                    "Plan Mission...",
-                )
-                .use_style_accented(&STYLE)
-                .on_click(CommandMessages::OpenManeuver),
+                TextButton::<CommandMessages>::new(vec2(WIDTH, 30.0), "Plan Mission...")
+                    .use_style_accented(&STYLE)
+                    .on_click(CommandMessages::OpenManeuver),
             ))
         };
         widgets.push(Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
@@ -1622,17 +1616,17 @@ impl Gameplay {
                             ),
                             Box::new(
                                 Container::new(vec![Box::new(
-                                    TextButton::<CommandMessages>::new(
-                                        Rectangle::new(0.0, 0.0, 45.0, 25.0),
-                                        "BUILD",
-                                    )
-                                    .use_style(&STYLE)
-                                    .on_click(CommandMessages::FactoryCommand {
-                                        part_id: part.id_hash(),
-                                        factory_entity: self.selection.selected_entity().unwrap(),
-                                    })
-                                    .bound_active(self.controls_enabled.clone())
-                                    .active(can_afford),
+                                    TextButton::<CommandMessages>::new(vec2(45.0, 25.0), "BUILD")
+                                        .use_style(&STYLE)
+                                        .on_click(CommandMessages::FactoryCommand {
+                                            part_id: part.id_hash(),
+                                            factory_entity: self
+                                                .selection
+                                                .selected_entity()
+                                                .unwrap(),
+                                        })
+                                        .bound_active(self.controls_enabled.clone())
+                                        .active(can_afford),
                                 )])
                                 .padding(vec2(0.0, 0.0))
                                 .fixed_width(vec2(WIDTH * 0.2, 10.0))
@@ -1725,14 +1719,11 @@ impl Gameplay {
         widgets.push(Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
         widgets.push(Box::new(Label::new("ASSEMBLE").font(font_small_bold, app)));
         widgets.push(Box::new(
-            TextButton::<CommandMessages>::new(
-                Rectangle::new(0.0, 0.0, WIDTH, 30.0),
-                "Stack New Vehicle...",
-            )
-            .use_style_accented(&STYLE)
-            .bound_active(self.controls_enabled.clone())
-            .on_click(CommandMessages::OpenVab)
-            .active(!inventory.parts.is_empty()),
+            TextButton::<CommandMessages>::new(vec2(WIDTH, 30.0), "Stack New Vehicle...")
+                .use_style_accented(&STYLE)
+                .bound_active(self.controls_enabled.clone())
+                .on_click(CommandMessages::OpenVab)
+                .active(!inventory.parts.is_empty()),
         ));
 
         widgets
@@ -1981,15 +1972,12 @@ impl Gameplay {
             );
             out.push(Label::new(ready_text).font(font, app));
             out.push(
-                TextButton::<CommandMessages>::new(
-                    Rectangle::new(0.0, 0.0, WIDTH - 8.0 * 2.0, 30.0),
-                    "Cancel",
-                )
-                .use_style(&STYLE)
-                .bound_active(self.controls_enabled.clone())
-                .on_click(CommandMessages::CancelActiveFabricator {
-                    fabricator_entity: module,
-                }),
+                TextButton::<CommandMessages>::new(vec2(WIDTH - 8.0 * 2.0, 30.0), "Cancel")
+                    .use_style(&STYLE)
+                    .bound_active(self.controls_enabled.clone())
+                    .on_click(CommandMessages::CancelActiveFabricator {
+                        fabricator_entity: module,
+                    }),
             );
 
             out.bindings.push(Binding::new({
@@ -2016,27 +2004,21 @@ impl Gameplay {
             out.push(Label::new(format!("Queued: {}", part.name)).font(font, app));
             out.push(Label::new(format!("Ready {}", completion.as_calendar())).font(font, app));
             out.push(
-                TextButton::<CommandMessages>::new(
-                    Rectangle::new(0.0, 0.0, WIDTH - 8.0 * 2.0, 30.0),
-                    "Cancel",
-                )
-                .use_style(&STYLE)
-                .bound_active(self.controls_enabled.clone())
-                .on_click(CommandMessages::CancelQueuedFabricator {
-                    fabricator_entity: module,
-                }),
+                TextButton::<CommandMessages>::new(vec2(WIDTH - 8.0 * 2.0, 30.0), "Cancel")
+                    .use_style(&STYLE)
+                    .bound_active(self.controls_enabled.clone())
+                    .on_click(CommandMessages::CancelQueuedFabricator {
+                        fabricator_entity: module,
+                    }),
             );
         } else {
             out.push(
-                TextButton::<CommandMessages>::new(
-                    Rectangle::new(0.0, 0.0, WIDTH - 8.0 * 2.0, 30.0),
-                    "Build...",
-                )
-                .use_style_accented(&STYLE)
-                .bound_active(self.controls_enabled.clone())
-                .on_click(CommandMessages::OpenFabricator {
-                    fabricator_entity: module,
-                }),
+                TextButton::<CommandMessages>::new(vec2(WIDTH - 8.0 * 2.0, 30.0), "Build...")
+                    .use_style_accented(&STYLE)
+                    .bound_active(self.controls_enabled.clone())
+                    .on_click(CommandMessages::OpenFabricator {
+                        fabricator_entity: module,
+                    }),
             );
         }
 

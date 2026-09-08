@@ -1,5 +1,7 @@
+use nalgebra_glm::DVec3;
+
 use crate::astro::{
-    departure::{best_branch, sweep_window, TransferObjective},
+    departure::{best_branch, SweepWindow},
     epoch::EphemerisTime,
     lambert::lambert,
     porkchop::{Cell, Porkchop},
@@ -13,26 +15,26 @@ pub struct RendezvousPlan {
     pub rendezvous_state: State,
     pub transfer_dv: f64,
     pub brake_dv: f64,
-    // TODO: Phasing maneuver
+    // TODO: Phasing maneuver, with player input for the number of revs to wait
 }
 
-pub fn plan_rendezvous(
+pub fn rendezvous_porkchop(
     craft_state: &State,
     target_state: &State,
-    current_et: EphemerisTime,
+    w: &SweepWindow,
     parent_mass: f64, // in earth masses
-    objective: TransferObjective,
-) -> Result<RendezvousPlan, String> {
+    depart_steps: usize,
+    tof_steps: usize,
+) -> Result<Porkchop, String> {
     let mu = G * parent_mass;
-    let w = sweep_window(craft_state, target_state, mu)?;
 
     let chop = Porkchop::compute(
-        current_et,
+        w.start,
         w.sweep,
         w.tof_min,
         w.tof_max,
-        100,
-        20,
+        depart_steps,
+        tof_steps,
         |et, tof| {
             let craft = craft_state.propagate(et, mu).ok()?;
             let target = target_state
@@ -51,12 +53,22 @@ pub fn plan_rendezvous(
             })
         },
     );
-    let (i, j, cell) = chop.best(&objective).ok_or("no feasible transfer found")?;
-    let depart_et = chop.depart_at(i);
-    let tof = chop.tof_at(j);
+
+    Ok(chop)
+}
+
+pub fn plan_rendezvous_at(
+    craft_state: &State,
+    target_state: &State,
+    parent_mass: f64, // in earth masses
+    depart_et: EphemerisTime,
+    tof: f64,
+    depart_dv: DVec3,
+) -> Result<RendezvousPlan, String> {
+    let mu = G * parent_mass;
 
     let mut transfer_state = craft_state.propagate(depart_et, mu)?;
-    transfer_state.v += cell.depart_dv;
+    transfer_state.v += depart_dv;
 
     let arrival_et = depart_et + EphemerisTime::from_years(tof);
     let arrive = transfer_state.propagate(arrival_et, mu)?;
@@ -65,7 +77,7 @@ pub fn plan_rendezvous(
 
     Ok(RendezvousPlan {
         transfer_state,
-        transfer_dv: cell.depart_dv.norm() * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
+        transfer_dv: depart_dv.norm() * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
         rendezvous_state: tgt,
         brake_dv: brake_dv * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
     })

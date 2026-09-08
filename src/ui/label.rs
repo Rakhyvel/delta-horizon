@@ -12,6 +12,7 @@ pub struct Label {
     /// The text to be drawn for the button
     label: String,
     color: Vec4,
+    color_source: Option<Rc<RefCell<Vec4>>>,
     font_id: Option<FontId>,
 }
 
@@ -28,6 +29,7 @@ impl Label {
             source: None,
             label: text,
             color: vec4(1.0, 1.0, 1.0, 1.0),
+            color_source: None,
             font_id: None,
         }
     }
@@ -52,21 +54,30 @@ impl Label {
         self.color = color;
         self
     }
+
+    pub fn bind_color(mut self, color_source: Rc<RefCell<Vec4>>) -> Self {
+        self.color_source = Some(color_source);
+        self
+    }
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for Label {
     fn update(&mut self, app: &App, _msgq: &mut MsgQueue<Msg>) {
-        let Some(src) = &self.source else {
-            return;
+        if let Some(src) = &self.source {
+            let s = src.borrow();
+            if *s == self.label {
+                return; // unchanged
+            }
+            self.label = s.clone();
+            if let Some(font_id) = self.font_id {
+                let font = app.renderer.get_font_from_id(font_id).unwrap();
+                self.rect.size = font.measure(&self.label)
+            }
         };
-        let s = src.borrow();
-        if *s == self.label {
-            return; // unchanged
-        }
-        self.label = s.clone();
-        if let Some(font_id) = self.font_id {
-            let font = app.renderer.get_font_from_id(font_id).unwrap();
-            self.rect.size = font.measure(&self.label)
+
+        if let Some(color_source) = &self.color_source {
+            let c = color_source.borrow();
+            self.color = *c;
         }
     }
 

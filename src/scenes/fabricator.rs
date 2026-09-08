@@ -116,7 +116,7 @@ impl FabricatorUi {
         const CARD_W: f32 = 300.0;
         const HEIGHT: f32 = 400.0;
 
-        let close = TextButton::new(Rectangle::new(0.0, 0.0, CARD_W, 30.0), "Close")
+        let close = TextButton::new(vec2(CARD_W, 30.0), "Close")
             .use_style(&STYLE)
             .on_click(FabricatorMessages::Close);
 
@@ -233,13 +233,10 @@ impl FabricatorUi {
         ));
 
         widgets.push(Box::new(
-            TextButton::new(
-                Rectangle::new(0.0, 0.0, 280.0, 30.0),
-                if queued { "QUEUED" } else { "BUILD" },
-            )
-            .use_style(&STYLE)
-            .active(affordable && !queued)
-            .on_click(FabricatorMessages::Build(id)),
+            TextButton::new(vec2(280.0, 30.0), if queued { "QUEUED" } else { "BUILD" })
+                .use_style(&STYLE)
+                .active(affordable && !queued)
+                .on_click(FabricatorMessages::Build(id)),
         ));
 
         Container::new(widgets)

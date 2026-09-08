@@ -1,7 +1,7 @@
 use nalgebra_glm::DVec3;
 
 use crate::astro::{
-    departure::{best_branch, sweep_window, TransferObjective},
+    departure::{best_branch, SweepWindow, TransferObjective},
     epoch::EphemerisTime,
     lambert::{lambert, TransferKind},
     maneuver::{
@@ -23,18 +23,18 @@ pub struct TransferPlan {
     pub circ_dv: f64,
 }
 
-pub fn plan_transfer(
+pub fn transfer_porkchop(
     craft_state: &State,
     target_body_state: &State,
     target_body_radius: f64,
-    current_et: EphemerisTime,
-    parent_mass: f64, // in earth masses
-    target_mass: f64, // in earth masses
-    objective: TransferObjective,
-) -> Result<TransferPlan, String> {
+    w: &SweepWindow,
+    parent_mass: f64,
+    target_mass: f64,
+    depart_steps: usize,
+    tof_steps: usize,
+) -> Result<Porkchop, String> {
     let mu = G * parent_mass;
     let target_mu = G * target_mass;
-    let w = sweep_window(craft_state, target_body_state, mu)?;
 
     let soi_radius = sphere_of_influence(
         target_body_state.semi_major_axis(mu),
@@ -44,12 +44,12 @@ pub fn plan_transfer(
     let target_peri = (target_body_radius * 1.2).min(soi_radius * 0.5);
 
     let chop = Porkchop::compute(
-        current_et,
+        w.start,
         w.sweep,
         w.tof_min,
         w.tof_max,
-        100,
-        20,
+        depart_steps,
+        tof_steps,
         |et, tof| {
             let craft = craft_state.propagate(et, mu).ok()?;
             let target = target_body_state
@@ -78,12 +78,30 @@ pub fn plan_transfer(
             })
         },
     );
-    let (i, j, cell) = chop.best(&objective).ok_or("no feasible transfer found")?;
-    let depart_et = chop.depart_at(i);
-    let tof = chop.tof_at(j);
+
+    Ok(chop)
+}
+
+pub fn plan_transfer_at(
+    craft_state: &State,
+    target_body_state: &State,
+    parent_mass: f64, // in earth masses
+    target_mass: f64, // in earth masses
+    depart_et: EphemerisTime,
+    tof: f64,
+    depart_dv: DVec3,
+) -> Result<TransferPlan, String> {
+    let mu = G * parent_mass;
+    let target_mu = G * target_mass;
+
+    let soi_radius = sphere_of_influence(
+        target_body_state.semi_major_axis(mu),
+        target_mass,
+        parent_mass,
+    );
 
     let mut transfer_state = craft_state.propagate(depart_et, mu)?;
-    transfer_state.v += cell.depart_dv;
+    transfer_state.v += depart_dv;
 
     let arrival_et = find_soi_entry(&transfer_state, target_body_state, soi_radius, tof, mu)?;
     let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu)?;
@@ -100,7 +118,7 @@ pub fn plan_transfer(
         flyby_state,
         circ_state,
         soi_radius,
-        transfer_dv: cell.depart_dv.norm() * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
+        transfer_dv: depart_dv.norm() * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
         circ_dv: circ_dv * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
     })
 }
@@ -114,18 +132,18 @@ pub struct FlybyPlan {
     pub transfer_dv: f64,
 }
 
-pub fn plan_flyby(
+pub fn flyby_porkchop(
     craft_state: &State,
     target_body_state: &State,
     target_body_radius: f64,
-    current_et: EphemerisTime,
-    parent_mass: f64, // in earth masses
-    target_mass: f64, // in earth masses
-    objective: TransferObjective,
-) -> Result<FlybyPlan, String> {
+    w: &SweepWindow,
+    parent_mass: f64,
+    target_mass: f64,
+    depart_steps: usize,
+    tof_steps: usize,
+) -> Result<Porkchop, String> {
     let mu = G * parent_mass;
     let target_mu = G * target_mass;
-    let w = sweep_window(craft_state, target_body_state, mu)?;
 
     let soi_radius = sphere_of_influence(
         target_body_state.semi_major_axis(mu),
@@ -135,12 +153,12 @@ pub fn plan_flyby(
     let target_peri = (target_body_radius * 1.2).min(soi_radius * 0.5);
 
     let chop = Porkchop::compute(
-        current_et,
+        w.start,
         w.sweep,
         w.tof_min,
         w.tof_max,
-        100,
-        20,
+        depart_steps,
+        tof_steps,
         |et, tof| {
             let craft = craft_state.propagate(et, mu).ok()?;
             let target = target_body_state
@@ -148,7 +166,7 @@ pub fn plan_flyby(
                 .ok()?;
 
             best_branch(|k| {
-                let (v1, _) = aim_for_periapsis(
+                let (v1, v2) = aim_for_periapsis(
                     craft.r,
                     target,
                     tof,
@@ -169,12 +187,30 @@ pub fn plan_flyby(
             })
         },
     );
-    let (i, j, cell) = chop.best(&objective).ok_or("no feasible transfer found")?;
-    let depart_et = chop.depart_at(i);
-    let tof = chop.tof_at(j);
+
+    Ok(chop)
+}
+
+pub fn plan_flyby_at(
+    craft_state: &State,
+    target_body_state: &State,
+    parent_mass: f64, // in earth masses
+    target_mass: f64, // in earth masses
+    depart_et: EphemerisTime,
+    tof: f64,
+    depart_dv: DVec3,
+) -> Result<FlybyPlan, String> {
+    let mu = G * parent_mass;
+    let target_mu = G * target_mass;
+
+    let soi_radius = sphere_of_influence(
+        target_body_state.semi_major_axis(mu),
+        target_mass,
+        parent_mass,
+    );
 
     let mut transfer_state = craft_state.propagate(depart_et, mu)?;
-    transfer_state.v += cell.depart_dv;
+    transfer_state.v += depart_dv;
 
     let arrival_et = find_soi_entry(&transfer_state, target_body_state, soi_radius, tof, mu)?;
     let flyby_state = get_flyby_state(&transfer_state, target_body_state, arrival_et, mu)?;
@@ -187,7 +223,7 @@ pub fn plan_flyby(
         flyby_state,
         exit_state,
         soi_radius,
-        transfer_dv: cell.depart_dv.norm() * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
+        transfer_dv: depart_dv.norm() * METERS_PER_SECOND_PER_EARTH_RADII_PER_YEAR,
     })
 }
 

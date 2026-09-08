@@ -1,23 +1,36 @@
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
 use crate::{
     astro::{
-        departure::TransferObjective,
+        departure::{sweep_window, SweepWindow, TransferObjective},
         epoch::EphemerisTime,
         escape::{plan_escape, EscapePlan},
         landing::{plan_landing, LandingPlan},
         launch::{plan_launch, LaunchPlan},
-        rendezvous::{plan_rendezvous, RendezvousPlan},
+        porkchop::Porkchop,
+        rendezvous::{plan_rendezvous_at, rendezvous_porkchop, RendezvousPlan},
         state::State,
-        transfer::{plan_flyby, plan_transfer, FlybyPlan, TransferPlan},
+        transfer::{
+            flyby_porkchop, plan_flyby_at, plan_transfer_at, transfer_porkchop, FlybyPlan,
+            TransferPlan,
+        },
+        units::G,
     },
     components::{
         body::{Body, Parent, SceneObject},
         craft::{Command, Craft, Landed},
     },
-    ui::{container::Container, dropdown::Dropdown, hrule::HRule, style::STYLE},
+    ui::{
+        container::Container, dropdown::Dropdown, hrule::HRule, oklch::oklch,
+        porkchop_picker::PorkchopPicker, style::STYLE,
+    },
 };
-use apricot::{app::App, font::FontId, rectangle::Rectangle};
+use apricot::{app::App, font::FontId, rectangle::Rectangle, render_core::TextureId};
 use hecs::{Entity, World};
-use nalgebra_glm::vec2;
+use nalgebra_glm::{vec2, Vec4};
 
 use crate::{
     container,
@@ -32,6 +45,9 @@ use crate::{
 
 const WIDTH: f32 = 280.0;
 
+const DEPART_STEPS: usize = 28;
+const TOF_STEPS: usize = 21;
+
 pub struct ManeuverModal {
     modal: Modal<ManeuverMessages>,
     craft: Option<Entity>,
@@ -40,17 +56,33 @@ pub struct ManeuverModal {
     selected_destination: Option<Entity>,
     selected_date: EphemerisTime,
     computed_plan: Option<ManeuverResult>,
+
+    result_dv_text: Rc<RefCell<String>>,
+    result_date_text: Rc<RefCell<String>>,
+    dv_color: Rc<RefCell<Vec4>>,
+    can_confirm: Rc<Cell<bool>>,
+
+    window: Option<SweepWindow>,
+    porkchop: Option<Porkchop>,
+    porkchop_texture_id: TextureId,
+    selected_cell: Rc<Cell<(usize, usize)>>,
+    last_cell: (usize, usize),
+    optimum: Rc<Cell<(usize, usize)>>,
 }
 
 #[derive(Clone, Debug)]
 enum ManeuverMessages {
     SelectKind(ManeuverKind),
     SelectDestination(Entity),
+    ShiftPorkchopLeft,
+    ShiftPorkchopRight,
+    ZoomPorkchopIn,
+    ZoomPorkchopOut,
     Confirm,
     Close,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum ManeuverKind {
     Transfer,
     Flyby,
@@ -60,6 +92,7 @@ enum ManeuverKind {
     Rendezvous,
 }
 
+#[derive(PartialEq, Clone, Copy)]
 enum TargetKind {
     Body,
     Craft,
@@ -157,7 +190,7 @@ impl ManeuverResult {
 }
 
 impl ManeuverModal {
-    pub fn new() -> Self {
+    pub fn new(app: &App) -> Self {
         Self {
             modal: Modal::new(Box::new(container![])),
             craft: None,
@@ -166,6 +199,18 @@ impl ManeuverModal {
             selected_destination: None,
             selected_date: EphemerisTime::epoch(),
             computed_plan: None,
+
+            result_date_text: Rc::new(RefCell::new(String::new())),
+            result_dv_text: Rc::new(RefCell::new(String::new())),
+            dv_color: Rc::new(RefCell::new(Vec4::zeros())),
+            can_confirm: Rc::new(Cell::new(false)),
+
+            window: None,
+            porkchop: None,
+            porkchop_texture_id: app.renderer.create_texture_rgba(1, 1, &[0, 0, 0, 0]),
+            selected_cell: Rc::new(Cell::new((0, 0))),
+            last_cell: (0, 0),
+            optimum: Rc::new(Cell::new((0, 0))),
         }
     }
 
@@ -195,25 +240,192 @@ impl ManeuverModal {
         for msg in recv_msgs(app, &mut self.modal) {
             match msg {
                 ManeuverMessages::SelectKind(maneuver_kind) => {
+                    if self
+                        .selected_kind
+                        .is_some_and(|k| k.target_kind() != maneuver_kind.target_kind())
+                    {
+                        // Wipe the selected destination if it's not the same kind, or it'll mess stuff up later
+                        self.selected_destination = None;
+                    }
+                    self.porkchop = None;
                     self.selected_kind = Some(maneuver_kind);
-                    self.computed_plan = self.compute_plan(craft, current_et, world);
+                    self.refresh_window(craft, current_et, world);
+                    self.refresh_chop(craft, current_et, world, app, true);
                     self.rebuild(world, app)
                 }
                 ManeuverMessages::SelectDestination(entity) => {
                     self.selected_destination = Some(entity);
-                    self.computed_plan = self.compute_plan(craft, current_et, world);
-                    self.rebuild(world, app)
+                    self.refresh_window(craft, current_et, world);
+                    self.refresh_chop(craft, current_et, world, app, true);
+                }
+                ManeuverMessages::ShiftPorkchopLeft => {
+                    if let Some(window) = &mut self.window {
+                        let half = EphemerisTime::from_years(window.sweep * 0.5);
+                        window.start = (window.start - half).max(current_et);
+                    }
+                    self.refresh_chop(craft, current_et, world, app, true);
+                }
+                ManeuverMessages::ShiftPorkchopRight => {
+                    if let Some(window) = &mut self.window {
+                        window.start += EphemerisTime::from_years(window.sweep * 0.5);
+                    }
+                    self.refresh_chop(craft, current_et, world, app, true);
+                }
+                ManeuverMessages::ZoomPorkchopIn => {
+                    self.zoom_porkchop(0.5, craft, current_et, world, app)
+                }
+                ManeuverMessages::ZoomPorkchopOut => {
+                    self.zoom_porkchop(2.0, craft, current_et, world, app)
                 }
                 ManeuverMessages::Close => {
+                    self.porkchop = None;
                     self.modal.set_shown(false);
                 }
                 ManeuverMessages::Confirm => {
+                    self.porkchop = None;
                     self.modal.set_shown(false);
                     return self.computed_plan.take();
                 }
             }
         }
+
+        let cell = self.selected_cell.get();
+        if cell != self.last_cell {
+            self.last_cell = cell;
+            self.computed_plan = self.plan_from_selection(craft, current_et, world);
+        }
+
+        self.sync_labels(world);
+
         None
+    }
+
+    fn refresh_window(&mut self, craft: Entity, current_et: EphemerisTime, world: &World) {
+        self.window = None;
+        let Some(target) = self.selected_destination else {
+            return;
+        };
+        let Ok(craft_state) = world.get::<&State>(craft) else {
+            return;
+        };
+        let Ok(target_state) = world.get::<&State>(target) else {
+            return;
+        };
+        let Ok(parent) = world.get::<&Parent>(craft) else {
+            return;
+        };
+        let Ok(parent_body) = world.get::<&Body>(parent.id) else {
+            return;
+        };
+
+        self.window = sweep_window(
+            &craft_state,
+            &target_state,
+            G * parent_body.mass(),
+            current_et,
+        )
+        .ok()
+    }
+
+    fn refresh_chop(
+        &mut self,
+        craft: Entity,
+        current_et: EphemerisTime,
+        world: &World,
+        app: &App,
+        update_selected: bool,
+    ) {
+        self.porkchop = self.compute_porkchop(craft, world);
+
+        if let Some(chop) = &self.porkchop {
+            app.renderer.update_texture_rgba(
+                self.porkchop_texture_id,
+                chop.depart_steps as u32,
+                chop.tof_steps as u32,
+                &Self::porkchop_rgba(chop),
+            );
+            if let Some((i, j, _)) = chop.best(&TransferObjective::MinFuel) {
+                self.optimum.set((i, j));
+                if update_selected {
+                    self.selected_cell.set((i, j));
+                    self.last_cell = (i, j);
+                }
+            } else {
+                self.selected_cell.set((0, 0));
+                self.last_cell = (0, 0);
+                self.optimum.set((0, 0));
+            }
+        } else {
+            app.renderer
+                .update_texture_rgba(self.porkchop_texture_id, 1, 1, &[0, 0, 0, 0]);
+        }
+
+        self.computed_plan = self.plan_from_selection(craft, current_et, world);
+    }
+
+    fn zoom_porkchop(
+        &mut self,
+        factor: f64,
+        craft: Entity,
+        current_et: EphemerisTime,
+        world: &World,
+        app: &App,
+    ) {
+        let Some(window) = &mut self.window else {
+            return;
+        };
+        // zoom about the puck
+        let focus = self
+            .porkchop
+            .as_ref()
+            .map(|c| c.depart_at(self.selected_cell.get().0))
+            .unwrap_or(window.start);
+
+        window.sweep = (window.sweep * factor).min(window.full);
+        let half = EphemerisTime::from_years(window.sweep * 0.5);
+        window.start = (focus - half).max(current_et);
+
+        self.refresh_chop(craft, current_et, world, app, false);
+    }
+
+    fn sync_labels(&self, world: &World) {
+        let dv = self
+            .computed_plan
+            .as_ref()
+            .map_or_else(|| String::from("-"), |p| format!("{:.0} m/s", p.total_dv()));
+        if *self.result_dv_text.borrow() != dv {
+            *self.result_dv_text.borrow_mut() = dv;
+        }
+
+        let date = self
+            .computed_plan
+            .as_ref()
+            .map_or_else(|| String::from("-"), |p| p.arrival_et().as_calendar());
+        if *self.result_date_text.borrow() != date {
+            *self.result_date_text.borrow_mut() = date;
+        }
+
+        let craft_dv = world
+            .get::<&Craft>(self.craft.unwrap())
+            .unwrap()
+            .total_remaining_dv();
+
+        let can_afford_plan = self
+            .computed_plan
+            .as_ref()
+            .map(|plan| plan.can_afford(craft_dv))
+            .unwrap_or(false);
+
+        self.can_confirm.set(can_afford_plan);
+
+        let color = match &self.computed_plan {
+            None => STYLE.text_primary,
+            Some(_) if can_afford_plan => STYLE.positive,
+            Some(_) => STYLE.negative,
+        };
+        if *self.dv_color.borrow() != color {
+            *self.dv_color.borrow_mut() = color
+        }
     }
 
     pub fn render(&self, app: &App) {
@@ -233,10 +445,6 @@ impl ManeuverModal {
             Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)),
         ];
 
-        let craft_dv = world
-            .get::<&Craft>(self.craft.unwrap())
-            .unwrap()
-            .total_remaining_dv();
         let is_landed = world.get::<&Landed>(self.craft.unwrap()).is_ok();
         let is_orbiting = world.get::<&State>(self.craft.unwrap()).is_ok();
 
@@ -297,63 +505,78 @@ impl ManeuverModal {
                     .cross_align(Align::Center)
                     .padding(vec2(12.0, 0.0)),
                 ));
+                sections.push(Box::new(PorkchopPicker::new(
+                    vec2(WIDTH, WIDTH * 3.0 / 4.0),
+                    self.porkchop_texture_id,
+                    DEPART_STEPS,
+                    TOF_STEPS,
+                    self.selected_cell.clone(),
+                    self.optimum.clone(),
+                )));
+                sections.push(Box::new(
+                    Container::new(vec![
+                        Box::new(
+                            TextButton::new(vec2(30.0, 30.0), "<")
+                                .use_style(&STYLE)
+                                .on_click(ManeuverMessages::ShiftPorkchopLeft),
+                        ),
+                        Box::new(
+                            TextButton::new(vec2(30.0, 30.0), ">")
+                                .use_style(&STYLE)
+                                .on_click(ManeuverMessages::ShiftPorkchopRight),
+                        ),
+                        Box::new(
+                            TextButton::new(vec2(30.0, 30.0), "+")
+                                .use_style(&STYLE)
+                                .on_click(ManeuverMessages::ZoomPorkchopIn),
+                        ),
+                        Box::new(
+                            TextButton::new(vec2(30.0, 30.0), "-")
+                                .use_style(&STYLE)
+                                .on_click(ManeuverMessages::ZoomPorkchopOut),
+                        ),
+                    ])
+                    .flow(Flow::Horizontal),
+                ))
             }
         }
-
-        // Result section
-        let result_dv = self
-            .computed_plan
-            .as_ref()
-            .map(|plan| format!("{:.0} m/s", plan.total_dv()))
-            .unwrap_or(String::from(""));
-        let can_afford_plan = self
-            .computed_plan
-            .as_ref()
-            .map(|plan| plan.can_afford(craft_dv))
-            .unwrap_or(false);
-        let result_arrival_et = self
-            .computed_plan
-            .as_ref()
-            .map(|plan| plan.arrival_et().as_calendar())
-            .unwrap_or(String::from(""));
 
         sections.push(Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
         sections.push(Box::new(Label::new("RESULT").font(font_small_bold, app)));
         sections.push(Box::new(
             container![
                 Label::new("dv: ").font(font, app).color(STYLE.text_primary),
-                Label::new(result_dv)
+                Label::bound(self.result_dv_text.clone())
                     .font(font, app)
-                    .color(if can_afford_plan {
-                        STYLE.positive
-                    } else {
-                        STYLE.negative
-                    }),
+                    .bind_color(self.dv_color.clone()),
             ]
             .padding(vec2(0.0, 0.0))
             .flow(Flow::Horizontal),
         ));
         sections.push(Box::new(
-            Label::new(format!("Arrival: {result_arrival_et}")).font(font, app),
+            container![
+                Label::new("Arrival: ")
+                    .font(font, app)
+                    .color(STYLE.text_primary),
+                Label::bound(self.result_date_text.clone()).font(font, app),
+            ]
+            .padding(vec2(0.0, 0.0))
+            .flow(Flow::Horizontal),
         ));
 
         // Footer buttons
         sections.push(Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
-        let can_confirm = self
-            .computed_plan
-            .as_ref()
-            .map(|p| p.can_afford(craft_dv))
-            .unwrap_or(false);
 
         sections.push(Box::new(
             container![
-                TextButton::new(Rectangle::new(0.0, 0.0, 100.0, 30.0), "Close")
+                TextButton::new(vec2(100.0, 30.0), "Close")
                     .use_style(&STYLE)
                     .on_click(ManeuverMessages::Close),
-                TextButton::new(Rectangle::new(0.0, 0.0, 100.0, 30.0), "Confirm")
+                TextButton::new(vec2(100.0, 30.0), "Confirm")
                     .use_style_accented(&STYLE)
                     .on_click(ManeuverMessages::Confirm)
-                    .active(can_confirm),
+                    .active(false)
+                    .bound_active(self.can_confirm.clone()),
             ]
             .fixed_width(vec2(WIDTH, 0.0))
             .flow(Flow::Horizontal)
@@ -398,15 +621,10 @@ impl ManeuverModal {
             .collect()
     }
 
-    fn compute_plan(
-        &self,
-        craft: Entity,
-        current_et: EphemerisTime,
-        world: &World,
-    ) -> Option<ManeuverResult> {
+    fn compute_porkchop(&self, craft: Entity, world: &World) -> Option<Porkchop> {
         let kind = self.selected_kind.as_ref()?;
 
-        let init_state = world.get::<&State>(craft);
+        let init_state = world.get::<&State>(craft).ok()?;
         let parent = world
             .get::<&Parent>(craft)
             .expect("craft must have parent")
@@ -418,31 +636,115 @@ impl ManeuverModal {
                 let to = self.selected_destination?;
                 let target_state = world.get::<&State>(to).unwrap();
                 let target_body = world.get::<&Body>(to).unwrap();
-                let plan = plan_transfer(
-                    &init_state.unwrap(),
+                transfer_porkchop(
+                    &init_state,
                     &target_state,
                     target_body.body_radius,
-                    current_et,
+                    self.window.as_ref().unwrap(),
                     parent_body.mass(),
                     target_body.mass(),
-                    TransferObjective::MinFuel,
+                    DEPART_STEPS,
+                    TOF_STEPS,
                 )
-                .ok()?;
-                Some(ManeuverResult::Transfer { to, plan })
+                .ok()
+            }
+            ManeuverKind::Flyby => {
+                let to = self.selected_destination?;
+                let target_state = world.get::<&State>(to).unwrap();
+                let target_body = world.get::<&Body>(to).unwrap();
+                flyby_porkchop(
+                    &init_state,
+                    &target_state,
+                    target_body.body_radius,
+                    self.window.as_ref().unwrap(),
+                    parent_body.mass(),
+                    target_body.mass(),
+                    DEPART_STEPS,
+                    TOF_STEPS,
+                )
+                .ok()
+            }
+            ManeuverKind::Rendezvous => {
+                let to = self.selected_destination?;
+                let target_state = world.get::<&State>(to).unwrap();
+                rendezvous_porkchop(
+                    &init_state,
+                    &target_state,
+                    self.window.as_ref().unwrap(),
+                    parent_body.mass(),
+                    DEPART_STEPS,
+                    TOF_STEPS,
+                )
+                .ok()
+            }
+            _ => None,
+        }
+    }
+
+    fn plan_from_selection(
+        &self,
+        craft: Entity,
+        current_et: EphemerisTime,
+        world: &World,
+    ) -> Option<ManeuverResult> {
+        let kind = self.selected_kind.as_ref()?;
+
+        let init_state = world.get::<&State>(craft).expect("gotta have state");
+        let parent = world
+            .get::<&Parent>(craft)
+            .expect("craft must have parent")
+            .id;
+        let parent_body = world.get::<&Body>(parent).expect("parent must be body");
+
+        match kind {
+            ManeuverKind::Transfer => {
+                let to = self.selected_destination?;
+                let target_state = world.get::<&State>(to).unwrap();
+                let target_body = world.get::<&Body>(to).unwrap();
+
+                let chop = self.porkchop.as_ref().expect("porkchop was None");
+
+                let (i, j) = self.selected_cell.get();
+                let depart_et = chop.depart_at(i);
+                let tof = chop.tof_at(j);
+                let depart_dv = chop.at(i, j).expect("cell was none").depart_dv;
+
+                match plan_transfer_at(
+                    &init_state,
+                    &target_state,
+                    parent_body.mass(),
+                    target_body.mass(),
+                    depart_et,
+                    tof,
+                    depart_dv,
+                ) {
+                    Ok(plan) => Some(ManeuverResult::Transfer { to, plan }),
+                    Err(e) => {
+                        println!("plan_transfer_at failed at ({i},{j}) tof={tof:.5}: {e}");
+                        None
+                    }
+                }
             }
             ManeuverKind::Flyby => {
                 let to = self.selected_destination?;
                 let target_state = world.get::<&State>(to).unwrap();
                 let target_body = world.get::<&Body>(to).unwrap();
 
-                let plan = plan_flyby(
-                    &init_state.unwrap(),
+                let chop = self.porkchop.as_ref()?;
+
+                let (i, j) = self.selected_cell.get();
+                let depart_et = chop.depart_at(i);
+                let tof = chop.tof_at(j);
+                let depart_dv = chop.at(i, j)?.depart_dv;
+
+                let plan = plan_flyby_at(
+                    &init_state,
                     &target_state,
-                    target_body.body_radius,
-                    current_et,
                     parent_body.mass(),
                     target_body.mass(),
-                    TransferObjective::MinFuel,
+                    depart_et,
+                    tof,
+                    depart_dv,
                 )
                 .ok()?;
                 Some(ManeuverResult::Flyby { to, plan })
@@ -450,12 +752,21 @@ impl ManeuverModal {
             ManeuverKind::Rendezvous => {
                 let with = self.selected_destination?;
                 let target_state = world.get::<&State>(with).unwrap();
-                let plan = plan_rendezvous(
-                    &init_state.unwrap(),
+
+                let chop = self.porkchop.as_ref()?;
+
+                let (i, j) = self.selected_cell.get();
+                let depart_et = chop.depart_at(i);
+                let tof = chop.tof_at(j);
+                let depart_dv = chop.at(i, j)?.depart_dv;
+
+                let plan = plan_rendezvous_at(
+                    &init_state,
                     &target_state,
-                    current_et,
                     parent_body.mass(),
-                    TransferObjective::MinFuel,
+                    depart_et,
+                    tof,
+                    depart_dv,
                 )
                 .ok()?;
                 Some(ManeuverResult::Rendezvous { with, plan })
@@ -466,7 +777,7 @@ impl ManeuverModal {
                 let grandparent_body = world.get::<&Body>(grandparent.id).unwrap();
 
                 let plan = plan_escape(
-                    &init_state.unwrap(),
+                    &init_state,
                     &parent_state,
                     current_et,
                     grandparent_body.mass(),
@@ -480,7 +791,7 @@ impl ManeuverModal {
             ManeuverKind::Land => {
                 let target_body = world.get::<&Body>(parent).unwrap();
                 let plan = plan_landing(
-                    &init_state.unwrap(),
+                    &init_state,
                     target_body.body_radius,
                     current_et,
                     target_body.mu,
@@ -506,5 +817,42 @@ impl ManeuverModal {
                 Some(ManeuverResult::Launch { plan })
             }
         }
+    }
+
+    fn porkchop_rgba(chop: &Porkchop) -> Vec<u8> {
+        let mut bytes = vec![0u8; chop.depart_steps * chop.tof_steps * 4];
+
+        let lo = chop
+            .cells
+            .iter()
+            .flatten()
+            .map(|c| c.total)
+            .fold(f64::INFINITY, f64::min);
+        if !lo.is_finite() {
+            return bytes; // nothing is feasible :(
+        }
+        let hi = lo * 3.0;
+
+        for (n, cell) in chop.cells.iter().enumerate() {
+            let pixel: [u8; 4] = if let Some(c) = cell {
+                let t = ((c.total - lo) / (hi - lo)).clamp(0.0, 1.0) as f32;
+                Self::colormap(t)
+            } else {
+                [0, 0, 0, 0]
+            };
+            bytes[n * 4..n * 4 + 4].copy_from_slice(&pixel);
+        }
+
+        bytes
+    }
+
+    fn colormap(t: f32) -> [u8; 4] {
+        let col = oklch(0.45 + 0.42 * t, 0.15, 250.0 + (95.0 - 250.0) * t, 1.0);
+        [
+            (col.x * 255.0) as u8,
+            (col.y * 255.0) as u8,
+            (col.z * 255.0) as u8,
+            255,
+        ]
     }
 }
