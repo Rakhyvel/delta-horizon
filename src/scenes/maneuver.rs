@@ -29,7 +29,7 @@ use crate::{
         porkchop_picker::PorkchopPicker, slider::Slider, style::STYLE,
     },
 };
-use apricot::{app::App, font::FontId, rectangle::Rectangle, render_core::TextureId};
+use apricot::{app::App, font::FontId, render_core::TextureId};
 use hecs::{Entity, World};
 use nalgebra_glm::{vec2, Vec4};
 
@@ -157,7 +157,7 @@ impl ManeuverKind {
 pub enum ManeuverResult {
     Transfer { to: Entity, plan: TransferPlan },
     Flyby { to: Entity, plan: FlybyPlan },
-    Rendezvous { with: Entity, plan: RendezvousPlan },
+    Rendezvous { plan: RendezvousPlan },
     Escape { to: Entity, plan: EscapePlan },
     Land { plan: LandingPlan },
     Launch { plan: LaunchPlan },
@@ -194,7 +194,7 @@ impl ManeuverResult {
         match self {
             ManeuverResult::Transfer { to, plan } => Command::Transfer { to, plan },
             ManeuverResult::Flyby { to, plan } => Command::Flyby { to, plan },
-            ManeuverResult::Rendezvous { with, plan } => Command::Rendezvous { with, plan },
+            ManeuverResult::Rendezvous { plan } => Command::Rendezvous { plan },
             ManeuverResult::Escape { to, plan } => Command::Escape { to, plan },
             ManeuverResult::Land { plan } => Command::Land { plan },
             ManeuverResult::Launch { plan } => Command::Launch { plan },
@@ -841,7 +841,7 @@ impl ManeuverModal {
                     depart_dv,
                 )
                 .ok()?;
-                Some(ManeuverResult::Rendezvous { with, plan })
+                Some(ManeuverResult::Rendezvous { plan })
             }
             ManeuverKind::Escape => {
                 let parent_state = world.get::<&State>(parent).unwrap();

@@ -28,7 +28,7 @@ use crate::{
         epoch::EphemerisTime,
         maneuver::sphere_of_influence,
         state::State,
-        units::{G, SECONDS_PER_DAY, SUN_MU},
+        units::{SECONDS_PER_DAY, SUN_MU},
     },
     components::{
         craft::{

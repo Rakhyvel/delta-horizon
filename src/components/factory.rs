@@ -30,7 +30,6 @@ pub struct Factory {
 #[derive(Debug)]
 pub struct FactoryJob {
     pub part_id: u64,
-    pub order_et: EphemerisTime,
     pub energy_total: f32,
     pub energy_done: f32,
     pub energy_et: EphemerisTime,
@@ -114,7 +113,6 @@ impl Factory {
         self.enabled = true;
         self.current_job = Some(FactoryJob {
             part_id,
-            order_et: current_et,
             energy_done: 0.0,
             energy_total,
             energy_et: current_et,

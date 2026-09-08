@@ -1,7 +1,6 @@
 use apricot::{
     app::App,
     font::{Font, FontId},
-    rectangle::Rectangle,
 };
 use hecs::{Entity, World};
 use nalgebra_glm::{vec2, Vec2};

@@ -8,7 +8,7 @@ use crate::{
     },
     ui::{container::Container, scroll_container::ScrollContainer, style::STYLE, vrule::VRule},
 };
-use apricot::{app::App, font::FontId, rectangle::Rectangle};
+use apricot::{app::App, font::FontId};
 use nalgebra_glm::{vec2, Vec2};
 
 use crate::{

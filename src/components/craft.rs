@@ -62,7 +62,7 @@ pub enum Command {
     Launch { plan: LaunchPlan },
     Transfer { to: Entity, plan: TransferPlan },
     Flyby { to: Entity, plan: FlybyPlan },
-    Rendezvous { with: Entity, plan: RendezvousPlan },
+    Rendezvous { plan: RendezvousPlan },
     Escape { to: Entity, plan: EscapePlan },
     Land { plan: LandingPlan },
 }

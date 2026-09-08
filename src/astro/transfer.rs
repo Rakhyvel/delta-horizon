@@ -1,7 +1,7 @@
 use nalgebra_glm::DVec3;
 
 use crate::astro::{
-    departure::{best_branch, SweepWindow, TransferObjective},
+    departure::{best_branch, SweepWindow},
     epoch::EphemerisTime,
     lambert::{lambert, TransferKind},
     maneuver::{

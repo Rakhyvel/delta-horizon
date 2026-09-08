@@ -17,7 +17,7 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
         x H2 and O2 tanks, electrolysis module
     - [x] crew: consume O2 and water
     - [x] display time-to-zero (and time-to-fill)
-    - [ ] fabricator module: converts feedstock into parts
+    - [x] fabricator module: converts feedstock into parts
         x metal as a part
         x recipe data in the toml
         x affordability function, shortfalls()
@@ -49,7 +49,8 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
 - [ ] Mining && ISRU
     - [ ] surface outpots on tiles (give them solar panels for now)
     - [ ] Ice mining, goes into a cargo hold
-    - [ ] station rendevous and docking
+    - [x] station rendevous
+    - [ ] docking
     - [ ] Ilmetite mining, smelting (just give generic "metal" for MVP)
     - Rules: 
         * Every resource should have a useful role somewhere in the system, and preferably a secondary use that competes with its first.
@@ -94,5 +95,6 @@ A turn-based, event-driven space colony survival strategy game. Start off in a s
     - [ ] planetary atmospheres, clouds, tile detail
     - [ ] make actual building models, and rotate them to their tile's normal
     - [ ] show more info about stages, their dv, their resources, maybe a little model sprite, in VAB and factory
-    - [ ] show how many stages we have in inventory in the factory
+    - [ ] show the planned trajectory for crafts with a mission, different color, lighter
+    - [x] show how many stages we have in inventory in the factory
     - [ ] "kernel boot screen" type loading screen, TUI-esque main menu, like you're interfacing with the "Autonomous Colony Management System" that the player is for the game
