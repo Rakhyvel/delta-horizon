@@ -146,17 +146,17 @@ impl FabricatorUi {
 
         let children: Vec<Box<dyn Widget<FabricatorMessages>>> = vec![
             Box::new(Label::new("FABRICATOR").font(font_small_bold, app)),
-            Box::new(HRule::new(STYLE.border_primary, 1.0, CARD_W)),
+            Box::new(HRule::new(STYLE.border, 1.0, CARD_W)),
             Box::new(Container::new(vec![inventory, parts]).flow(Flow::Horizontal)),
-            Box::new(HRule::new(STYLE.border_primary, 1.0, CARD_W)),
+            Box::new(HRule::new(STYLE.border, 1.0, CARD_W)),
             Box::new(close),
         ];
 
         self.modal = Modal::new(Box::new(
             Container::new(children)
                 .cross_align(Align::Center)
-                .background_color(STYLE.bg_primary)
-                .border(STYLE.border_primary, 1.0)
+                .background_color(STYLE.surface)
+                .border(STYLE.border, 1.0)
                 .padding(vec2(8.0, 8.0)),
         ))
         .shown(true);
@@ -188,8 +188,7 @@ impl FabricatorUi {
         let desc_lines: Vec<Box<dyn Widget<FabricatorMessages>>> = wrap(&part.desc, INNER_W, &f)
             .into_iter()
             .map(|l| {
-                Box::new(Label::new(l).font(font, app).color(STYLE.text_primary))
-                    as Box<dyn Widget<_>>
+                Box::new(Label::new(l).font(font, app).color(STYLE.text)) as Box<dyn Widget<_>>
             })
             .collect();
 
@@ -197,10 +196,10 @@ impl FabricatorUi {
             Box::new(
                 Label::new(part.name.clone())
                     .font(font_bold, app)
-                    .color(STYLE.text_primary),
+                    .color(STYLE.text),
             ),
             Box::new(Container::new(desc_lines).padding(Vec2::zeros()).gap(0.0)),
-            Box::new(HRule::new(STYLE.border_primary, 1.0, INNER_W)),
+            Box::new(HRule::new(STYLE.border, 1.0, INNER_W)),
         ];
 
         for line in lines {
@@ -218,9 +217,9 @@ impl FabricatorUi {
             };
             widgets.push(Box::new(Label::new(text).font(font, app).color(
                 if line.have >= line.need {
-                    STYLE.text_primary
+                    STYLE.text
                 } else {
-                    STYLE.text_disabled
+                    STYLE.text_muted
                 },
             )));
         }
@@ -228,7 +227,7 @@ impl FabricatorUi {
         widgets.push(Box::new(
             Label::new(format!("{:.0} kWh", part.cost.energy_joules / 3.6e6))
                 .font(font, app)
-                .color(STYLE.text_primary),
+                .color(STYLE.text),
         ));
 
         widgets.push(Box::new(
@@ -240,8 +239,8 @@ impl FabricatorUi {
 
         Container::new(widgets)
             .fixed_width(vec2(300.0, 0.0))
-            .background_color(STYLE.bg_primary)
-            .border(STYLE.border_primary, 1.0)
+            .background_color(STYLE.surface)
+            .border(STYLE.border, 1.0)
     }
 
     pub fn is_shown(&self) -> bool {

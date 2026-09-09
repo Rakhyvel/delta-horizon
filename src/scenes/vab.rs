@@ -133,7 +133,7 @@ impl VabUi {
                     Container::new(self.build_rocket(font, app))
                         .flow(Flow::Vertical)
                         .cross_align(Align::Center),
-                    VRule::new(STYLE.border_primary, 1.0, 280.0),
+                    VRule::new(STYLE.border, 1.0, 280.0),
                     Container::new(self.build_available_parts(font, app))
                         .flow(Flow::Vertical)
                         .cross_align(Align::Center),
@@ -174,7 +174,7 @@ impl VabUi {
                 .cross_align(Align::Center),
             ]
             .cross_align(Align::Center)
-            .background_color(STYLE.bg_primary),
+            .background_color(STYLE.surface),
         ))
         .shown(true);
         self.modal.reposition(app);
@@ -210,7 +210,7 @@ impl VabUi {
                         .flow(Flow::Horizontal),
                     ),
                 ])
-                .border(STYLE.border_primary, 1.0)
+                .border(STYLE.border, 1.0)
                 .cross_align(Align::Center)
                 .min_size(vec2(WIDTH, 69.0))
                 .flow(Flow::Horizontal),
@@ -220,9 +220,9 @@ impl VabUi {
                 Container::new(vec![Box::new(
                     Label::new("No payload")
                         .font(font, app)
-                        .color(STYLE.text_disabled),
+                        .color(STYLE.text_muted),
                 )])
-                .border(STYLE.border_primary, 1.0)
+                .border(STYLE.border, 1.0)
                 .fixed_width(vec2(WIDTH, 10.0))
                 .cross_align(Align::Center)
                 .min_size(vec2(WIDTH, 69.0))
@@ -258,7 +258,7 @@ impl VabUi {
                         .flow(Flow::Horizontal),
                     ),
                 ])
-                .border(STYLE.border_primary, 1.0)
+                .border(STYLE.border, 1.0)
                 .cross_align(Align::Center)
                 .flow(Flow::Horizontal),
             ));
@@ -269,9 +269,9 @@ impl VabUi {
                 Container::new(vec![Box::new(
                     Label::new("No stages")
                         .font(font, app)
-                        .color(STYLE.text_disabled),
+                        .color(STYLE.text_muted),
                 )])
-                .border(STYLE.border_primary, 1.0)
+                .border(STYLE.border, 1.0)
                 .min_size(Vec2::new(WIDTH, 300.0))
                 .cross_align(Align::Center)
                 .flow(Flow::Horizontal),
@@ -344,7 +344,7 @@ impl VabUi {
                             .flow(Flow::Horizontal),
                         ),
                     ])
-                    .border(STYLE.border_primary, 1.0)
+                    .border(STYLE.border, 1.0)
                     .cross_align(Align::Center)
                     .flow(Flow::Horizontal),
                 ) as Box<dyn Widget<VabMessages>>)
@@ -383,7 +383,7 @@ impl VabUi {
                             .flow(Flow::Horizontal),
                         ),
                     ])
-                    .border(STYLE.border_primary, 1.0)
+                    .border(STYLE.border, 1.0)
                     .cross_align(Align::Center)
                     .flow(Flow::Horizontal),
                 ) as Box<dyn Widget<VabMessages>>)

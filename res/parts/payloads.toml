@@ -19,7 +19,7 @@ energy_kwh = 350.0
 [[parts]]
 id = "metal"
 name = "Metal"
-desc = "Boring hunk of metal."
+desc = "Boring hunk of metal. Used to create interesting hunks of metal."
 dry_mass_kg = 900.0
 # FeTiO3 + H2 => Fe + TiO2 + H2O
 inputs = {ilmenite = 1}

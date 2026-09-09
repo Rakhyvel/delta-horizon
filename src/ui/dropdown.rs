@@ -44,10 +44,10 @@ impl<Msg: Clone + 'static> Dropdown<Msg> {
     }
 
     pub fn use_style(mut self, style: &Style) -> Self {
-        self.background_color = style.bg_primary;
-        self.hover_color = style.bg_hover;
-        self.border_color = style.border_primary;
-        self.text_color = style.text_primary;
+        self.background_color = style.surface;
+        self.hover_color = style.surface_hover;
+        self.border_color = style.border;
+        self.text_color = style.text;
         self
     }
 }

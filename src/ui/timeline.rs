@@ -44,8 +44,8 @@ impl Timeline {
     }
 
     pub fn use_style(mut self, style: &Style) -> Self {
-        self.baseline_color = style.border_primary;
-        self.now_color = style.text_primary;
+        self.baseline_color = style.border;
+        self.now_color = style.text;
         self
     }
 }

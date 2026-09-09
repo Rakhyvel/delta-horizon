@@ -1,7 +1,7 @@
 [[parts]]
 id = 'pico'
 name = 'Pico'
-desc = 'Potato with a camera. Gluten free.'
+desc = 'A tiny probe. Carries sensors and not much else. Use it to scout bodies for resources.'
 dry_mass_kg = 12.0
 energy_kwh = 1800.0
 inputs = {metal = 2}
@@ -14,7 +14,7 @@ thrust_kn = 0.05
 [[parts]]
 id = 'dray'
 name = 'Dray'
-desc = 'Work-horse lander. Lands, mines, delivers.'
+desc = 'Can land on bodies, mine resources, and bring them back to the station for processing.'
 dry_mass_kg = 500.0
 energy_kwh = 7#200.0
 [parts.fuel]

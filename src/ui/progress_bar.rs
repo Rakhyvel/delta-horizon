@@ -1,6 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
-use crate::ui::{msg::MsgQueue, widget::Widget};
+use crate::ui::{msg::MsgQueue, style::Style, widget::Widget};
 use apricot::{app::App, rectangle::Rectangle};
 use nalgebra_glm::{vec4, Vec2, Vec4};
 
@@ -12,6 +12,7 @@ pub struct ProgressBar {
     background_color: Vec4,
     fill_color: Vec4,
     border: Option<(nalgebra_glm::Vec4, f32)>, // color, width
+    filled_border: Option<(nalgebra_glm::Vec4, f32)>, // color, width
 }
 
 impl ProgressBar {
@@ -25,9 +26,19 @@ impl ProgressBar {
             background_color: vec4(1.0, 0.0, 1.0, 1.0),
             fill_color: vec4(1.0, 0.0, 1.0, 1.0),
             border: None,
+            filled_border: None,
         }
     }
 
+    pub fn use_style(mut self, style: &Style) -> Self {
+        self.background_color = style.surface;
+        self.fill_color = style.accent_surface;
+        self.border = Some((style.border, 1.0));
+        self.filled_border = Some((style.accent, 1.0));
+        self
+    }
+
+    #[allow(dead_code)]
     pub fn background_color(mut self, background_color: Vec4) -> Self {
         self.background_color = background_color;
         self
@@ -38,6 +49,7 @@ impl ProgressBar {
         self
     }
 
+    #[allow(dead_code)]
     pub fn border(mut self, color: nalgebra_glm::Vec4, width: f32) -> Self {
         self.border = Some((color, width));
         self
@@ -62,16 +74,23 @@ impl<Msg: Clone + 'static> Widget<Msg> for ProgressBar {
         app.renderer.set_color(self.background_color);
         app.renderer.fill_rect(self.rect);
 
-        // Draw filled
-        let mut filled_rect = self.rect;
-        filled_rect.size.x *= self.progress.get();
-        app.renderer.set_color(self.fill_color);
-        app.renderer.fill_rect(filled_rect);
-
         // Draw border
         if let Some((border_color, border_size)) = self.border {
             app.renderer.set_color(border_color);
             app.renderer.draw_rect(self.rect, border_size);
+        }
+
+        let mut filled_rect = self.rect;
+        filled_rect.size.x *= self.progress.get();
+
+        // Draw filled background
+        app.renderer.set_color(self.fill_color);
+        app.renderer.fill_rect(filled_rect);
+
+        // Draw filled border
+        if let Some((border_color, border_size)) = self.filled_border {
+            app.renderer.set_color(border_color);
+            app.renderer.draw_rect(filled_rect, border_size);
         }
     }
 

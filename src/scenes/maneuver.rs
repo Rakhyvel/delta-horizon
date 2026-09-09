@@ -453,7 +453,7 @@ impl ManeuverModal {
         self.can_confirm.set(can_afford_plan);
 
         let color = match &self.computed_plan {
-            None => STYLE.text_primary,
+            None => STYLE.text,
             Some(_) if can_afford_plan => STYLE.positive,
             Some(_) => STYLE.negative,
         };
@@ -476,7 +476,7 @@ impl ManeuverModal {
 
         let mut sections: Vec<Box<dyn Widget<ManeuverMessages>>> = vec![
             Box::new(Label::new("PLAN MANEUVER:").font(font_big, app)),
-            Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)),
+            Box::new(HRule::new(STYLE.border, 1.0, WIDTH)),
         ];
 
         let craft = self.craft.unwrap();
@@ -606,7 +606,7 @@ impl ManeuverModal {
                     sections.push(Box::new(
                         Label::bound(self.inclination_text.clone())
                             .font(font, app)
-                            .color(STYLE.text_primary),
+                            .color(STYLE.text),
                     ));
                     sections.push(Box::new(
                         Slider::new(vec2(WIDTH, 16.0), self.theta.clone()).use_style(&STYLE),
@@ -615,11 +615,11 @@ impl ManeuverModal {
             }
         }
 
-        sections.push(Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
+        sections.push(Box::new(HRule::new(STYLE.border, 1.0, WIDTH)));
         sections.push(Box::new(Label::new("RESULT").font(font_small_bold, app)));
         sections.push(Box::new(
             container![
-                Label::new("dv: ").font(font, app).color(STYLE.text_primary),
+                Label::new("dv: ").font(font, app).color(STYLE.text),
                 Label::bound(self.result_dv_text.clone())
                     .font(font, app)
                     .bind_color(self.dv_color.clone()),
@@ -631,7 +631,7 @@ impl ManeuverModal {
             container![
                 Label::new("Arrival: ")
                     .font(font, app)
-                    .color(STYLE.text_primary),
+                    .color(STYLE.text),
                 Label::bound(self.result_date_text.clone()).font(font, app),
             ]
             .padding(vec2(0.0, 0.0))
@@ -639,7 +639,7 @@ impl ManeuverModal {
         ));
 
         // Footer buttons
-        sections.push(Box::new(HRule::new(STYLE.border_primary, 1.0, WIDTH)));
+        sections.push(Box::new(HRule::new(STYLE.border, 1.0, WIDTH)));
 
         sections.push(Box::new(
             container![
@@ -661,8 +661,8 @@ impl ManeuverModal {
             Container::new(sections)
                 .flow(Flow::Vertical)
                 .padding(vec2(12.0, 12.0))
-                .background_color(STYLE.bg_primary)
-                .border(STYLE.border_primary, 1.0),
+                .background_color(STYLE.surface)
+                .border(STYLE.border, 1.0),
         ))
         .shown(true);
         self.modal.reposition(app);

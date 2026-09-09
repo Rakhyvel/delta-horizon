@@ -44,12 +44,10 @@ A real-time-with-pauses, event-driven space colony survival strategy game. Start
     - [x] better time controls, speed control
         x play becomes pause becomes play button
         x fast forward and slow forward, show speed, powers of two days/sec
-    - [ ] craft/body list
-        * bread crumbs (Mars > Deimos > Deimos Station) (upwards traversal)
-        * bodies have lists of other bodies and craft (downwards traversal)
-        * hide the parameters, until you fly there with a spectrometer
-    - [ ] better descriptions for things and what you're supposed to do. What is a "Dray", what is a "Pico", why do I want either?
-        * tooltips over things to tell you what they are
+    - [x] craft/body list
+        x bread crumbs (Mars > Deimos > Deimos Station) (upwards traversal)
+        x bodies have lists of other bodies and craft (downwards traversal)
+    - [x] better descriptions for things and what you're supposed to do. What is a "Dray", what is a "Pico", why do I want either?
     - [ ] better events/timeline
         - [ ] event descs with full details, take me to the entity (station) that's built something
             * What part is complete? What were you building, _who_ are you?
@@ -118,7 +116,7 @@ A real-time-with-pauses, event-driven space colony survival strategy game. Start
         * abundance = "total tonnage at that site"
             - largely uncertain, with high noise floor
         * availability = "energy per kg"
-            - cheaply inferable, no noise floor (otherwise players get mad)
+            - cheaply inferable, no noise floor, otherwise players get mad. Gambles are **ALWAYS** on reward, never on cost. Never hestiate to randomly reward the player. Never punish the player for something they have no control of/insight into.
             * for ice: a function of the tile_map
             * for ilmenite: a function of atmospheric pressure and surface gravity
     - [ ] docking, fabricating a craft takes up a docking spot (faux assembly bay?)
@@ -175,9 +173,13 @@ A real-time-with-pauses, event-driven space colony survival strategy game. Start
 - [ ] Misc polish
     - [ ] planetary atmospheres, clouds, tile detail
     - [ ] better orbit icons, for zoomed out moons, planets, craft. Somehow distinguish between bodies and craft in the orbit view
+    - [ ] tooltips, when I figure out what tools to tip
     - [ ] make actual building models, and rotate them to their tile's normal
     - [ ] show more info about stage cards, their dv, their resources, maybe a little model sprite, in VAB and factory
     - [ ] somehow show the planned orbital geometry to a player, if it ends up mattering (tuning just dv and time might be fine?)
+    - [ ] show target craft/bodies whenever we have a rendezvous/transfer/flyby planned
+        - maybe like a little tooltip by the target craft/body that says "RENDEZVOUS: 17 days"
     - [ ] show the planned trajectory for crafts with a mission, different color, lighter
     - [x] show how many stages we have in inventory in the factory
     - [ ] "kernel boot screen" type loading screen, TUI-esque main menu, like you're interfacing with the "Autonomous Colony Management System" that the player is for the game
+    - [ ] (purely code) strongly typed units. Dont gotta go full mp-units crazy, and it probably wouldn't work too well with nalgebra... but yknow

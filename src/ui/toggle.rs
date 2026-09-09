@@ -63,11 +63,11 @@ impl<Msg> Toggle<Msg> {
     }
 
     pub fn use_style(mut self, style: &Style) -> Self {
-        self.text_color = style.text_primary;
-        self.on_color = style.btn_accent_bg;
-        self.off_color = style.btn_active_bg;
-        self.on_border = style.btn_accent_border;
-        self.off_border = style.btn_active_border;
+        self.text_color = style.text;
+        self.on_color = style.accent_surface;
+        self.off_color = style.surface;
+        self.on_border = style.accent;
+        self.off_border = style.border;
         self
     }
 

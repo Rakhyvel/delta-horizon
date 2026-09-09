@@ -31,6 +31,8 @@ pub enum Justify {
     /// distribute leftover evenly, including the ends
     #[allow(unused)]
     SpaceAround,
+    /// distribute leftover evenly, flush to both ends
+    SpaceBetween,
 }
 
 pub struct Container<Msg> {
@@ -72,6 +74,12 @@ impl<Msg: Clone + 'static> Container<Msg> {
 
     pub fn flow(mut self, flow: Flow) -> Self {
         self.flow = flow;
+        self.layout(self.rect.pos);
+        self
+    }
+
+    pub fn justify(mut self, justify: Justify) -> Self {
+        self.justify = justify;
         self.layout(self.rect.pos);
         self
     }
@@ -196,8 +204,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
         };
         let n = self.children.len() as f32;
         let (main_size, additive_main) = match self.flow {
-            Flow::Vertical => (self.rect.size.y, additive_content_size.y),
-            Flow::Horizontal => (self.rect.size.x, additive_content_size.x),
+            Flow::Vertical => (
+                self.rect.size.y - self.padding.y * 2.0,
+                additive_content_size.y,
+            ),
+            Flow::Horizontal => (
+                self.rect.size.x - self.padding.x * 2.0,
+                additive_content_size.x,
+            ),
         };
         let gap = self.gap;
 
@@ -212,6 +226,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for Container<Msg> {
                 Justify::SpaceAround => {
                     let s = ((main_size - additive_main) / (n + 1.0)).max(0.0);
                     (s, s)
+                }
+                Justify::SpaceBetween => {
+                    if n > 1.0 {
+                        (0.0, ((main_size - additive_main) / (n - 1.0)).max(0.0))
+                    } else {
+                        (0.0, 0.0)
+                    }
                 }
             }
         };

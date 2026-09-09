@@ -30,8 +30,8 @@ impl<Msg> Slider<Msg> {
     }
 
     pub fn use_style(mut self, style: &Style) -> Self {
-        self.track_color = style.border_primary;
-        self.knob_color = style.border_primary;
+        self.track_color = style.border;
+        self.knob_color = style.border;
         self
     }
 

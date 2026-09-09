@@ -1,7 +1,7 @@
 use std::{cell::Cell, f32::consts::PI, rc::Rc};
 
 use crate::ui::{msg::MsgQueue, style::Style, widget::Widget};
-use apricot::{app::App, rectangle::Rectangle};
+use apricot::{app::App, font::FontId, rectangle::Rectangle};
 use nalgebra_glm::{vec2, vec4, Vec2, Vec4};
 
 /// A button with text
@@ -18,6 +18,7 @@ pub struct Button<Msg> {
     inactive_background_color: Vec4,
     /// The background color of the button when hovered
     hovered_color: Vec4,
+    hovered_text_color: Vec4,
     border: Option<(nalgebra_glm::Vec4, f32)>,
     inactive_border: Option<(nalgebra_glm::Vec4, f32)>,
     /// The message to send when the button is clicked (no message if None)
@@ -102,6 +103,12 @@ impl<Msg> Button<Msg> {
         Self::with_content(size, ButtonContent::Text(label.into()))
     }
 
+    pub fn fit(label: impl Into<String>, font: FontId, app: &App, pad: Vec2) -> Self {
+        let label = label.into();
+        let size = app.renderer.get_font_from_id(font).unwrap().measure(&label) + pad * 2.0;
+        Self::with_content(size, ButtonContent::Text(label))
+    }
+
     pub fn icon(size: Vec2, icon: Icon) -> Self {
         Self::with_content(size, ButtonContent::Icon(icon))
     }
@@ -125,6 +132,7 @@ impl<Msg> Button<Msg> {
             background_color: vec4(1.0, 0.0, 1.0, 255.0),
             inactive_background_color: vec4(1.0, 0.0, 1.0, 255.0),
             hovered_color: vec4(1.0, 0.0, 1.0, 255.0),
+            hovered_text_color: vec4(1.0, 0.0, 1.0, 255.0),
             border: None,
             inactive_border: None,
             on_click: None,
@@ -147,24 +155,38 @@ impl<Msg> Button<Msg> {
     }
 
     pub fn use_style(mut self, style: &Style) -> Self {
-        self.text_color = style.text_primary;
-        self.inactive_text_color = style.text_disabled;
-        self.background_color = style.btn_active_bg;
-        self.inactive_background_color = style.btn_inactive_bg;
-        self.border = Some((style.btn_active_border, 1.0));
-        self.inactive_border = Some((style.btn_inactive_border, 1.0));
-        self.hovered_color = style.btn_hover_bg;
+        self.text_color = style.text;
+        self.inactive_text_color = style.text_muted;
+        self.background_color = style.surface;
+        self.inactive_background_color = style.surface_deep;
+        self.border = Some((style.border, 1.0));
+        self.inactive_border = Some((style.border_subtle, 1.0));
+        self.hovered_color = style.surface_hover;
+        self.hovered_text_color = style.text;
         self
     }
 
     pub fn use_style_accented(mut self, style: &Style) -> Self {
-        self.text_color = style.text_primary;
-        self.inactive_text_color = style.text_disabled;
-        self.background_color = style.btn_accent_bg;
-        self.inactive_background_color = style.btn_inactive_bg;
-        self.border = Some((style.btn_accent_border, 1.0));
-        self.inactive_border = Some((style.btn_inactive_border, 1.0));
-        self.hovered_color = style.btn_accent_hover_bg;
+        self.text_color = style.text;
+        self.inactive_text_color = style.text_muted;
+        self.background_color = style.accent_surface;
+        self.inactive_background_color = style.surface_deep;
+        self.border = Some((style.accent, 1.0));
+        self.inactive_border = Some((style.border_subtle, 1.0));
+        self.hovered_color = style.accent_surface_hover;
+        self.hovered_text_color = style.text;
+        self
+    }
+
+    pub fn use_style_link(mut self, style: &Style) -> Self {
+        self.text_color = style.accent;
+        self.inactive_text_color = style.text_muted;
+        self.background_color = vec4(0.0, 0.0, 0.0, 0.0);
+        self.inactive_background_color = vec4(0.0, 0.0, 0.0, 0.0);
+        self.hovered_color = vec4(0.0, 0.0, 0.0, 0.0);
+        self.hovered_text_color = style.accent_bright;
+        self.border = None;
+        self.inactive_border = None;
         self
     }
 
@@ -221,14 +243,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for Button<Msg> {
 
     fn render(&self, app: &App) {
         // Draw background
-        let color = if !self.active {
-            self.inactive_background_color
+        let (background_color, content_color) = if !self.active {
+            (self.inactive_background_color, self.inactive_text_color)
         } else if self.hovered {
-            self.hovered_color
+            (self.hovered_color, self.hovered_text_color)
         } else {
-            self.background_color
+            (self.background_color, self.text_color)
         };
-        app.renderer.set_color(color);
+        app.renderer.set_color(background_color);
         app.renderer.fill_rect(self.rect);
 
         // Draw border
@@ -244,12 +266,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for Button<Msg> {
             }
         }
 
-        // Draw text
-        if self.active {
-            app.renderer.set_color(self.text_color);
-        } else {
-            app.renderer.set_color(self.inactive_text_color);
-        }
+        // Draw content
+        app.renderer.set_color(content_color);
         self.content.draw(&self.rect, app);
     }
 
