@@ -1469,11 +1469,6 @@ impl Gameplay {
                     Box::new(
                         ProgressBar::new(vec2(WIDTH - 24.0, 8.0))
                             .use_style(&STYLE)
-                            .fill_color(if fuel_pct > 0.25 {
-                                STYLE.accent_surface
-                            } else {
-                                STYLE.warning
-                            })
                             .progress(fuel_pct as f32),
                     ),
                 ])
@@ -1501,25 +1496,16 @@ impl Gameplay {
         let inventory = self.world.get::<&PartInventory>(selected).unwrap();
 
         let rows = [
-            ("RADIUS", format!("{:.1} R⊕", body.body_radius)),
-            ("MASS", format!("{:.3} M⊕", body.mass())),
-            ("DENSITY", format!("{:.1} g/cm³", body.density)),
-            ("DAY", format!("{:.1} h", body.rotation_period_hours)),
-            ("PRESSURE", format!("{:.1} bar", body.atmos_pressure)),
-            ("TEMPERATURE", format!("{:.0} K", body.temperature)),
-            (
-                "CORE MASS",
-                format!("{:.0}%", body.core_mass_fraction * 100.0),
-            ),
-            (
-                "MAGNETIC",
-                if body.magnetic_field {
-                    "PRESENT"
-                } else {
-                    "ABSENT"
-                }
-                .into(),
-            ),
+            // TODO: Support earth symbol and exponents in apricot's font cache
+            ("RADIUS", format!("{:.1} ER", body.body_radius)),
+            ("MASS", format!("{:.3} EM", body.mass())),
+            ("DENSITY", format!("{:.1} g/cm^3", body.density)),
+            ("DAY", format!("{:.1} hrs", body.rotation_period_hours)),
+            // TODO: Replace the following with sensor estimates
+            ("PRESSURE", String::from("-")),
+            ("TEMPERATURE", String::from("-")),
+            ("CORE MASS", String::from("-")),
+            ("MAGNETIC", String::from("-")),
         ];
 
         // let state = self.world.get::<&State>(selected).unwrap();
@@ -2256,6 +2242,9 @@ impl Gameplay {
                     assert!(departure_time < arrival_time);
                     assert!(arrival_time < circ_time);
 
+                    let descs = command.burn_schedule();
+                    let sois = command.transition_schedule();
+
                     self.event_queue.push(
                         departure_time,
                         Event::Burn {
@@ -2263,6 +2252,7 @@ impl Gameplay {
                             new_orbit: plan.transfer_state,
                             soi_radius: Some(plan.soi_radius * 1.1),
                             dv: plan.transfer_dv,
+                            desc: descs[0].0,
                         },
                     );
 
@@ -2273,6 +2263,7 @@ impl Gameplay {
                             new_parent: to,
                             new_craft_orbit: plan.flyby_state,
                             new_soi_radius: plan.soi_radius * 3.0,
+                            desc: sois[0].0,
                         },
                     );
 
@@ -2283,6 +2274,7 @@ impl Gameplay {
                             new_orbit: plan.circ_state,
                             soi_radius: Some(plan.soi_radius * 1.1),
                             dv: plan.circ_dv,
+                            desc: descs[1].0,
                         },
                     );
 
@@ -2303,6 +2295,9 @@ impl Gameplay {
                     assert!(departure_time < arrival_time);
                     assert!(arrival_time < exit_time);
 
+                    let descs = command.burn_schedule();
+                    let sois = command.transition_schedule();
+
                     self.event_queue.push(
                         departure_time,
                         Event::Burn {
@@ -2310,6 +2305,7 @@ impl Gameplay {
                             new_orbit: plan.transfer_state,
                             soi_radius: Some(plan.soi_radius),
                             dv: plan.transfer_dv,
+                            desc: descs[0].0,
                         },
                     );
 
@@ -2320,6 +2316,7 @@ impl Gameplay {
                             new_parent: to,
                             new_craft_orbit: plan.flyby_state,
                             new_soi_radius: plan.soi_radius,
+                            desc: sois[0].0,
                         },
                     );
 
@@ -2330,6 +2327,7 @@ impl Gameplay {
                             new_parent: old_parent,
                             new_craft_orbit: plan.exit_state,
                             new_soi_radius: plan.soi_radius,
+                            desc: sois[1].0,
                         },
                     );
 
@@ -2340,6 +2338,8 @@ impl Gameplay {
                     let departure_time = plan.transfer_state.t;
                     let arrival_time = plan.rendezvous_state.t;
 
+                    let descs = command.burn_schedule();
+
                     self.event_queue.push(
                         departure_time,
                         Event::Burn {
@@ -2347,6 +2347,7 @@ impl Gameplay {
                             new_orbit: plan.transfer_state,
                             soi_radius: None,
                             dv: plan.transfer_dv,
+                            desc: descs[0].0,
                         },
                     );
 
@@ -2357,6 +2358,7 @@ impl Gameplay {
                             new_orbit: plan.rendezvous_state,
                             soi_radius: None,
                             dv: plan.brake_dv,
+                            desc: descs[1].0,
                         },
                     );
 
@@ -2372,6 +2374,9 @@ impl Gameplay {
 
                     assert!(departure_time < arrival_time);
 
+                    let descs = command.burn_schedule();
+                    let sois = command.transition_schedule();
+
                     self.event_queue.push(
                         departure_time,
                         Event::Burn {
@@ -2379,6 +2384,7 @@ impl Gameplay {
                             new_orbit: plan.escape_burn,
                             soi_radius: Some(plan.soi_radius * 1.1),
                             dv: plan.escape_dv,
+                            desc: descs[0].0,
                         },
                     );
 
@@ -2389,6 +2395,7 @@ impl Gameplay {
                             new_parent: to,
                             new_craft_orbit: plan.exit_state,
                             new_soi_radius: plan.soi_radius * 3.0,
+                            desc: sois[0].0,
                         },
                     );
 
@@ -2407,6 +2414,8 @@ impl Gameplay {
                     self.event_queue
                         .push(launch_time, Event::Launch { craft: entity });
 
+                    let descs = command.burn_schedule();
+
                     self.event_queue.push(
                         launch_time,
                         Event::Burn {
@@ -2414,6 +2423,7 @@ impl Gameplay {
                             new_orbit: plan.launch_burn,
                             soi_radius: None,
                             dv: plan.launch_dv,
+                            desc: descs[0].0,
                         },
                     );
 
@@ -2424,6 +2434,7 @@ impl Gameplay {
                             new_orbit: plan.circ_burn,
                             soi_radius: None,
                             dv: plan.circ_dv,
+                            desc: descs[1].0,
                         },
                     );
 
@@ -2439,6 +2450,8 @@ impl Gameplay {
 
                     assert!(deorbit_time < land_time);
 
+                    let descs = command.burn_schedule();
+
                     self.event_queue.push(
                         deorbit_time,
                         Event::Burn {
@@ -2446,6 +2459,7 @@ impl Gameplay {
                             new_orbit: plan.deorbit_burn,
                             soi_radius: None,
                             dv: plan.deorbit_dv,
+                            desc: descs[0].0,
                         },
                     );
                     self.event_queue.push(
@@ -2455,6 +2469,7 @@ impl Gameplay {
                             new_orbit: plan.landing_burn,
                             soi_radius: None,
                             dv: plan.landing_dv,
+                            desc: descs[1].0,
                         },
                     );
                     self.event_queue
@@ -2473,6 +2488,7 @@ impl Gameplay {
                 new_parent,
                 new_craft_orbit,
                 new_soi_radius,
+                ..
             } => {
                 self.selection.set_selected(craft, app.seconds as f64);
 
@@ -2507,6 +2523,7 @@ impl Gameplay {
                 new_orbit,
                 soi_radius,
                 dv,
+                ..
             } => {
                 self.selection.set_selected(craft, app.seconds as f64);
 
@@ -2580,6 +2597,9 @@ impl Gameplay {
                 let mut craft = self.world.get::<&mut Craft>(craft).unwrap();
                 craft.command = None;
                 craft.command_scheduled = false;
+            }
+            Event::FactoryComplete { .. } => {
+                // Nothing to do here, factory completes are handled elsewhere.
             }
         }
     }
@@ -2803,24 +2823,30 @@ impl Gameplay {
             .query::<(&StationModule, &Parent, &Factory)>()
             .iter()
         {
-            if f.pending_job.is_some() {
-                marks.push(TimelineMark {
-                    t: projected_completion(&self.world, fab, &self.parts, self.current_et.get())
+            let (t, part_id) = if let Some(part_id) = f.pending_job {
+                (
+                    projected_completion(&self.world, fab, &self.parts, self.current_et.get())
                         .unwrap(),
-                    kind: MarkKind::FactoryComplete,
-                    craft_name: String::new(),
-                })
+                    part_id,
+                )
             } else if let Some(current_job) = &f.current_job {
                 let Some(completion_et) = current_job.completion_et(f, self.current_et.get())
                 else {
                     continue;
                 };
-                marks.push(TimelineMark {
-                    t: completion_et,
-                    kind: MarkKind::FactoryComplete,
-                    craft_name: String::new(),
-                })
-            }
+                (completion_et, current_job.part_id)
+            } else {
+                continue;
+            };
+
+            marks.push(TimelineMark {
+                t,
+                kind: MarkKind::FactoryComplete,
+                craft_name: self.craft_name_from_event(&Event::FactoryComplete {
+                    craft: fab,
+                    part_id,
+                }),
+            });
         }
 
         // Add projected reservoir limit events, Depleted and Filled
@@ -2836,13 +2862,17 @@ impl Gameplay {
                     marks.push(TimelineMark {
                         t: et,
                         kind: MarkKind::Critical,
-                        craft_name: format!("{} {} Depleted", scene_obj.name, resource.long_name()),
+                        craft_name: format!(
+                            "{} - {} Depleted",
+                            scene_obj.name,
+                            resource.long_name()
+                        ),
                     })
                 } else {
                     marks.push(TimelineMark {
                         t: et,
                         kind: MarkKind::Good,
-                        craft_name: format!("{} {} Filled", scene_obj.name, resource.long_name()),
+                        craft_name: format!("{} - {} Filled", scene_obj.name, resource.long_name()),
                     })
                 }
             }
@@ -2893,12 +2923,21 @@ impl Gameplay {
 
     fn craft_name_from_event(&self, event: &Event) -> String {
         match event {
-            Event::SoiChange { craft, .. }
-            | Event::Burn { craft, .. }
-            | Event::Launch { craft }
-            | Event::Land { craft } => {
+            Event::SoiChange { craft, desc, .. } | Event::Burn { craft, desc, .. } => {
+                let scene_obj = self.world.get::<&SceneObject>(*craft).unwrap();
+                format!("{} - {}", scene_obj.name, desc)
+            }
+
+            Event::Launch { craft } | Event::Land { craft } => {
                 let scene_obj = self.world.get::<&SceneObject>(*craft).unwrap();
                 scene_obj.name.clone()
+            }
+
+            Event::FactoryComplete { craft, part_id } => {
+                let parent = self.world.get::<&Parent>(*craft).unwrap().id;
+                let scene_obj = self.world.get::<&SceneObject>(parent).unwrap();
+                let part_def = self.parts.get(*part_id).map_or("???", |p| p.name.as_str());
+                format!("{} - {}", scene_obj.name, part_def)
             }
 
             // No real craft name

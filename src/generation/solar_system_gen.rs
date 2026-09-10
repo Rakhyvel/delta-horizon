@@ -271,7 +271,7 @@ fn generate_planet(
 }
 
 fn max_moons(body_radius: f64) -> usize {
-    (4.0 * (1.0 - (-body_radius / 5.0).exp())).round() as usize
+    (8.0 * (1.0 - (-body_radius / 5.0).exp())).round() as usize
 }
 
 #[allow(dead_code)]

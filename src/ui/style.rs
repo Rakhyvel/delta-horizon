@@ -30,13 +30,13 @@ pub struct Style {
 }
 
 const C: f32 = 1.0;
-const A_C: f32 = 0.7;
+const A_C: f32 = 0.8;
 const H: f32 = 250.0;
 
 lazy_static::lazy_static! {
     #[rustfmt::skip]
 pub static ref STYLE: Style = Style {
-    surface_deep:   oklch(0.10, 0.0020 * C, H, 0.96),
+    surface_deep:   oklch(0.16, 0.0020 * C, H, 0.96),
     surface:        oklch(0.18, 0.0075 * C, H, 0.96),
     surface_hover:  oklch(0.24, 0.0095 * C, H, 0.97),
 

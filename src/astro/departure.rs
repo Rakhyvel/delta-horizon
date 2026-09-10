@@ -65,8 +65,8 @@ pub fn sweep_window(
         start: current_et,
         sweep: synodic.min(craft_period * 20.0),
         full: synodic,
-        tof_min: tof_guess * 0.7,
-        tof_max: tof_guess * 1.5,
+        tof_min: tof_guess / 1.3,
+        tof_max: tof_guess * 1.3,
     })
 }
 

@@ -16,7 +16,7 @@ pub struct SimSpeed {
 impl SimSpeed {
     const RATES: [(f64, &'static str); 6] = [
         (SECONDS_PER_HOUR, "1 hr/s"),
-        (6.0 * SECONDS_PER_HOUR, "6 hr/s"),
+        (6.0 * SECONDS_PER_HOUR, "6 hrs/s"),
         (SECONDS_PER_DAY, "1 day/s"),
         (3.0 * SECONDS_PER_DAY, "3 days/s"),
         (7.0 * SECONDS_PER_DAY, "1 wk/s"),

@@ -49,9 +49,10 @@ A real-time-with-pauses, event-driven space colony survival strategy game. Start
         x bodies have lists of other bodies and craft (downwards traversal)
     - [x] better descriptions for things and what you're supposed to do. What is a "Dray", what is a "Pico", why do I want either?
     - [ ] better events/timeline
-        - [ ] event descs with full details, take me to the entity (station) that's built something
-            * What part is complete? What were you building, _who_ are you?
-            * A burn? For what? For who? etc
+        - [x] event descs with full details, take me to the entity (station) that's built something
+            x resolve `craft: Entity` to the name of the craft
+            x store `label: &'static str` on `Burn`, get it from `Command::burn_schedule()`
+            x What part is complete? What were you building?
         - [ ] event list on left side, shows what's next, what's paused
         - [ ] scissor timeline so that dates dont draw off the side
     - [ ] better craft info

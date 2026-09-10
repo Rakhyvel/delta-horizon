@@ -46,8 +46,8 @@ use crate::{
 
 const WIDTH: f32 = 280.0;
 
-const DEPART_STEPS: usize = 28;
-const TOF_STEPS: usize = 21;
+const DEPART_STEPS: usize = 46;
+const TOF_STEPS: usize = 34;
 
 pub struct ManeuverModal {
     modal: Modal<ManeuverMessages>,
@@ -629,9 +629,7 @@ impl ManeuverModal {
         ));
         sections.push(Box::new(
             container![
-                Label::new("Arrival: ")
-                    .font(font, app)
-                    .color(STYLE.text),
+                Label::new("Arrival: ").font(font, app).color(STYLE.text),
                 Label::bound(self.result_date_text.clone()).font(font, app),
             ]
             .padding(vec2(0.0, 0.0))

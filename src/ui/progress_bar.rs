@@ -44,6 +44,7 @@ impl ProgressBar {
         self
     }
 
+    #[allow(dead_code)]
     pub fn fill_color(mut self, fill_color: Vec4) -> Self {
         self.fill_color = fill_color;
         self

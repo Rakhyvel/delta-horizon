@@ -149,7 +149,8 @@ impl State {
             }
 
             // Make the delta proportional so large chi can actually move
-            let max_step = (0.5 * chi.abs()).max(1.0);
+            let chi_scale = (mu.sqrt() * dt.abs() / r0_mag).max(r0_mag.sqrt());
+            let max_step = (0.5 * chi.abs()).max(1e-3 * chi_scale);
             let delta = (f / df_dchi).clamp(-max_step, max_step);
 
             // make the newton step, towards where 0 residuals are

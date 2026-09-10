@@ -13,6 +13,8 @@ pub enum Event {
         new_parent: Entity,
         new_craft_orbit: State,
         new_soi_radius: f64,
+        /// Basic description of the SOI change
+        desc: &'static str,
     },
 
     /// At this event, the craft performs some burn to obtain a `new_orbit`.
@@ -25,6 +27,8 @@ pub enum Event {
         soi_radius: Option<f64>,
         /// How much delta-v, in meters/second, the burn costs
         dv: f64,
+        /// Basic description of the burn
+        desc: &'static str,
     },
 
     /// At this event, the craft is no longer landed and is in a suborbital trajectory around its parent
@@ -39,8 +43,15 @@ pub enum Event {
         craft: Entity,
     },
 
+    FactoryComplete {
+        craft: Entity,
+        part_id: u64,
+    },
+
     /// At this event, the craft's command is cleared (maneuver sequence finished)
-    CompleteCommand { craft: Entity },
+    CompleteCommand {
+        craft: Entity,
+    },
 }
 
 pub struct EventQueue {
