@@ -58,6 +58,7 @@ use crate::{
         label::Label,
         progress_bar::ProgressBar,
         scroll_container::ScrollContainer,
+        shape::Shape,
         style::STYLE,
         timeline::{MarkKind, Timeline, TimelineMark},
         toggle::Toggle,
@@ -113,10 +114,10 @@ pub struct Gameplay {
     /// Used for tab key latch
     prev_tab_state: bool,
 
+    turn_gui_built_for: Option<(I32Vec2, (u64, u64), Option<EphemerisTime>)>,
     turn_gui: Anchor<TurnMessages>,
     gui: Anchor<CommandMessages>,
     gui_built_for: Option<(Entity, u32, u64, u64)>,
-    gui_built_window: I32Vec2,
     gui_bindings: Vec<Binding>,
     fabricator_ui: FabricatorUi,
     vab_ui: VabUi,
@@ -134,6 +135,7 @@ pub struct Gameplay {
     event_queue: EventQueue,
     current_et: Rc<Cell<EphemerisTime>>,
     paused: bool,
+    pause_reasons: Vec<TimelineMark>,
     sim_speed: SimSpeed,
     /// Either the next event, or None
     run_until: Option<EphemerisTime>,
@@ -488,6 +490,9 @@ impl Scene for Gameplay {
                         self.commit_pending_builds(now);
                         self.recompute_run_until();
                         self.paused = !self.paused;
+                        if !self.paused {
+                            self.pause_reasons.clear();
+                        }
                     }
                     TurnMessages::SpeedUp => self.sim_speed.speed_up(),
                     TurnMessages::SlowDown => self.sim_speed.slow_down(),
@@ -508,6 +513,15 @@ impl Scene for Gameplay {
             self.current_et.set(t);
 
             if self.paused {
+                // Save what stopped us so that we can display it to the player
+                self.pause_reasons = self
+                    .marks
+                    .borrow()
+                    .iter()
+                    .filter(|m| m.t <= t)
+                    .cloned()
+                    .collect();
+
                 for event in self.event_queue.pop_due(t) {
                     self.handle_event(event, app);
                 }
@@ -517,7 +531,7 @@ impl Scene for Gameplay {
         }
 
         // Update GUI stuff
-        let cal = format!("ET: {}", self.current_et.get().as_calendar());
+        let cal = format!("25 {} 0000", self.current_et.get().short_month_name());
         if *self.calendar_string.borrow() != cal {
             *self.calendar_string.borrow_mut() = cal;
         }
@@ -1107,9 +1121,9 @@ impl Gameplay {
             distance: 64.0,
             prev_tab_state: false,
 
+            turn_gui_built_for: None,
             gui: Anchor::new(Box::new(container![]), AnchorPoint::TopRight),
             gui_built_for: None,
-            gui_built_window: I32Vec2::zeros(),
             gui_bindings: vec![],
             turn_gui: Anchor::new(Box::new(container![]), AnchorPoint::BottomLeft),
             fabricator_ui: FabricatorUi::new(),
@@ -1126,6 +1140,7 @@ impl Gameplay {
             current_et: Rc::new(Cell::new(EphemerisTime::epoch())),
             event_queue,
             paused: true,
+            pause_reasons: vec![],
             sim_speed: SimSpeed::new(),
             run_until: None,
 
@@ -1133,7 +1148,7 @@ impl Gameplay {
         };
 
         *retval.calendar_string.borrow_mut() =
-            format!("ET: {}", EphemerisTime::epoch().as_calendar());
+            format!("25 {} 0000", EphemerisTime::epoch().short_month_name());
 
         retval.sync_panel(app);
 
@@ -1241,7 +1256,7 @@ impl Gameplay {
                 Container::new(turn_widgets)
                     .padding(vec2(0.0, 0.0))
                     .gap(MARGIN)
-                    .cross_align(Align::Start)
+                    .cross_align(Align::End)
                     .flow(Flow::Horizontal),
             ),
             AnchorPoint::BottomRight,
@@ -1254,11 +1269,31 @@ impl Gameplay {
     fn build_footer_widgets(&self, app: &App) -> Vec<Box<dyn Widget<TurnMessages>>> {
         let font = app.renderer.get_font_id_from_name("font").unwrap();
 
+        const WIDTH: f32 = 300.0;
+        const LIST_H: f32 = 85.0;
+
+        let now = self.current_et.get();
+        let marks = self.marks.borrow();
+        let mut upcoming: Vec<&TimelineMark> = marks.iter().filter(|m| m.t > now).collect();
+        upcoming.sort_by_key(|m| m.t);
+
+        let rows = self
+            .pause_reasons
+            .iter()
+            .map(|m| self.event_row(m, true, app))
+            .chain(upcoming.iter().map(|m| self.event_row(m, false, app)))
+            .collect();
+
         let turn_controls = Container::new(vec![
+            Box::new(ScrollContainer::new(
+                Vec2::new(WIDTH - 16.0, LIST_H),
+                Box::new(Container::new(rows).padding(Vec2::zeros()).gap(2.0)),
+            )),
+            Box::new(HRule::new(STYLE.border, 1.0, WIDTH - 16.0)),
             Box::new(
                 Container::new(vec![
                     Box::new(
-                        Button::icon_bound(vec2(40.0, 40.0), self.transport_icon.clone())
+                        Button::icon_bound(vec2(30.0, 30.0), self.transport_icon.clone())
                             .use_style_accented(&STYLE)
                             .on_click(TurnMessages::TogglePlay),
                     ),
@@ -1282,19 +1317,26 @@ impl Gameplay {
                         .border(STYLE.border, 1.0)
                         .min_size(vec2(0.0, 30.0)),
                     ),
+                    Box::new(
+                        Container::new(vec![Box::new(
+                            Label::bound(self.calendar_string.clone()).font(font, app),
+                        )])
+                        .background_color(STYLE.surface)
+                        .border(STYLE.border, 1.0)
+                        .min_size(vec2(0.0, 30.0)),
+                    ),
                 ])
                 .flow(Flow::Horizontal)
                 .cross_align(Align::Center)
                 .padding(vec2(0.0, 0.0))
                 .gap(0.0),
             ),
-            Box::new(Label::bound(self.calendar_string.clone()).font(font, app)),
         ])
         .background_color(STYLE.surface)
         .border(STYLE.border, 1.0)
         .flow(Flow::Vertical)
         .cross_align(Align::Center)
-        .fixed_size(Vec2::new(300.0, Timeline::HEIGHT));
+        .fixed_size(Vec2::new(300.0, 150.0));
 
         let remaining = app.window_size.x as f32 - turn_controls.size().x - 16.0 - 32.0;
 
@@ -1305,6 +1347,62 @@ impl Gameplay {
             ),
             Box::new(turn_controls),
         ]
+    }
+
+    fn event_row(
+        &self,
+        mark: &TimelineMark,
+        accented: bool,
+        app: &App,
+    ) -> Box<dyn Widget<TurnMessages>> {
+        let font = app
+            .renderer
+            .get_font_id_from_name("font-small-bold")
+            .unwrap();
+        let (mesh, rot) = mark.kind.shape(app);
+
+        const WIDTH: f32 = 300.0;
+
+        let (subject_color, detail_color) = match (accented, mark.kind) {
+            (true, MarkKind::Critical) => (STYLE.negative, STYLE.text_muted),
+            (true, _) => (STYLE.positive, STYLE.text_muted),
+            (false, _) => (STYLE.text, STYLE.text_muted),
+        };
+
+        let left = container!(
+            Shape::new(vec2(28.0, 28.0), mesh, rot, mark.kind.color(), 10.0),
+            container!(
+                container!(
+                    Label::new(mark.subject.clone())
+                        .font(font, app)
+                        .color(subject_color),
+                    Label::new(mark.t.short_datetime()).font(font, app),
+                )
+                .flow(Flow::Horizontal)
+                .justify(Justify::SpaceBetween)
+                .fixed_size(vec2(WIDTH - 52.0, 16.0))
+                .padding(Vec2::zeros())
+                .gap(0.0),
+                Label::new(mark.detail.clone())
+                    .font(font, app)
+                    .color(detail_color)
+            )
+            .padding(Vec2::zeros())
+            .gap(0.0)
+        )
+        .flow(Flow::Horizontal)
+        .cross_align(Align::Start)
+        .padding(Vec2::zeros())
+        .gap(6.0);
+
+        Box::new(
+            container!(left)
+                .flow(Flow::Horizontal)
+                .justify(Justify::SpaceBetween)
+                .cross_align(Align::Start)
+                .padding(Vec2::zeros())
+                .fixed_width(vec2(WIDTH - 16.0, 0.0)),
+        )
     }
 
     fn build_selection_widgets(&self, selected: Entity, app: &App) -> Section {
@@ -2808,10 +2906,12 @@ impl Gameplay {
             .flat_map(|(et, events)| {
                 let t = *et;
                 events.iter().filter_map(move |event| {
+                    let (subject, detail) = self.craft_name_from_event(event);
                     Some(TimelineMark {
                         t,
                         kind: MarkKind::from_event(event)?,
-                        craft_name: self.craft_name_from_event(event),
+                        subject,
+                        detail,
                     })
                 })
             })
@@ -2839,13 +2939,16 @@ impl Gameplay {
                 continue;
             };
 
+            let (subject, detail) = self.craft_name_from_event(&Event::FactoryComplete {
+                craft: fab,
+                part_id,
+            });
+
             marks.push(TimelineMark {
                 t,
                 kind: MarkKind::FactoryComplete,
-                craft_name: self.craft_name_from_event(&Event::FactoryComplete {
-                    craft: fab,
-                    part_id,
-                }),
+                subject,
+                detail,
             });
         }
 
@@ -2862,17 +2965,15 @@ impl Gameplay {
                     marks.push(TimelineMark {
                         t: et,
                         kind: MarkKind::Critical,
-                        craft_name: format!(
-                            "{} - {} Depleted",
-                            scene_obj.name,
-                            resource.long_name()
-                        ),
+                        subject: scene_obj.name.clone(),
+                        detail: format!("{} Depleted", resource.long_name()),
                     })
                 } else {
                     marks.push(TimelineMark {
                         t: et,
                         kind: MarkKind::Good,
-                        craft_name: format!("{} - {} Filled", scene_obj.name, resource.long_name()),
+                        subject: scene_obj.name.clone(),
+                        detail: format!("{} Filled", resource.long_name()),
                     })
                 }
             }
@@ -2891,14 +2992,16 @@ impl Gameplay {
                 marks.push(TimelineMark {
                     t: et,
                     kind,
-                    craft_name: format!("{} - {}", scene_obj.name, label),
+                    subject: scene_obj.name.clone(),
+                    detail: label.to_string(),
                 });
             }
             for (label, et) in command.transition_schedule() {
                 marks.push(TimelineMark {
                     t: et,
                     kind: MarkKind::SoiChange,
-                    craft_name: format!("{} - {}", scene_obj.name, label),
+                    subject: scene_obj.name.clone(),
+                    detail: label.to_string(),
                 });
             }
         }
@@ -2921,27 +3024,27 @@ impl Gameplay {
         limits.first().map(|(et, _, _)| *et)
     }
 
-    fn craft_name_from_event(&self, event: &Event) -> String {
+    fn craft_name_from_event(&self, event: &Event) -> (String, String) {
         match event {
             Event::SoiChange { craft, desc, .. } | Event::Burn { craft, desc, .. } => {
                 let scene_obj = self.world.get::<&SceneObject>(*craft).unwrap();
-                format!("{} - {}", scene_obj.name, desc)
+                (scene_obj.name.clone(), desc.to_string())
             }
 
             Event::Launch { craft } | Event::Land { craft } => {
                 let scene_obj = self.world.get::<&SceneObject>(*craft).unwrap();
-                scene_obj.name.clone()
+                (scene_obj.name.clone(), "???".to_string())
             }
 
             Event::FactoryComplete { craft, part_id } => {
                 let parent = self.world.get::<&Parent>(*craft).unwrap().id;
                 let scene_obj = self.world.get::<&SceneObject>(parent).unwrap();
                 let part_def = self.parts.get(*part_id).map_or("???", |p| p.name.as_str());
-                format!("{} - {}", scene_obj.name, part_def)
+                (scene_obj.name.clone(), part_def.to_string())
             }
 
             // No real craft name
-            Event::CompleteCommand { .. } => String::from(""),
+            Event::CompleteCommand { .. } => (String::from(""), String::from("")),
         }
     }
 
@@ -3414,8 +3517,13 @@ impl Gameplay {
     }
 
     fn sync_panel(&mut self, app: &App) {
-        if app.window_size != self.gui_built_window {
-            self.gui_built_window = app.window_size;
+        let turn_key = Some((
+            app.window_size,
+            self.marks_key,
+            self.pause_reasons.first().map(|m| m.t),
+        ));
+        if turn_key != self.turn_gui_built_for {
+            self.turn_gui_built_for = turn_key;
             self.turn_gui = self.rebuild_turn_gui(app);
             self.gui_built_for = None;
         }

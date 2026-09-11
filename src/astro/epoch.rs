@@ -90,6 +90,17 @@ impl EphemerisTime {
         format!("{:02}", dt.day())
     }
 
+    pub fn short_datetime(&self) -> String {
+        let dt = self.as_datetime();
+        format!(
+            "{:02} {} {:02}:{:02}",
+            dt.day(),
+            self.short_month_name(),
+            dt.hour(),
+            dt.minute()
+        )
+    }
+
     pub fn epoch() -> Self {
         let dt = chrono::NaiveDate::from_ymd_opt(0, 1, 1)
             .unwrap()

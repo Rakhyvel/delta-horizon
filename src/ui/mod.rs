@@ -11,6 +11,7 @@ pub(crate) mod oklch;
 pub(crate) mod porkchop_picker;
 pub(crate) mod progress_bar;
 pub(crate) mod scroll_container;
+pub(crate) mod shape;
 pub(crate) mod slider;
 pub(crate) mod style;
 pub(crate) mod timeline;

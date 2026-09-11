@@ -54,7 +54,8 @@ impl Timeline {
 pub struct TimelineMark {
     pub t: EphemerisTime,
     pub kind: MarkKind,
-    pub craft_name: String,
+    pub subject: String,
+    pub detail: String,
 }
 
 #[derive(Clone, Copy)]
@@ -93,7 +94,7 @@ impl MarkKind {
         }
     }
 
-    fn color(&self) -> Vec4 {
+    pub fn color(&self) -> Vec4 {
         const MARK_L: f32 = 0.75;
         const MARK_C: f32 = 0.13;
         match *self {
@@ -107,7 +108,7 @@ impl MarkKind {
         }
     }
 
-    fn describe(&self) -> &'static str {
+    pub fn describe(&self) -> &'static str {
         match self {
             MarkKind::Burn => "Burn",
             MarkKind::SoiChange => "SOI Crossing",
@@ -119,7 +120,7 @@ impl MarkKind {
         }
     }
 
-    fn shape(&self, app: &App) -> (MeshId, f32) {
+    pub fn shape(&self, app: &App) -> (MeshId, f32) {
         match self {
             MarkKind::Burn => (
                 // cause its pointy?
@@ -274,7 +275,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Timeline {
                     app.renderer.set_color(self.now_color);
                     app.renderer.draw_text(
                         vec2(event_tick.pos.x + 15.0, event_tick.pos.y - 3.0),
-                        &timeline_event.craft_name,
+                        &format!("{} - {}", timeline_event.subject, timeline_event.detail),
                     );
                     let color = timeline_event.kind.color();
                     let event_label = String::from(timeline_event.kind.describe());

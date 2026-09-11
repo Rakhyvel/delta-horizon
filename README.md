@@ -53,7 +53,7 @@ A real-time-with-pauses, event-driven space colony survival strategy game. Start
             x resolve `craft: Entity` to the name of the craft
             x store `label: &'static str` on `Burn`, get it from `Command::burn_schedule()`
             x What part is complete? What were you building?
-        - [ ] event list on left side, shows what's next, what's paused
+        - [x] event list on left side, shows what's next, what's paused
         - [ ] scissor timeline so that dates dont draw off the side
     - [ ] better craft info
         * tell me the orbital elements for a craft/body
